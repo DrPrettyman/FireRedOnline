@@ -92,11 +92,34 @@ export interface BattlePalettesData {
   healthbar: Rgb[];
 }
 
+export interface AnimUnit {
+  anims: Record<string, { type: number; imageValue?: number; duration?: number; hFlip?: boolean; vFlip?: boolean; count?: number; target?: number }[]>;
+  affineAnims: Record<string, { type: number; xScale?: number; yScale?: number; rotation?: number; duration?: number; count?: number; target?: number }[]>;
+  tables: Record<string, (string | null)[]>;
+  affineTables: Record<string, (string | null)[]>;
+  /** `const union AnimCmd *const *const` tables: names of anim tables */
+  tableTables: Record<string, (string | null)[]>;
+}
+
+/** battle/anims.json: anim commands per C file, and pic symbol tables. */
+export interface BattleAnimsData {
+  units: Record<string, AnimUnit>;
+  trainerFrontPics: ({ pic: string; size: number } | null)[];
+  trainerFrontPalettes: (string | null)[];
+  trainerBackPics: string[];
+  trainerBackPalettes: string[];
+  monFrontPics: (string | null)[];
+  monBackPics: (string | null)[];
+  monPalettes: (string | null)[];
+  monShinyPalettes: (string | null)[];
+}
+
 export interface BattleData {
   scripts: BattleScriptsData;
   strings: BattleStringsData;
   tables: BattleTablesData;
   palettes: BattlePalettesData;
+  anims: BattleAnimsData;
 }
 
 export async function loadBattleData(base: string): Promise<BattleData> {
@@ -105,11 +128,12 @@ export async function loadBattleData(base: string): Promise<BattleData> {
     if (!res.ok) throw new Error(`Failed to load battle/${f}: ${res.status}`);
     return res.json() as Promise<T>;
   };
-  const [scripts, strings, tables, palettes] = await Promise.all([
+  const [scripts, strings, tables, palettes, anims] = await Promise.all([
     get<BattleScriptsData>('scripts.json'),
     get<BattleStringsData>('strings.json'),
     get<BattleTablesData>('tables.json'),
     get<BattlePalettesData>('palettes.json'),
+    get<BattleAnimsData>('anims.json'),
   ]);
-  return { scripts, strings, tables, palettes };
+  return { scripts, strings, tables, palettes, anims };
 }

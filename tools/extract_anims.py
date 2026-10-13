@@ -34,6 +34,7 @@ ANIM_FILES = [
 ]
 
 ARRAY = re.compile(r"(?:static\s+)?const\s+union\s+(AnimCmd|AffineAnimCmd)\s+(\w+)\s*\[\s*\]\s*=\s*\{(.*?)\};", re.S)
+PTR_PTR_TABLE = re.compile(r"(?:static\s+)?const\s+union\s+AnimCmd\s*\*\s*const\s*\*\s*const\s+(\w+)\s*\[[^\]]*\]\s*=\s*\{(.*?)\};", re.S)
 PTR_TABLE = re.compile(r"(?:static\s+)?const\s+union\s+(AnimCmd|AffineAnimCmd)\s*\*\s*const\s+(\w+)\s*\[[^\]]*\]\s*=\s*\{(.*?)\};", re.S)
 
 
@@ -164,7 +165,8 @@ def unit_anims(text, defines):
             print(f"  anims: skipping {name}: {err}")
     for kind, name, body in PTR_TABLE.findall(text):
         (tables if kind == "AnimCmd" else affine_tables)[name] = pointer_table(body, defines)
-    return {"anims": anims, "affineAnims": affine, "tables": tables, "affineTables": affine_tables}
+    table_tables = {name: pointer_table(body, defines) for name, body in PTR_PTR_TABLE.findall(text)}
+    return {"anims": anims, "affineAnims": affine, "tables": tables, "affineTables": affine_tables, "tableTables": table_tables}
 
 
 def pic_table(text, name, macro, defines):
@@ -199,6 +201,19 @@ def extract_anims(decomp, out, defines):
         "trainerBackPics": struct_list(data_c, "gTrainerBackPicTable[]"),
         "trainerBackPalettes": struct_list(data_c, "gTrainerBackPicPaletteTable[]"),
     }
+    # gMonFrontPicTable / gMonBackPicTable / gMonPaletteTable / gMonShinyPaletteTable by species id
+    for key, name, macro in (("monFrontPics", "gMonFrontPicTable", "SPECIES_SPRITE"), ("monBackPics", "gMonBackPicTable", "SPECIES_SPRITE"),
+                             ("monPalettes", "gMonPaletteTable", "SPECIES_PAL"), ("monShinyPalettes", "gMonShinyPaletteTable", "SPECIES_SHINY_PAL")):
+        body = data_c[data_c.index(name):]
+        body = body[body.index("{") + 1 : body.index("};")]
+        table = []
+        for sp, sym in re.findall(macro + r"\((\w+),\s*(\w+)\)", body):
+            idx = eval_const_expr("SPECIES_" + sp, defines)
+            if idx is None:
+                continue
+            table += [None] * (idx + 1 - len(table))
+            table[idx] = sym
+        pics[key] = table
     (out / "battle" / "anims.json").write_text(json.dumps({"units": units, **pics}, separators=(",", ":")))
     n = sum(len(u["anims"]) + len(u["affineAnims"]) for u in units.values())
     print(f"  {n} anim command arrays in {len(units)} files")

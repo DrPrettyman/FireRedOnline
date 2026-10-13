@@ -210,6 +210,8 @@ export class BattleGlobals {
   /** battle_setup.c statics: GetTrainerBattleMode() / GetRivalBattleFlags() */
   trainerBattleMode = 0;
   rivalBattleFlags = 0;
+  /** ContextNpcGetTextColor() for the trainer's lose/win text (NPC_TEXT_COLOR_*; 3 = neutral) */
+  npcTextColor = 3;
   /** sTrainerADefeatSpeech / sTrainerVictorySpeech, encoded */
   trainerADefeatSpeech?: number[];
   trainerVictorySpeech?: number[];

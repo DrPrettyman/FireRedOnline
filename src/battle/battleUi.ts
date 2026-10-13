@@ -24,6 +24,8 @@ export interface BattleUi {
   fadeActive(): boolean;
   /** PlaySE (audio isn't implemented; kept so call sites read like the C) */
   playSE(songId: number): void;
+  /** PlayCry_* (no audio yet) */
+  playCry(species: number): void;
   /** Cmd_drawlvlupbox pages: DrawLevelUpWindowPg1/Pg2 into B_WIN_LEVEL_UP_BOX (null hides it). */
   levelUpBox(page: 1 | 2 | null, before: ArrayLike<number>, after: ArrayLike<number>): void;
   /** The level-up banner for a mon that isn't sent out: BG2 x scroll and contents. */

@@ -229,6 +229,7 @@ def c_flat_values(body, known):
 # Numeric tables the battle code indexes, extracted rather than copied by hand: (file, symbol).
 # 2D arrays come out flattened in C memory order.
 MECHANICS_TABLES = [
+    ("src/battle_main.c", "sPlayerThrowXTranslation"),
     ("src/battle_util.c", "sSoundMovesTable"),
     ("src/battle_script_commands.c", "sAccuracyStageRatios"),
     ("src/battle_script_commands.c", "sCriticalHitChance"),
