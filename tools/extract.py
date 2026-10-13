@@ -547,6 +547,22 @@ def eval_const_expr(expr, known):
     return int(v) if isinstance(v, int) else None
 
 
+EXPAND_EVENT_MACROS = {
+    "giveitem", "finditem", "putitemaway", "msgreceiveditem", "giveitem_msg", "famechecker", "set_gym_trainers",
+    "goto_if_questlog", "seteventmon", "braillemessage_wait",
+    "trainerbattle_earlyrival", "trainerbattle_rematch", "trainerbattle_rematch_double", "trainerbattle_no_intro",
+}
+
+
+def macro_params(header):
+    """`.macro name a:req, b=1` header -> [("a", ""), ("b", "1")]."""
+    out = []
+    for a in split_args(header) if header.strip() else []:
+        name, _, default = a.partition("=")
+        out.append((name.split(":")[0].strip(), default.strip()))
+    return out
+
+
 def extract_scripts(decomp, out):
     """Flatten event_scripts.s and everything it includes into one instruction stream.
 
@@ -582,8 +598,7 @@ def extract_scripts(decomp, out):
                 return
             m = re.match(r"^\.macro\s+(\w+)\s*(.*)$", line)
             if m:
-                params = [a.split("=")[0].split(":")[0].strip() for a in split_args(m.group(2))] if m.group(2).strip() else []
-                st["macro"] = (m.group(1), params, [])
+                st["macro"] = (m.group(1), macro_params(m.group(2)), [])
                 return
             m = re.match(r'^\.include\s+"(.+?)"', line)
             if m:
@@ -615,9 +630,12 @@ def extract_scripts(decomp, out):
             args = split_args(parts[1]) if len(parts) > 1 else []
             if op in macros:
                 params, body = macros[op]
+                # Longest names first so \\item doesn't clobber \\items.
+                order = sorted(range(len(params)), key=lambda i: -len(params[i][0]))
                 for bl in body:
-                    for i, prm in enumerate(params):
-                        bl = bl.replace("\\" + prm, args[i] if i < len(args) else "")
+                    for i in order:
+                        prm, default = params[i]
+                        bl = bl.replace("\\" + prm, args[i] if i < len(args) and args[i] else default)
                     handle(bl)
                 return
             code.append([op] + [subst(a) for a in args])
@@ -627,31 +645,18 @@ def extract_scripts(decomp, out):
             if line:
                 handle(line)
 
+    # Event macros that are pure sequences of other script commands are expanded like the assembler
+    # would, so the interpreter only needs the underlying commands (giveitem_msg = additem + ...).
+    event_inc = (decomp / "asm/macros/event.inc").read_text()
+    for name, header, body in re.findall(r"^\s*\.macro\s+(\w+)([^\n]*)\n(.*?)^\s*\.endm", event_inc, re.M | re.S):
+        if name in EXPAND_EVENT_MACROS:
+            lines = [strip_comment(l).strip() for l in body.splitlines()]
+            macros[name] = (macro_params(header), [l for l in lines if l])
+
     walk("data/event_scripts.s")
 
     # Numeric constants scripts compare against (TRUE, MALE, DIR_*, MSGBOX_*, ITEM_*, ...).
-    defines = {}
-    for hdr in sorted((decomp / "include/constants").glob("*.h")) + [decomp / "include/global.h"]:
-        for name, val in re.findall(r"^#define\s+(\w+)\s+\(?(-?(?:0x[0-9A-Fa-f]+|\d+))\)?\s*(?://.*)?$", hdr.read_text(errors="ignore"), re.M):
-            defines.setdefault(name, int(val, 0))
-    # Assembler symbols such as MSGBOX_NPC = 2 / STD_OBTAIN_ITEM = 0 live in the event macros.
-    for name, val in re.findall(r"^\s*(\w+)\s*=\s*(\d+)\s*$", (decomp / "asm/macros/event.inc").read_text(), re.M):
-        defines.setdefault(name, int(val))
-    # Resolve aliases and simple arithmetic (#define FLAG_X (SYS_FLAGS + 0x90)) until nothing changes.
-    pending = {}
-    for hdr in sorted((decomp / "include/constants").glob("*.h")) + [decomp / "include/global.h"]:
-        for name, expr in re.findall(r"^#define\s+(\w+)\s+(.+?)\s*(?://.*)?$", hdr.read_text(errors="ignore"), re.M):
-            if name not in defines and re.fullmatch(r"[\w\s()+\-*/<>|&]+", expr):
-                pending[name] = expr
-    progress = True
-    while progress and pending:
-        progress = False
-        for name, expr in list(pending.items()):
-            v = eval_const_expr(expr, defines)
-            if v is not None:
-                defines[name] = v
-                del pending[name]
-                progress = True
+    defines = parse_defines(decomp)
     std = []
     i = labels.get("gStdScripts")
     while i is not None and i < len(code) and code[i][0] == ".4byte":
@@ -670,6 +675,255 @@ def extract_scripts(decomp, out):
                 strings[name] = "".join(parts) + "$"
     (out / "text" / "strings.json").write_text(json.dumps(strings, ensure_ascii=False, separators=(",", ":")))
     print(f"  {len(seen)} files, {len(code)} instructions, {len(labels)} labels, {len(strings)} strings")
+
+
+# ---------------------------------------------------------------- pokemon, moves, items
+
+
+def parse_defines(decomp):
+    """Numeric #defines from include/constants (incl. simple expressions and aliases)."""
+    defines = {}
+    headers = sorted((decomp / "include/constants").glob("*.h")) + [decomp / "include/global.h"]
+    for hdr in headers:
+        for name, val in re.findall(r"^#define\s+(\w+)\s+\(?(-?(?:0x[0-9A-Fa-f]+|\d+))\)?\s*(?://.*)?$", hdr.read_text(errors="ignore"), re.M):
+            defines.setdefault(name, int(val, 0))
+    # Assembler symbols such as MSGBOX_NPC = 2 / STD_OBTAIN_ITEM = 0 live in the event macros.
+    for name, val in re.findall(r"^\s*(\w+)\s*=\s*(\d+)\s*$", (decomp / "asm/macros/event.inc").read_text(), re.M):
+        defines.setdefault(name, int(val))
+    # Resolve aliases and simple arithmetic (#define FLAG_X (SYS_FLAGS + 0x90)) until nothing changes.
+    pending = {}
+    for hdr in headers:
+        for name, expr in re.findall(r"^#define\s+(\w+)\s+(.+?)\s*(?://.*)?$", hdr.read_text(errors="ignore"), re.M):
+            if name not in defines and re.fullmatch(r"[\w\s()+\-*/<>|&]+", expr):
+                pending[name] = expr
+    progress = True
+    while progress and pending:
+        progress = False
+        for name, expr in list(pending.items()):
+            v = eval_const_expr(expr, defines)
+            if v is not None:
+                defines[name] = v
+                del pending[name]
+                progress = True
+    return defines
+
+
+def c_ternary_to_py(expr):
+    """Rewrite C `a ? b : c` chains (right-associative) as Python conditional expressions."""
+    depth, q = 0, -1
+    for i, ch in enumerate(expr):
+        depth += ch in "(" and 1 or ch in ")" and -1 or 0
+        if ch == "?" and depth == 0:
+            q = i
+            break
+    if q < 0:
+        return expr
+    depth, nested = 0, 0
+    for i in range(q + 1, len(expr)):
+        ch = expr[i]
+        depth += ch in "(" and 1 or ch in ")" and -1 or 0
+        if depth == 0 and ch == "?":
+            nested += 1
+        elif depth == 0 and ch == ":":
+            if nested == 0:
+                cond, a, b = expr[:q], expr[q + 1 : i], expr[i + 1 :]
+                return f"(({c_ternary_to_py(a)}) if ({cond}) else ({c_ternary_to_py(b)}))"
+            nested -= 1
+    raise ValueError(f"unbalanced ternary: {expr}")
+
+
+def c_initializers(text, array):
+    """`const T array[] = { [KEY] = {...}, ... };` -> {KEY: body text}. Bodies that are a macro name stay as-is."""
+    m = re.search(rf"\b{array}\s*\[[^\]]*\](?:\[[^\]]*\])?\s*=\s*\{{", text)
+    if not m:
+        raise ValueError(f"array {array} not found")
+    i, depth, start = m.end(), 1, m.end()
+    while depth:
+        depth += {"{": 1, "}": -1}.get(text[i], 0)
+        i += 1
+    body = text[start : i - 1]
+    out = {}
+    for em in re.finditer(r"\[(\w+)\]\s*=\s*", body):
+        j = em.end()
+        if body[j] == "{":
+            d, k = 1, j + 1
+            while d:
+                d += {"{": 1, "}": -1}.get(body[k], 0)
+                k += 1
+            out[em.group(1)] = body[j + 1 : k - 1]
+        else:
+            out[em.group(1)] = re.match(r"[^,\n]+", body[j:]).group(0).strip()
+    return out
+
+
+def c_struct_fields(body, known):
+    """`.a = 1, .b = {X, Y}, .c = FLAG_A | FLAG_B` -> dict with constants resolved to numbers when possible."""
+    fields = {}
+    for m in re.finditer(r"\.(\w+)\s*=\s*(\{[^}]*\}|[^,]+)", body):
+        raw = m.group(2).strip()
+        if raw.startswith("{"):
+            fields[m.group(1)] = [c_value(v.strip(), known) for v in raw[1:-1].split(",") if v.strip()]
+        else:
+            fields[m.group(1)] = c_value(raw, known)
+    return fields
+
+
+def c_value(raw, known):
+    m = re.fullmatch(r"PERCENT_FEMALE\(([\d.]+)\)", raw)
+    if m:  # min(254, ((percent * 255) / 100)), truncated into a u8
+        return min(254, int(float(m.group(1)) * 255 / 100))
+    m = re.fullmatch(r"_\(\"(.*)\"\)", raw)
+    if m:
+        return m.group(1)
+    if raw in ("TRUE", "FALSE"):
+        return int(raw == "TRUE")
+    v = eval_const_expr(raw, known)
+    return v if v is not None else raw
+
+
+def c_string_table(text, array):
+    """`[KEY] = _("TEXT"),` entries -> {KEY: "TEXT$"} (raw decomp strings, encoded at runtime)."""
+    return {k: re.match(r'_\("(.*)"\)', v).group(1) + "$" for k, v in c_initializers(text, array).items() if v.startswith("_(")}
+
+
+def dex_h_count(dex_h, name):
+    return re.search(rf"#define {name}\s+(\w+)", dex_h).group(1)
+
+
+def extract_pokemon(decomp, out):
+    defines = parse_defines(decomp)
+    for name, val in re.findall(r"^#define\s+(MOVE_TARGET_\w+)\s+\(?(0x[0-9A-Fa-f]+|\d+)\)?", (decomp / "include/battle.h").read_text(), re.M):
+        defines.setdefault(name, int(val, 0))
+    data_dir = decomp / "src/data"
+    pd = out / "pokemon"
+    (pd / "front").mkdir(parents=True, exist_ok=True)
+
+    # gSpeciesInfo (+ macro bodies such as OLD_UNOWN_SPECIES_INFO)
+    info_src = (data_dir / "pokemon/species_info.h").read_text()
+    macros = {n: b.replace("\\\n", "\n") for n, b in re.findall(r"#define (\w+)\s+\\\n((?:.*\\\n)+.*)", info_src)}
+    names = c_string_table((data_dir / "text/species_names.h").read_text(), "gSpeciesNames")
+    learnset_src = (data_dir / "pokemon/level_up_learnsets.h").read_text()
+    learnsets = {}
+    for sym, body in re.findall(r"static const u16 (\w+)\[\] = \{(.*?)\};", learnset_src, re.S):
+        learnsets[sym] = [[int(lv), defines[mv]] for lv, mv in re.findall(r"LEVEL_UP_MOVE\(\s*(\d+),\s*(\w+)\)", body)]
+    learnset_ptrs = c_initializers((data_dir / "pokemon/level_up_learnset_pointers.h").read_text(), "gLevelUpLearnsets")
+    num_species = defines["NUM_SPECIES"]
+    species = [None] * num_species
+    for key, body in c_initializers(info_src, "gSpeciesInfo").items():
+        sid = defines.get(key)
+        if sid is None or sid >= num_species:
+            continue
+        body = macros.get(body, body)
+        fields = c_struct_fields(body.strip().strip("{}"), defines)
+        fields["name"] = names.get(key, "??????????$")
+        fields["learnset"] = learnsets.get(learnset_ptrs.get(key, ""), [])
+        species[sid] = {"id": key, **fields}
+    # National dex numbers (sSpeciesToNationalPokedexNum; NATIONAL_DEX_* is an enum in constants/pokedex.h).
+    dex_h = (decomp / "include/constants/pokedex.h").read_text()
+    enum_body = re.search(r"enum \{(.*?)\};", dex_h, re.S).group(1)
+    national = {n: i for i, n in enumerate(re.findall(r"^\s*(NATIONAL_DEX_\w+)", enum_body, re.M))}
+    pokemon_c = (decomp / "src/pokemon.c").read_text()
+    for name in re.findall(r"^\s*SPECIES_TO_NATIONAL\((\w+)\),", pokemon_c, re.M):
+        dex = national[f"NATIONAL_DEX_{name}"]
+        sid = defines.get(f"SPECIES_{name}")
+        if sid is not None and species[sid] is not None:
+            species[sid]["nationalDex"] = dex
+    for sid in range(num_species):
+        if species[sid] is None:
+            species[sid] = {"id": f"SPECIES_{sid}", "name": "??????????$", "learnset": []}
+
+    # gBattleMoves + gMoveNames
+    move_names = c_string_table((data_dir / "text/move_names.h").read_text(), "gMoveNames")
+    moves = [None] * defines["MOVES_COUNT"]
+    for key, body in c_initializers((data_dir / "battle_moves.h").read_text(), "gBattleMoves").items():
+        mid = defines.get(key)
+        if mid is not None and mid < len(moves):
+            moves[mid] = {"id": key, "name": move_names.get(key, "-$"), **c_struct_fields(body, defines)}
+    moves = [m or {"id": f"MOVE_{i}", "name": "-$"} for i, m in enumerate(moves)]
+
+    # items.json is the decomp's own item table source (gItems is generated from it).
+    items = []
+    for it in json.loads((data_dir / "items.json").read_text())["items"]:
+        items.append({
+            "id": it["itemId"],
+            "name": it["english"] + "$",
+            "price": it["price"],
+            "holdEffect": defines.get(it["holdEffect"], 0),
+            "holdEffectParam": it["holdEffectParam"],
+            "description": it["description_english"] + "$",
+            "importance": it["importance"],
+            "pocket": defines.get(it["pocket"], 0),
+            "type": it["type"],
+            "fieldUseFunc": it["fieldUseFunc"],
+            "battleUsage": it["battleUsage"],
+            "battleUseFunc": it["battleUseFunc"],
+            "secondaryId": it["secondaryId"],
+        })
+
+    # gExperienceTables: evaluate the EXP_* macros exactly as written (all operands are non-negative,
+    # so C integer division is Python floor division).
+    exp_src = (data_dir / "pokemon/experience_tables.h").read_text()
+    funcs = {"__builtins__": {}}  # macros see each other (CUBE, SQUARE) through the shared globals
+    for name, param, body in re.findall(r"#define (\w+)\((\w+)\)\s*((?:.*\\\n)*.*)", exp_src):
+        body = re.sub(r"//.*", "", body.replace("\\\n", " ")).replace("/", "//")
+        funcs[name] = eval(f"lambda {param}: {c_ternary_to_py(body.strip())}", funcs)
+    tables_src = exp_src[exp_src.index("gExperienceTables") :]
+    exp_tables = []
+    for block in re.findall(r"\{\s*//[^\n]*\n(.*?)\n\s*\}", tables_src, re.S):
+        row = []
+        for tok in re.findall(r"(\w+)\((\d+)\)|^\s*(\d+),", block, re.M):
+            row.append(funcs[tok[0]](int(tok[1])) if tok[0] else int(tok[2]))
+        exp_tables.append(row)
+
+    nature_body = re.search(r"sNatureStatTable\[NUM_NATURES\]\[NUM_NATURE_STATS\] =\s*\{(.*?)\n\};", pokemon_c, re.S).group(1)
+    nature_stats = [[int(v) for v in re.findall(r"[+-]?\d+", row)] for row in re.findall(r"=\s*\{([^}]*)\}", nature_body)]
+
+    # gStdStringPtrs (bufferstdstring): index -> C string symbol (in strings.json)
+    std_strings = [None] * 64
+    for key, sym in c_initializers((decomp / "src/script_menu.c").read_text(), "gStdStringPtrs").items():
+        std_strings[defines[key]] = sym
+    std_strings = std_strings[: max(i for i, s in enumerate(std_strings) if s) + 1]
+
+    tables = {
+        "experience": exp_tables,
+        "natureStats": nature_stats,
+        "stdStrings": std_strings,
+        "kantoDexCount": national[dex_h_count(dex_h, "KANTO_DEX_COUNT")],
+        "nationalDexCount": national[dex_h_count(dex_h, "NATIONAL_DEX_COUNT")],
+    }
+    (pd / "species.json").write_text(json.dumps(species, ensure_ascii=False, separators=(",", ":")))
+    (pd / "moves.json").write_text(json.dumps(moves, ensure_ascii=False, separators=(",", ":")))
+    (pd / "items.json").write_text(json.dumps(items, ensure_ascii=False, separators=(",", ":")))
+    (pd / "tables.json").write_text(json.dumps(tables, separators=(",", ":")))
+
+    # Front pics (gMonFrontPicTable + gMonPaletteTable), 64x64 with colour 0 transparent.
+    gfx_src = (data_dir / "graphics/pokemon.h").read_text() + (decomp / "src/graphics.c").read_text()
+    gfx_paths = dict(re.findall(r"const u32 (\w+)\[\] = INCBIN_U32\(\"(.+?)\"\)", gfx_src))
+    pics = dict(re.findall(r"SPECIES_SPRITE\((\w+),\s*(\w+)\)", (data_dir / "pokemon_graphics/front_pic_table.h").read_text()))
+    pals = dict(re.findall(r"SPECIES_PAL\((\w+),\s*(\w+)\)", (data_dir / "pokemon_graphics/palette_table.h").read_text()))
+    written = 0
+    for name, pic_sym in pics.items():
+        sid = defines.get(f"SPECIES_{name}")
+        if sid is None or name not in pals or pic_sym not in gfx_paths:
+            continue
+        pic = decomp / re.sub(r"\.4bpp(\.lz)?$", ".png", gfx_paths[pic_sym])
+        pal = decomp / re.sub(r"\.gbapal(\.lz)?$", ".pal", gfx_paths[pals[name]])
+        if not pic.exists() or not pal.exists():
+            print(f"  skip front pic {name}", file=sys.stderr)
+            continue
+        colors = read_jasc(pal)
+        src = load_indexed(pic)
+        px = src.load()
+        dst = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        dp = dst.load()
+        for y in range(64):
+            for x in range(64):
+                c = px[x, y] & 0xF
+                if c:
+                    dp[x, y] = colors[c] + (255,)
+        dst.save(pd / "front" / f"{sid}.png", optimize=True)
+        written += 1
+    print(f"  {sum(1 for s in species if 'baseHP' in s)} species, {len(moves)} moves, {len(items)} items, {len(exp_tables)} exp tables, {written} front pics")
 
 
 # ---------------------------------------------------------------- misc tables
@@ -704,6 +958,8 @@ def main():
     extract_scripts(decomp, out)
     print("sprites")
     extract_object_events(decomp, out)
+    print("pokemon")
+    extract_pokemon(decomp, out)
     print("maps + tilesets")
     extract_maps(decomp, out, parse_tileset_symbols(decomp))
 
