@@ -5,6 +5,7 @@
 import type { Pokemon } from '../pokemon/Pokemon';
 import { random, random32 } from '../util/random';
 import { battleAI_HandleItemUseBeforeAISetup, recordAbilityBattle } from './ai';
+import { BeginFastPaletteFade, gPaletteFade } from '../gba/palette';
 import { ui } from './battleUi';
 import { K } from './constants';
 import {
@@ -1285,7 +1286,7 @@ function handleEndTurn_FinishBattle(): void {
       }
     }
     // TrySetQuestLogBattleEvent / ClearRematchStateByTrainerId: no quest log or rematches yet
-    ui.beginFade(true); // BeginFastPaletteFade(3)
+    BeginFastPaletteFade(3);
     g.battleMainFunc = freeResetData_ReturnToOvOrDoEvolutions;
   } else if (g.battleControllerExecFlags === 0) {
     gBattleScriptingCommandsTable[mem.u8(g.battlescriptCurrInstr)]();
@@ -1293,7 +1294,7 @@ function handleEndTurn_FinishBattle(): void {
 }
 
 function freeResetData_ReturnToOvOrDoEvolutions(): void {
-  if (!ui.fadeActive()) {
+  if (!gPaletteFade.active) {
     if (g.leveledUpInBattle === 0 || g.battleOutcome !== K.B_OUTCOME_WON) g.battleMainFunc = returnFromBattleToOverworld;
     else g.battleMainFunc = tryEvolvePokemon;
   }

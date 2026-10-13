@@ -70,7 +70,7 @@ import {
   TryHandleLaunchBattleTableAnimation,
   TrySetBehindSubstituteSpriteBit,
 } from './gfx';
-import { battleStringExpandPlaceholders, battleStringShouldBeColored, bufferStringBattle, encodeBattleText, getCurrentPpToMaxPpState } from './message';
+import { battleStringExpandPlaceholders, battleStringShouldBeColored, bufferStringBattle, encodeBattleText, getCurrentPpToMaxPpState, moveName, typeName } from './message';
 import { countAliveMonsInBattle, getDefaultMoveTarget } from './pokemonBattle';
 import { ConvertIntToDecimalStringN, STR_CONV_MODE_RIGHT_ALIGN, strBody } from './stringUtil';
 import type { ChooseMoveStruct, HpAndStatus } from './structs';
@@ -373,22 +373,11 @@ function MoveSelectionDisplayMoveNames(): void {
   g.numberOfMovesToChoose = 0;
   for (let i = 0; i < K.MAX_MON_MOVES; ++i) {
     MoveSelectionDestroyCursorAt(i);
-    const name = info.moves[i] ? strBody(encodeBattleText('') /* placeholder */) : [];
-    void name;
-    const str = [...strBody(encodeBattleText('gText_MoveInterfaceDynamicColors')), ...strBody(moveNameOf(info.moves[i])), K.EOS];
+    const str = [...strBody(encodeBattleText('gText_MoveInterfaceDynamicColors')), ...strBody(moveName(info.moves[i])), K.EOS];
     g.displayedStringBattle = str;
     BattlePutTextOnWindow(str, i + 3);
     if (info.moves[i] !== K.MOVE_NONE) ++g.numberOfMovesToChoose;
   }
-}
-
-function moveNameOf(move: number): number[] {
-  return encodeRawMoveName(move);
-}
-
-let encodeRawMoveName: (move: number) => number[] = () => [K.EOS];
-export function setMoveNameEncoder(f: (move: number) => number[]): void {
-  encodeRawMoveName = f;
 }
 
 function MoveSelectionDisplayPpString(): void {
@@ -425,16 +414,11 @@ function MoveSelectionDisplayMoveType(): void {
     6,
     1,
     ...strBody(encodeBattleText('gText_MoveInterfaceDynamicColors')),
-    ...strBody(typeNameOf(type)),
+    ...strBody(typeName(type)),
     K.EOS,
   ];
   g.displayedStringBattle = str;
   BattlePutTextOnWindow(str, K.B_WIN_MOVE_TYPE);
-}
-
-let typeNameOf: (type: number) => number[] = () => [K.EOS];
-export function setTypeNameEncoder(f: (type: number) => number[]): void {
-  typeNameOf = f;
 }
 
 export function MoveSelectionCreateCursorAt(cursorPosition: number, arg1: number): void {

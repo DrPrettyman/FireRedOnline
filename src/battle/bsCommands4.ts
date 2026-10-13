@@ -3,6 +3,7 @@
 import { random } from '../util/random';
 import { recordAbilityBattle } from './ai';
 import { ui } from './battleUi';
+import { BattleCreateYesNoCursorAt, BattleDestroyYesNoCursorAt, BattlePutTextOnWindow, HandleBattleWindow } from './battleWindow';
 import { adv, b, isItemMail, w } from './bsCommands1';
 import { isInvalidForSleepTalkOrAssist, isTwoTurnsMove, trySetDestinyBondToHappen } from './bsCommands3';
 import { K } from './constants';
@@ -1252,24 +1253,24 @@ export function Cmd_trygivecaughtmonnick(): void {
   const mc = g.battleCommunication;
   switch (mc[K.MULTIUSE_STATE]) {
     case 0:
-      ui.handleBattleWindow(23, 8, 29, 13, 0);
-      ui.putTextOnWindow(encodeBattleText('gText_BattleYesNoChoice'), K.B_WIN_YESNO);
+      HandleBattleWindow(23, 8, 29, 13, 0);
+      BattlePutTextOnWindow(encodeBattleText('gText_BattleYesNoChoice'), K.B_WIN_YESNO);
       mc[K.MULTIUSE_STATE]++;
       mc[K.CURSOR_POSITION] = 0;
-      ui.createYesNoCursor(0);
+      BattleCreateYesNoCursorAt(0);
       break;
     case 1:
       if (ui.joyNew('UP') && mc[K.CURSOR_POSITION] !== 0) {
         ui.playSE(K.SE_SELECT);
-        ui.destroyYesNoCursor(mc[K.CURSOR_POSITION]);
+        BattleDestroyYesNoCursorAt(mc[K.CURSOR_POSITION]);
         mc[K.CURSOR_POSITION] = 0;
-        ui.createYesNoCursor(0);
+        BattleCreateYesNoCursorAt(0);
       }
       if (ui.joyNew('DOWN') && mc[K.CURSOR_POSITION] === 0) {
         ui.playSE(K.SE_SELECT);
-        ui.destroyYesNoCursor(mc[K.CURSOR_POSITION]);
+        BattleDestroyYesNoCursorAt(mc[K.CURSOR_POSITION]);
         mc[K.CURSOR_POSITION] = 1;
-        ui.createYesNoCursor(1);
+        BattleCreateYesNoCursorAt(1);
       }
       if (ui.joyNew('A')) {
         ui.playSE(K.SE_SELECT);

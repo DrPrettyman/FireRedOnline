@@ -50,8 +50,14 @@ function stringIdSym(stringId: number): string | undefined {
   return bdata.strings.battleStrings[stringId];
 }
 
-function moveName(move: number): number[] {
+/** gMoveNames[move] */
+export function moveName(move: number): number[] {
   return charmap.encode(gBattleMoves[move]?.name ?? '$');
+}
+
+/** gTypeNames[type] */
+export function typeName(type: number): number[] {
+  return encodeRaw(bdata.strings.typeNames[type]);
 }
 
 function aTypeMove(): number[] {

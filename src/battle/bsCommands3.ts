@@ -3,7 +3,14 @@
 
 import { random } from '../util/random';
 import { recordAbilityBattle, recordItemEffectBattle } from './ai';
+import { BG_PLTT_ID, BeginNormalPaletteFade, gPaletteFade, LoadPalette } from '../gba/palette';
+import { PALETTES_ALL, RGB_BLACK } from '../gba/hw';
+import { IsDma3ManagerBusyWithBgCopy, SetBgAttribute, ShowBg, BG_ATTR_PRIORITY } from '../gba/bg';
+import { gfx, gfx16 } from '../gba/gfx';
+import { AddTextPrinter, AddTextPrinterParameterized3, ClearWindowTilemap, COPYWIN_FULL, COPYWIN_GFX, COPYWIN_MAP, CopyToWindowPixelBuffer, CopyWindowToVram, FillWindowPixelBuffer, PIXEL_FILL, PutWindowTilemap, TEXT_SKIP_DRAW } from '../gba/window';
+import { ConvertIntToDecimalStringN, STR_CONV_MODE_LEFT_ALIGN } from './stringUtil';
 import { ui } from './battleUi';
+import { BattleCreateYesNoCursorAt, BattleDestroyYesNoCursorAt, BattlePutTextOnWindow, HandleBattleWindow } from './battleWindow';
 import { adv, b, h, typeAtk, typeDef, typeMul, w } from './bsCommands1';
 import { K } from './constants';
 import {
@@ -100,23 +107,23 @@ function yesNoMove(): void {
   const mc = g.battleCommunication;
   if (ui.joyNew('UP') && mc[K.CURSOR_POSITION] !== 0) {
     ui.playSE(K.SE_SELECT);
-    ui.destroyYesNoCursor(mc[K.CURSOR_POSITION]);
+    BattleDestroyYesNoCursorAt(mc[K.CURSOR_POSITION]);
     mc[K.CURSOR_POSITION] = 0;
-    ui.createYesNoCursor(0);
+    BattleCreateYesNoCursorAt(0);
   }
   if (ui.joyNew('DOWN') && mc[K.CURSOR_POSITION] === 0) {
     ui.playSE(K.SE_SELECT);
-    ui.destroyYesNoCursor(mc[K.CURSOR_POSITION]);
+    BattleDestroyYesNoCursorAt(mc[K.CURSOR_POSITION]);
     mc[K.CURSOR_POSITION] = 1;
-    ui.createYesNoCursor(1);
+    BattleCreateYesNoCursorAt(1);
   }
 }
 
 function openYesNo(): void {
-  ui.handleBattleWindow(23, 8, 29, 13, 0);
-  ui.putTextOnWindow(textOf('gText_BattleYesNoChoice'), K.B_WIN_YESNO);
+  HandleBattleWindow(23, 8, 29, 13, 0);
+  BattlePutTextOnWindow(textOf('gText_BattleYesNoChoice'), K.B_WIN_YESNO);
   g.battleCommunication[K.CURSOR_POSITION] = 0;
-  ui.createYesNoCursor(0);
+  BattleCreateYesNoCursorAt(0);
 }
 
 import { encodeBattleText } from './message';
@@ -140,8 +147,8 @@ export function Cmd_yesnoboxlearnmove(): void {
       if (ui.joyNew('A')) {
         ui.playSE(K.SE_SELECT);
         if (g.battleCommunication[1] === 0) {
-          ui.handleBattleWindow(23, 8, 29, 13, WINDOW_CLEAR);
-          ui.beginFade(true);
+          HandleBattleWindow(23, 8, 29, 13, WINDOW_CLEAR);
+          BeginNormalPaletteFade(PALETTES_ALL, 0, 0, 16, RGB_BLACK);
           scr.learnMoveState++;
         } else {
           scr.learnMoveState = 4;
@@ -152,14 +159,14 @@ export function Cmd_yesnoboxlearnmove(): void {
       }
       break;
     case 2:
-      if (!ui.fadeActive()) {
+      if (!gPaletteFade.active) {
         moveForget = ui.selectMoveToForget(g.playerParty[id]!, g.moveToLearn);
         scr.learnMoveState++;
       }
       break;
     case 3: {
       const movePosition = moveForget?.poll();
-      if (movePosition === undefined || ui.fadeActive()) break;
+      if (movePosition === undefined || gPaletteFade.active) break;
       moveForget = undefined;
       if (movePosition === K.MAX_MON_MOVES) {
         scr.learnMoveState = 4;
@@ -187,7 +194,7 @@ export function Cmd_yesnoboxlearnmove(): void {
       break;
     }
     case 4:
-      ui.handleBattleWindow(23, 8, 29, 13, WINDOW_CLEAR);
+      HandleBattleWindow(23, 8, 29, 13, WINDOW_CLEAR);
       adv(5);
       break;
     case 5:
@@ -216,11 +223,11 @@ export function Cmd_yesnoboxstoplearningmove(): void {
         ui.playSE(K.SE_SELECT);
         if (g.battleCommunication[1] !== 0) g.battlescriptCurrInstr = w(1);
         else adv(5);
-        ui.handleBattleWindow(23, 8, 29, 13, WINDOW_CLEAR);
+        HandleBattleWindow(23, 8, 29, 13, WINDOW_CLEAR);
       } else if (ui.joyNew('B')) {
         ui.playSE(K.SE_SELECT);
         g.battlescriptCurrInstr = w(1);
-        ui.handleBattleWindow(23, 8, 29, 13, WINDOW_CLEAR);
+        HandleBattleWindow(23, 8, 29, 13, WINDOW_CLEAR);
       }
       break;
   }
@@ -381,11 +388,11 @@ export function Cmd_yesnobox(): void {
       if (ui.joyNew('B')) {
         mc[K.CURSOR_POSITION] = 1;
         ui.playSE(K.SE_SELECT);
-        ui.handleBattleWindow(23, 8, 29, 13, WINDOW_CLEAR);
+        HandleBattleWindow(23, 8, 29, 13, WINDOW_CLEAR);
         adv(1);
       } else if (ui.joyNew('A')) {
         ui.playSE(K.SE_SELECT);
-        ui.handleBattleWindow(23, 8, 29, 13, WINDOW_CLEAR);
+        HandleBattleWindow(23, 8, 29, 13, WINDOW_CLEAR);
         adv(1);
       }
       break;
@@ -448,15 +455,142 @@ function isMonGettingExpSentOut(): boolean {
   return !!(g.battleTypeFlags & K.BATTLE_TYPE_DOUBLE && g.battlerPartyIndexes[2] === g.battleStruct.expGetterMonId);
 }
 
-function currStats(): number[] {
-  const mon = g.playerParty[g.battleStruct.expGetterMonId]!;
-  // GetMonLevelUpWindowStats: HP, Atk, Def, Speed, SpAtk, SpDef
+/** GetMonLevelUpWindowStats (pokemon_special_anim.c) */
+function GetMonLevelUpWindowStats(mon: Pokemon): number[] {
   return [mon.maxHP, mon.stats.attack, mon.stats.defense, mon.stats.speed, mon.stats.spAttack, mon.stats.spDefense];
+}
+
+/** sLevelUpWindowStatNames (pokemon_special_anim_scene.c) */
+const sLevelUpWindowStatNames = ['gText_LevelUp_MaxHP', 'gText_LevelUp_Attack', 'gText_LevelUp_Defense', 'gText_LevelUp_SpAtk', 'gText_LevelUp_SpDef', 'gText_LevelUp_Speed'];
+
+/** DrawLevelUpWindowPg1 (pokemon_special_anim_scene.c) */
+function DrawLevelUpWindowPg1(windowId: number, beforeStats: ArrayLike<number>, afterStats: ArrayLike<number>, bgColor: number, fgColor: number, shadowColor: number): void {
+  FillWindowPixelBuffer(windowId, PIXEL_FILL(bgColor));
+  const s16 = (v: number) => (v << 16) >> 16;
+  const diffStats = [
+    s16(afterStats[0] - beforeStats[0]),
+    s16(afterStats[1] - beforeStats[1]),
+    s16(afterStats[2] - beforeStats[2]),
+    s16(afterStats[4] - beforeStats[4]),
+    s16(afterStats[5] - beforeStats[5]),
+    s16(afterStats[3] - beforeStats[3]),
+  ];
+  const textColor = [bgColor, fgColor, shadowColor];
+  for (let i = 0; i < 6; i++) {
+    AddTextPrinterParameterized3(windowId, K.FONT_NORMAL, 0, i * 15, textColor, TEXT_SKIP_DRAW, encodeBattleText(sLevelUpWindowStatNames[i]));
+    AddTextPrinterParameterized3(windowId, K.FONT_NORMAL, 56, i * 15, textColor, TEXT_SKIP_DRAW, encodeBattleText(diffStats[i] >= 0 ? 'gText_LevelUp_Plus' : 'gText_LevelUp_Minus'));
+    const x = Math.abs(diffStats[i]) < 10 ? 12 : 6;
+    const textbuf = [K.CHAR_SPACE, ...ConvertIntToDecimalStringN(Math.abs(diffStats[i]), STR_CONV_MODE_LEFT_ALIGN, 2), K.EOS];
+    AddTextPrinterParameterized3(windowId, K.FONT_NORMAL, x + 56, i * 15, textColor, TEXT_SKIP_DRAW, textbuf);
+  }
+}
+
+/** DrawLevelUpWindowPg2 (pokemon_special_anim_scene.c) */
+function DrawLevelUpWindowPg2(windowId: number, currStats: ArrayLike<number>, bgColor: number, fgColor: number, shadowColor: number): void {
+  FillWindowPixelBuffer(windowId, PIXEL_FILL(bgColor));
+  const statsRearrange = [currStats[0], currStats[1], currStats[2], currStats[4], currStats[5], currStats[3]];
+  const textColor = [bgColor, fgColor, shadowColor];
+  for (let i = 0; i < 6; i++) {
+    const ndigits = statsRearrange[i] >= 100 ? 3 : statsRearrange[i] >= 10 ? 2 : 1;
+    const textbuf = [...ConvertIntToDecimalStringN(statsRearrange[i], STR_CONV_MODE_LEFT_ALIGN, ndigits), K.EOS];
+    const x = 6 * (4 - ndigits);
+    AddTextPrinterParameterized3(windowId, K.FONT_NORMAL, 0, i * 15, textColor, TEXT_SKIP_DRAW, encodeBattleText(sLevelUpWindowStatNames[i]));
+    AddTextPrinterParameterized3(windowId, K.FONT_NORMAL, 56 + x, i * 15, textColor, TEXT_SKIP_DRAW, textbuf);
+  }
+}
+
+function DrawLevelUpWindow1(): void {
+  const currStats = GetMonLevelUpWindowStats(g.playerParty[g.battleStruct.expGetterMonId]!);
+  DrawLevelUpWindowPg1(K.B_WIN_LEVEL_UP_BOX, g.battleResources.beforeLvlUp, currStats, K.TEXT_DYNAMIC_COLOR_5, K.TEXT_DYNAMIC_COLOR_4, K.TEXT_DYNAMIC_COLOR_6);
+}
+
+function DrawLevelUpWindow2(): void {
+  const currStats = GetMonLevelUpWindowStats(g.playerParty[g.battleStruct.expGetterMonId]!);
+  DrawLevelUpWindowPg2(K.B_WIN_LEVEL_UP_BOX, currStats, K.TEXT_DYNAMIC_COLOR_5, K.TEXT_DYNAMIC_COLOR_4, K.TEXT_DYNAMIC_COLOR_6);
+}
+
+/** InitLevelUpBanner */
+function InitLevelUpBanner(): void {
+  g.battle_BG2_Y = 0;
+  g.battle_BG2_X = LEVEL_UP_BANNER_START;
+  const pal = gfx16('sLevelUpBanner_Pal');
+  LoadPalette(pal, BG_PLTT_ID(6), pal.length * 2);
+  CopyToWindowPixelBuffer(K.B_WIN_LEVEL_UP_BANNER, gfx('sLevelUpBanner_Gfx'), 0, 0);
+  PutWindowTilemap(K.B_WIN_LEVEL_UP_BANNER);
+  CopyWindowToVram(K.B_WIN_LEVEL_UP_BANNER, COPYWIN_FULL);
+  // PutMonIconOnLvlUpBanner: mon icons aren't extracted yet
+  console.warn('[battle] level up banner mon icon not implemented');
+}
+
+/** SlideInLevelUpBanner */
+function SlideInLevelUpBanner(): boolean {
+  if (IsDma3ManagerBusyWithBgCopy()) return true;
+  if (g.battle_BG2_X === LEVEL_UP_BANNER_END) return false;
+  if (g.battle_BG2_X === LEVEL_UP_BANNER_START) DrawLevelUpBannerText();
+  g.battle_BG2_X += 8;
+  if (g.battle_BG2_X >= LEVEL_UP_BANNER_END) g.battle_BG2_X = LEVEL_UP_BANNER_END;
+  return g.battle_BG2_X !== LEVEL_UP_BANNER_END;
+}
+
+/** WriteColorChangeControlCode (string_util.c) */
+function WriteColorChangeControlCode(dest: number[], at: number, colorType: number, color: number): number {
+  dest[at++] = K.EXT_CTRL_CODE_BEGIN;
+  dest[at++] = colorType === 0 ? K.EXT_CTRL_CODE_COLOR : colorType === 1 ? K.EXT_CTRL_CODE_SHADOW : K.EXT_CTRL_CODE_HIGHLIGHT;
+  dest[at++] = color;
+  dest[at] = K.EOS;
+  return at;
+}
+
+/** DrawLevelUpBannerText */
+function DrawLevelUpBannerText(): void {
+  const mon = g.playerParty[g.battleStruct.expGetterMonId]!;
+  const monLevel = mon.level;
+  const monGender = getMonGender(mon);
+  const printerTemplate = {
+    currentChar: [...strBody(mon.nicknameBytes()), K.EOS],
+    windowId: K.B_WIN_LEVEL_UP_BANNER,
+    fontId: K.FONT_SMALL,
+    x: 32,
+    y: 0,
+    letterSpacing: 0,
+    lineSpacing: 0,
+    fgColor: K.TEXT_COLOR_WHITE,
+    bgColor: K.TEXT_COLOR_TRANSPARENT,
+    shadowColor: K.TEXT_COLOR_DARK_GRAY,
+  };
+  AddTextPrinter(printerTemplate, TEXT_SKIP_DRAW);
+  // gStringVar4 = {CHAR_EXTRA_SYMBOL, CHAR_LV_2, 0, level (left-aligned), five spaces}; gender at [7]
+  const buf: number[] = [K.CHAR_EXTRA_SYMBOL, K.CHAR_LV_2, 0];
+  buf.push(...ConvertIntToDecimalStringN(monLevel, STR_CONV_MODE_LEFT_ALIGN, 3));
+  for (let i = 0; i < 5; i++) buf.push(0);
+  buf.push(K.EOS);
+  if (monGender !== K.MON_GENDERLESS) {
+    let at = 7;
+    if (monGender === K.MON_MALE) {
+      at = WriteColorChangeControlCode(buf, at, 0, K.TEXT_DYNAMIC_COLOR_3);
+      at = WriteColorChangeControlCode(buf, at, 1, K.TEXT_DYNAMIC_COLOR_4);
+      buf[at++] = K.CHAR_MALE;
+    } else {
+      at = WriteColorChangeControlCode(buf, at, 0, K.TEXT_DYNAMIC_COLOR_5);
+      at = WriteColorChangeControlCode(buf, at, 1, K.TEXT_DYNAMIC_COLOR_6);
+      buf[at++] = K.CHAR_FEMALE;
+    }
+    buf[at++] = K.EOS;
+  }
+  AddTextPrinter({ ...printerTemplate, currentChar: buf, y: 10 }, TEXT_SKIP_DRAW);
+  CopyWindowToVram(K.B_WIN_LEVEL_UP_BANNER, COPYWIN_GFX);
+}
+
+/** SlideOutLevelUpBanner */
+function SlideOutLevelUpBanner(): boolean {
+  if (g.battle_BG2_X === LEVEL_UP_BANNER_START) return false;
+  if (g.battle_BG2_X - 16 < LEVEL_UP_BANNER_START) g.battle_BG2_X = LEVEL_UP_BANNER_START;
+  else g.battle_BG2_X -= 16;
+  return g.battle_BG2_X !== LEVEL_UP_BANNER_START;
 }
 
 export function Cmd_drawlvlupbox(): void {
   const scr = g.battleScripting;
-  const mon = g.playerParty[g.battleStruct.expGetterMonId]!;
   if (scr.drawlvlupboxState === 0) {
     // If the Pokémon getting exp is not in-battle then slide out a banner with their name and icon.
     scr.drawlvlupboxState = isMonGettingExpSentOut() ? 3 : 1;
@@ -464,59 +598,73 @@ export function Cmd_drawlvlupbox(): void {
   switch (scr.drawlvlupboxState) {
     case 1: // Start level up banner
       g.battle_BG2_Y = 96;
-      g.battle_BG2_X = LEVEL_UP_BANNER_START;
-      ui.levelUpBanner(mon, g.battle_BG2_X);
+      SetBgAttribute(2, BG_ATTR_PRIORITY, 0);
+      ShowBg(2);
+      InitLevelUpBanner();
       scr.drawlvlupboxState = 2;
       break;
-    case 2: // SlideInLevelUpBanner
-      if (g.battle_BG2_X !== LEVEL_UP_BANNER_END) {
-        g.battle_BG2_X = Math.min(g.battle_BG2_X + 8, LEVEL_UP_BANNER_END);
-        ui.levelUpBanner(mon, g.battle_BG2_X);
-      }
-      if (g.battle_BG2_X === LEVEL_UP_BANNER_END) scr.drawlvlupboxState = 3;
+    case 2:
+      if (!SlideInLevelUpBanner()) scr.drawlvlupboxState = 3;
       break;
     case 3: // Init level up box
       g.battle_BG1_X = 0;
       g.battle_BG1_Y = 256;
-      ui.handleBattleWindow(18, 7, 29, 19, K.WINDOW_BG1);
+      SetBgAttribute(0, BG_ATTR_PRIORITY, 1);
+      SetBgAttribute(1, BG_ATTR_PRIORITY, 0);
+      ShowBg(0);
+      ShowBg(1);
+      HandleBattleWindow(18, 7, 29, 19, K.WINDOW_BG1);
       scr.drawlvlupboxState = 4;
       break;
     case 4: // Draw page 1 of level up box
-      ui.levelUpBox(1, g.battleResources.beforeLvlUp, currStats());
+      DrawLevelUpWindow1();
+      PutWindowTilemap(K.B_WIN_LEVEL_UP_BOX);
+      CopyWindowToVram(K.B_WIN_LEVEL_UP_BOX, COPYWIN_FULL);
       scr.drawlvlupboxState++;
       break;
     case 5:
     case 7: // Wait for draw after each page
-      g.battle_BG1_Y = 0;
-      scr.drawlvlupboxState++;
+      if (!IsDma3ManagerBusyWithBgCopy()) {
+        g.battle_BG1_Y = 0;
+        scr.drawlvlupboxState++;
+      }
       break;
     case 6:
       if (ui.anyNewKeys()) {
+        // Draw page 2 of level up box
         ui.playSE(K.SE_SELECT);
-        ui.levelUpBox(2, g.battleResources.beforeLvlUp, currStats());
+        DrawLevelUpWindow2();
+        CopyWindowToVram(K.B_WIN_LEVEL_UP_BOX, COPYWIN_GFX);
         scr.drawlvlupboxState++;
       }
       break;
     case 8:
       if (ui.anyNewKeys()) {
+        // Close level up box
         ui.playSE(K.SE_SELECT);
-        ui.handleBattleWindow(18, 7, 29, 19, K.WINDOW_BG1 | WINDOW_CLEAR);
-        ui.levelUpBox(null, [], []);
+        HandleBattleWindow(18, 7, 29, 19, K.WINDOW_BG1 | WINDOW_CLEAR);
         scr.drawlvlupboxState++;
       }
       break;
-    case 9: // SlideOutLevelUpBanner
-      if (g.battle_BG2_X !== LEVEL_UP_BANNER_START) {
-        g.battle_BG2_X = g.battle_BG2_X - 16 < LEVEL_UP_BANNER_START ? LEVEL_UP_BANNER_START : g.battle_BG2_X - 16;
-        ui.levelUpBanner(mon, g.battle_BG2_X);
-      }
-      if (g.battle_BG2_X === LEVEL_UP_BANNER_START) {
-        ui.levelUpBanner(null, g.battle_BG2_X);
+    case 9:
+      if (!SlideOutLevelUpBanner()) {
+        ClearWindowTilemap(K.B_WIN_LEVEL_UP_BANNER);
+        CopyWindowToVram(K.B_WIN_LEVEL_UP_BANNER, COPYWIN_MAP);
+        ClearWindowTilemap(K.B_WIN_LEVEL_UP_BOX);
+        CopyWindowToVram(K.B_WIN_LEVEL_UP_BOX, COPYWIN_MAP);
+        SetBgAttribute(2, BG_ATTR_PRIORITY, 2);
+        ShowBg(2);
         scr.drawlvlupboxState = 10;
       }
       break;
     case 10:
-      adv(1);
+      if (!IsDma3ManagerBusyWithBgCopy()) {
+        SetBgAttribute(0, BG_ATTR_PRIORITY, 0);
+        SetBgAttribute(1, BG_ATTR_PRIORITY, 1);
+        ShowBg(0);
+        ShowBg(1);
+        adv(1);
+      }
       break;
   }
 }

@@ -94,13 +94,14 @@ export function HandleBattleWindow(xStart: number, yStart: number, xEnd: number,
   }
 }
 
-/** BattleCreateYesNoCursorAt (position in gBattleCommunication[1]) */
-export function BattleCreateYesNoCursorAt(): void {
-  CopyToBgTilemapBufferRect_ChangePalette(0, [1, 2], 0x18, 9 + 2 * g.battleCommunication[1], 1, 2, 0x11);
+/** BattleCreateYesNoCursorAt */
+export function BattleCreateYesNoCursorAt(cursorPosition: number): void {
+  CopyToBgTilemapBufferRect_ChangePalette(0, [1, 2], 0x18, 9 + 2 * cursorPosition, 1, 2, 0x11);
   CopyBgTilemapBufferToVram(0);
 }
 
-export function BattleDestroyYesNoCursorAt(): void {
-  CopyToBgTilemapBufferRect_ChangePalette(0, [32, 32], 0x18, 9 + 2 * g.battleCommunication[1], 1, 2, 0x11);
+/** BattleDestroyYesNoCursorAt */
+export function BattleDestroyYesNoCursorAt(cursorPosition: number): void {
+  CopyToBgTilemapBufferRect_ChangePalette(0, [32, 32], 0x18, 9 + 2 * cursorPosition, 1, 2, 0x11);
   CopyBgTilemapBufferToVram(0);
 }
