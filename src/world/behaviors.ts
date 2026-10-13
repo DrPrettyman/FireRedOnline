@@ -1,0 +1,56 @@
+import { OPPOSITE, type Direction } from './direction';
+
+/**
+ * Metatile behavior predicates (src/metatile_behavior.c). Behavior ids are read from the
+ * extracted constants so we never hardcode numbers that could drift from the decomp.
+ */
+export class Behaviors {
+  private ids: Record<string, number>;
+
+  constructor(ids: Record<string, number>) {
+    this.ids = ids;
+  }
+
+  is(behavior: number, ...names: string[]): boolean {
+    return names.some((n) => this.ids[`MB_${n}`] === behavior);
+  }
+
+  /** Ledge that can be jumped when moving in `dir`. */
+  isJump(behavior: number, dir: Direction): boolean {
+    return this.is(behavior, `JUMP_${COMPASS[dir]}`);
+  }
+
+  isAnyJump(behavior: number): boolean {
+    return this.is(behavior, 'JUMP_EAST', 'JUMP_WEST', 'JUMP_NORTH', 'JUMP_SOUTH');
+  }
+
+  /** IsMetatileDirectionallyImpassable: can't leave `from` across edge `dir`, or enter `to` across the opposite edge. */
+  blocksMove(from: number, to: number, dir: Direction): boolean {
+    return this.blocksEdge(from, dir) || this.blocksEdge(to, OPPOSITE[dir]);
+  }
+
+  private blocksEdge(behavior: number, edge: Direction): boolean {
+    const c = COMPASS[edge];
+    if (edge === 'up' || edge === 'down') return this.is(behavior, `IMPASSABLE_${c}`, `IMPASSABLE_${c}EAST`, `IMPASSABLE_${c}WEST`);
+    return this.is(behavior, `IMPASSABLE_${c}`, `IMPASSABLE_NORTH${c}`, `IMPASSABLE_SOUTH${c}`);
+  }
+
+  /** IsWarpMetatileBehavior: warps that fire as soon as you step onto them. */
+  isStepWarp(behavior: number): boolean {
+    return this.is(behavior, 'WARP_DOOR', 'LADDER', 'UP_ESCALATOR', 'DOWN_ESCALATOR', 'CAVE_DOOR', 'REGULAR_WARP', 'FALL_WARP', 'UNION_ROOM_WARP', 'LAVARIDGE_1F_WARP');
+  }
+
+  isDoor(behavior: number): boolean {
+    return this.is(behavior, 'WARP_DOOR');
+  }
+
+  /** Arrow warps and directional stair warps fire when pushing `dir` while standing on them. */
+  isPushWarp(behavior: number, dir: Direction): boolean {
+    if (this.is(behavior, `${COMPASS[dir]}_ARROW_WARP`)) return true;
+    if (dir === 'left') return this.is(behavior, 'UP_LEFT_STAIR_WARP', 'DOWN_LEFT_STAIR_WARP');
+    if (dir === 'right') return this.is(behavior, 'UP_RIGHT_STAIR_WARP', 'DOWN_RIGHT_STAIR_WARP');
+    return false;
+  }
+}
+
+const COMPASS: Record<Direction, string> = { up: 'NORTH', down: 'SOUTH', left: 'WEST', right: 'EAST' };
