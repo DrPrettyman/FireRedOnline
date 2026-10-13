@@ -26,6 +26,13 @@ export interface BattleUi {
   playSE(songId: number): void;
   /** PlayCry_* (no audio yet) */
   playCry(species: number): void;
+  /** PlayBGM / PlayFanfare (no audio yet) */
+  playBGM(songId: number): void;
+  playFanfare(songId: number): void;
+  /** AddBagItem */
+  addBagItem(itemId: number, count: number): void;
+  /** gSaveBlock2Ptr->playerGender (MALE 0 / FEMALE 1, which is also the TRAINER_BACK_PIC id) */
+  playerGender(): number;
   /** Cmd_drawlvlupbox pages: DrawLevelUpWindowPg1/Pg2 into B_WIN_LEVEL_UP_BOX (null hides it). */
   levelUpBox(page: 1 | 2 | null, before: ArrayLike<number>, after: ArrayLike<number>): void;
   /** The level-up banner for a mon that isn't sent out: BG2 x scroll and contents. */

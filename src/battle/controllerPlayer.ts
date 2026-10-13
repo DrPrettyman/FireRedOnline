@@ -25,7 +25,7 @@ import {
 import { CreateTask, DestroyTask, gTasks, TaskDummy } from '../gba/task';
 import { IsTextPrinterActive } from '../gba/window';
 import { DISPLAY_HEIGHT, DISPLAY_WIDTH } from '../gba/hw';
-import { CreatePartyStatusSummarySprites, SetBattleBarStruct, SetHealthboxSpriteInvisible, SetHealthboxSpriteVisible, StartHealthboxSlideIn_ as _unused, SwapHpBarsWithHpText, Task_HidePartyStatusSummary, UpdateHealthboxAttribute, UpdateHpTextInHealthbox } from './battleInterfaceExports';
+import { CreatePartyStatusSummarySprites, SetBattleBarStruct, SetHealthboxSpriteInvisible, SetHealthboxSpriteVisible, SwapHpBarsWithHpText, Task_HidePartyStatusSummary, UpdateHealthboxAttribute, UpdateHpTextInHealthbox } from './battleInterface';
 import { HandleIntroSlide } from './battleIntro';
 import { ui } from './battleUi';
 import { BattlePutTextOnWindow } from './battleWindow';
@@ -75,8 +75,6 @@ import { countAliveMonsInBattle, getDefaultMoveTarget } from './pokemonBattle';
 import { ConvertIntToDecimalStringN, STR_CONV_MODE_RIGHT_ALIGN, strBody } from './stringUtil';
 import type { ChooseMoveStruct, HpAndStatus } from './structs';
 import { getBattlerAtPosition, getBattlerPosition, getBattlerSide } from './util';
-
-void _unused;
 
 const ab = () => g.activeBattler;
 const bufA = () => g.battleBufferA[g.activeBattler];
