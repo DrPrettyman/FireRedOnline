@@ -111,3 +111,72 @@ export interface Constants {
   newGameFlags: string[];
   metatileBehaviors: Record<string, number>;
 }
+
+/** gSpeciesInfo entry + name + level-up learnset (pokemon/species.json, indexed by SPECIES_* id). */
+export interface SpeciesInfo {
+  id: string;
+  name: string;
+  nationalDex?: number;
+  baseHP: number;
+  baseAttack: number;
+  baseDefense: number;
+  baseSpeed: number;
+  baseSpAttack: number;
+  baseSpDefense: number;
+  types: number[];
+  catchRate: number;
+  expYield: number;
+  genderRatio: number;
+  eggCycles: number;
+  friendship: number;
+  growthRate: number;
+  abilities: number[];
+  itemCommon: number;
+  itemRare: number;
+  /** [level, move id] pairs in learn order (LEVEL_UP_MOVE). */
+  learnset: [number, number][];
+}
+
+/** gBattleMoves entry + name (pokemon/moves.json, indexed by MOVE_* id). */
+export interface MoveInfo {
+  id: string;
+  name: string;
+  effect: number;
+  power: number;
+  type: number;
+  accuracy: number;
+  pp: number;
+  secondaryEffectChance: number;
+  target: number;
+  priority: number;
+  flags: number;
+}
+
+/** gItems entry (pokemon/items.json, indexed by ITEM_* id). */
+export interface ItemInfo {
+  id: string;
+  name: string;
+  price: number;
+  holdEffect: number;
+  holdEffectParam: number;
+  description: string;
+  importance: number;
+  /** POCKET_* (1-based); 0 = no pocket. */
+  pocket: number;
+  type: number;
+  fieldUseFunc: string;
+  battleUsage: number;
+  battleUseFunc: string;
+  secondaryId: number;
+}
+
+export interface PokemonTables {
+  /** gExperienceTables[growthRate][level] */
+  experience: number[][];
+  /** sNatureStatTable[nature][stat - 1]: Attack, Defense, Speed, Sp.Atk, Sp.Def */
+  natureStats: number[][];
+  /** gStdStringPtrs: STDSTRING_* -> C string symbol in strings.json */
+  stdStrings: (string | null)[];
+  kantoDexCount: number;
+  nationalDexCount: number;
+}

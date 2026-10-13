@@ -1,0 +1,263 @@
+import type { ItemInfo, MoveInfo, PokemonTables, SpeciesInfo } from '../data/types';
+import type { Charmap } from '../text/charmap';
+import { random, random32 } from '../util/random';
+
+// include/constants/pokemon.h
+export const MAX_LEVEL = 100;
+export const MAX_MON_MOVES = 4;
+export const PARTY_SIZE = 6;
+export const NUM_NATURES = 25;
+export const USE_RANDOM_IVS = 32;
+const MAX_IV_MASK = 31;
+export const MON_MALE = 0x00;
+export const MON_FEMALE = 0xfe;
+export const MON_GENDERLESS = 0xff;
+const SPECIES_SHEDINJA = 303;
+
+/** Stat order of struct Pokemon and sNatureStatTable (STAT_HP .. STAT_SPDEF). */
+export const STATS = ['hp', 'attack', 'defense', 'speed', 'spAttack', 'spDefense'] as const;
+export type Stat = (typeof STATS)[number];
+export type StatBlock = Record<Stat, number>;
+
+const BASE_STAT: Record<Stat, keyof SpeciesInfo> = {
+  hp: 'baseHP',
+  attack: 'baseAttack',
+  defense: 'baseDefense',
+  speed: 'baseSpeed',
+  spAttack: 'baseSpAttack',
+  spDefense: 'baseSpDefense',
+};
+
+/** struct Pokemon (BoxPokemon substructs + party fields), unencrypted. */
+export interface Pokemon {
+  species: number;
+  personality: number;
+  otId: number;
+  /** Encoded name bytes, no terminator. */
+  nickname: number[];
+  otName: string;
+  otGender: 'male' | 'female';
+  heldItem: number;
+  exp: number;
+  friendship: number;
+  moves: number[];
+  pp: number[];
+  /** Two bits per move slot (gPPUpGetMask). */
+  ppBonuses: number;
+  ivs: StatBlock;
+  evs: StatBlock;
+  abilityNum: number;
+  metLevel: number;
+  metLocation: string;
+  pokeball: number;
+  isEgg: boolean;
+  // Party-only fields
+  level: number;
+  status: number;
+  hp: number;
+  maxHP: number;
+  stats: StatBlock;
+}
+
+export interface CreateMonOptions {
+  /** fixedIV: < USE_RANDOM_IVS sets every IV to this value. */
+  fixedIV?: number;
+  personality?: number;
+  otId: number;
+  otName: string;
+  otGender: 'male' | 'female';
+  metLocation: string;
+}
+
+/** Species/move/item tables plus the pokemon.c functions that read them. */
+export class PokemonData {
+  private names = new Map<number, number[]>();
+
+  constructor(
+    readonly species: SpeciesInfo[],
+    readonly moves: MoveInfo[],
+    readonly items: ItemInfo[],
+    readonly tables: PokemonTables,
+    private charmap: Charmap,
+  ) {}
+
+  /** gSpeciesNames[species], encoded without the terminator. */
+  speciesName(species: number): number[] {
+    let n = this.names.get(species);
+    if (!n) {
+      n = this.charmap.encodePlain(this.species[species]?.name ?? '??????????$');
+      this.names.set(species, n);
+    }
+    return n;
+  }
+
+  /** ItemId_GetName / CopyItemName, encoded without the terminator. */
+  itemName(item: number): number[] {
+    return this.charmap.encodePlain(this.items[item]?.name ?? '????????$');
+  }
+
+  itemPocket(item: number): number {
+    return this.items[item]?.pocket ?? 0;
+  }
+
+  /** CreateMon + CreateBoxMon */
+  createMon(speciesId: number, level: number, opts: CreateMonOptions): Pokemon {
+    const info = this.species[speciesId];
+    const personality = opts.personality ?? random32();
+    let ivs: StatBlock;
+    if ((opts.fixedIV ?? USE_RANDOM_IVS) < USE_RANDOM_IVS) {
+      const v = opts.fixedIV!;
+      ivs = { hp: v, attack: v, defense: v, speed: v, spAttack: v, spDefense: v };
+    } else {
+      const a = random();
+      const b = random();
+      ivs = {
+        hp: a & MAX_IV_MASK,
+        attack: (a >> 5) & MAX_IV_MASK,
+        defense: (a >> 10) & MAX_IV_MASK,
+        speed: b & MAX_IV_MASK,
+        spAttack: (b >> 5) & MAX_IV_MASK,
+        spDefense: (b >> 10) & MAX_IV_MASK,
+      };
+    }
+    const zero = (): StatBlock => ({ hp: 0, attack: 0, defense: 0, speed: 0, spAttack: 0, spDefense: 0 });
+    const mon: Pokemon = {
+      species: speciesId,
+      personality,
+      otId: opts.otId,
+      nickname: [...this.speciesName(speciesId)],
+      otName: opts.otName,
+      otGender: opts.otGender,
+      heldItem: 0,
+      exp: this.tables.experience[info.growthRate][level],
+      friendship: info.friendship,
+      moves: [0, 0, 0, 0],
+      pp: [0, 0, 0, 0],
+      ppBonuses: 0,
+      ivs,
+      evs: zero(),
+      abilityNum: info.abilities[1] ? personality & 1 : 0,
+      metLevel: level,
+      metLocation: opts.metLocation,
+      pokeball: 4, // ITEM_POKE_BALL
+      isEgg: false,
+      level,
+      status: 0,
+      hp: 0,
+      maxHP: 0,
+      stats: zero(),
+    };
+    this.giveInitialMoveset(mon);
+    this.calculateStats(mon);
+    return mon;
+  }
+
+  /** GiveBoxMonInitialMoveset: every level-up move up to the current level, oldest pushed out first. */
+  private giveInitialMoveset(mon: Pokemon): void {
+    const level = this.levelFromExp(mon);
+    for (const [moveLevel, move] of this.species[mon.species].learnset) {
+      if (moveLevel > level) break;
+      if (this.giveMove(mon, move) === 'full') this.deleteFirstMoveAndGiveMove(mon, move);
+    }
+  }
+
+  /** GiveMoveToBoxMon */
+  giveMove(mon: Pokemon, move: number): number | 'known' | 'full' {
+    for (let i = 0; i < MAX_MON_MOVES; i++) {
+      if (!mon.moves[i]) {
+        mon.moves[i] = move;
+        mon.pp[i] = this.moves[move].pp;
+        return move;
+      }
+      if (mon.moves[i] === move) return 'known';
+    }
+    return 'full';
+  }
+
+  /** DeleteFirstMoveAndGiveMoveToBoxMon */
+  private deleteFirstMoveAndGiveMove(mon: Pokemon, move: number): void {
+    mon.moves = [...mon.moves.slice(1), move];
+    mon.pp = [...mon.pp.slice(1), this.moves[move].pp];
+    mon.ppBonuses >>= 2;
+  }
+
+  /** GetLevelFromMonExp */
+  levelFromExp(mon: Pokemon): number {
+    const table = this.tables.experience[this.species[mon.species].growthRate];
+    let level = 1;
+    while (level <= MAX_LEVEL && table[level] <= mon.exp) level++;
+    return level - 1;
+  }
+
+  /** CalculateMonStats (incl. CALC_STAT and ModifyStatByNature). */
+  calculateStats(mon: Pokemon): void {
+    const info = this.species[mon.species];
+    const oldMaxHP = mon.maxHP;
+    let currentHP = mon.hp;
+    const level = this.levelFromExp(mon);
+    mon.level = level;
+
+    const newMaxHP =
+      mon.species === SPECIES_SHEDINJA
+        ? 1
+        : Math.trunc(((2 * info.baseHP + mon.ivs.hp + Math.trunc(mon.evs.hp / 4)) * level) / 100) + level + 10;
+    mon.maxHP = newMaxHP;
+
+    const nature = this.nature(mon);
+    for (let s = 1; s < STATS.length; s++) {
+      const stat = STATS[s];
+      const base = info[BASE_STAT[stat]] as number;
+      const n = Math.trunc(((2 * base + mon.ivs[stat] + Math.trunc(mon.evs[stat] / 4)) * level) / 100) + 5;
+      mon.stats[stat] = this.modifyStatByNature(nature, n, s);
+    }
+    mon.stats.hp = newMaxHP;
+
+    if (mon.species === SPECIES_SHEDINJA) {
+      if (currentHP !== 0 || oldMaxHP === 0) currentHP = 1;
+      else return;
+    } else if (currentHP === 0 && oldMaxHP === 0) {
+      currentHP = newMaxHP;
+    } else if (currentHP !== 0) {
+      currentHP += newMaxHP - oldMaxHP; // can reach <= 0 on the GBA too (see the BUG note in the decomp)
+    } else {
+      return;
+    }
+    mon.hp = currentHP;
+  }
+
+  /** ModifyStatByNature: ±10%, computed in a u16 like the original. */
+  private modifyStatByNature(nature: number, stat: number, statIndex: number): number {
+    switch (this.tables.natureStats[nature][statIndex - 1]) {
+      case 1:
+        return Math.trunc(((stat * 110) & 0xffff) / 100);
+      case -1:
+        return Math.trunc(((stat * 90) & 0xffff) / 100);
+      default:
+        return stat;
+    }
+  }
+
+  /** GetNature */
+  nature(mon: Pokemon): number {
+    return (mon.personality >>> 0) % NUM_NATURES;
+  }
+
+  /** GetMonGender / GetGenderFromSpeciesAndPersonality */
+  gender(mon: Pokemon): number {
+    const ratio = this.species[mon.species].genderRatio;
+    if (ratio === MON_MALE || ratio === MON_FEMALE || ratio === MON_GENDERLESS) return ratio;
+    return ratio > (mon.personality & 0xff) ? MON_FEMALE : MON_MALE;
+  }
+
+  /** CalculatePPWithBonus */
+  ppWithBonus(move: number, ppBonuses: number, slot: number): number {
+    const basePP = this.moves[move]?.pp ?? 0;
+    const ups = (ppBonuses >> (2 * slot)) & 3;
+    return basePP + Math.trunc((basePP * 20 * ups) / 100);
+  }
+
+  /** SpeciesToNationalPokedexNum */
+  nationalDex(species: number): number {
+    return this.species[species]?.nationalDex ?? 0;
+  }
+}

@@ -5,7 +5,7 @@ import { fontTextureKey, type FontsData } from '../text/Font';
 import { MESSAGE_TEXTURES } from '../text/MessageBox';
 import { userFrameTexture } from '../ui/MenuWindow';
 import { TilesetPair } from '../world/TilesetPair';
-import type { Constants, MapData, SpriteInfo, TilesetIndex } from './types';
+import type { Constants, ItemInfo, MapData, MoveInfo, PokemonTables, SpeciesInfo, SpriteInfo, TilesetIndex } from './types';
 
 const GEN = 'gen';
 
@@ -24,11 +24,15 @@ export class Assets {
   strings: Record<string, string> = {};
   scripts!: ScriptsData;
   behaviorIds: Record<string, number> = {};
+  species: SpeciesInfo[] = [];
+  moves: MoveInfo[] = [];
+  items: ItemInfo[] = [];
+  pokemonTables!: PokemonTables;
 
   private maps = new Map<string, Promise<MapData>>();
 
   async init(): Promise<void> {
-    const [index, sprites, tilesets, constants, fonts, charmap, strings, scripts] = await Promise.all([
+    const [index, sprites, tilesets, constants, fonts, charmap, strings, scripts, species, moves, items, tables] = await Promise.all([
       fetchJson<Record<string, string>>(`${GEN}/maps/index.json`),
       fetchJson<Record<string, SpriteInfo>>(`${GEN}/sprites/manifest.json`),
       fetchJson<TilesetIndex>(`${GEN}/tilesets/index.json`),
@@ -37,7 +41,15 @@ export class Assets {
       fetchJson<CharmapData>(`${GEN}/text/charmap.json`),
       fetchJson<Record<string, string>>(`${GEN}/text/strings.json`),
       fetchJson<ScriptsData>(`${GEN}/scripts/scripts.json`),
+      fetchJson<SpeciesInfo[]>(`${GEN}/pokemon/species.json`),
+      fetchJson<MoveInfo[]>(`${GEN}/pokemon/moves.json`),
+      fetchJson<ItemInfo[]>(`${GEN}/pokemon/items.json`),
+      fetchJson<PokemonTables>(`${GEN}/pokemon/tables.json`),
     ]);
+    this.species = species;
+    this.moves = moves;
+    this.items = items;
+    this.pokemonTables = tables;
     this.fonts = fonts;
     this.charmap = charmap;
     this.strings = strings;
@@ -94,6 +106,13 @@ export class Assets {
     ]);
   }
 
+  /** Ensure a species' front pic (64x64) is loaded; returns its texture key. */
+  async loadMonFrontPic(scene: Phaser.Scene, species: number): Promise<string> {
+    const key = monFrontPicKey(species);
+    await loadImages(scene, [[key, `${GEN}/pokemon/front/${species}.png`]]);
+    return key;
+  }
+
   /** Ensure the sprite sheet for an OBJ_EVENT_GFX_* id is loaded. Returns its info, or undefined. */
   async loadSprite(scene: Phaser.Scene, gfxId: string): Promise<SpriteInfo | undefined> {
     const info = this.sprites[gfxId];
@@ -112,6 +131,10 @@ export class Assets {
     }
     return info;
   }
+}
+
+export function monFrontPicKey(species: number): string {
+  return `mon_front_${species}`;
 }
 
 export function spriteTextureKey(info: SpriteInfo): string {

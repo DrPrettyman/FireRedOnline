@@ -7,6 +7,7 @@ import type { YesNoMenu } from '../ui/YesNoMenu';
 import { parseDirection, type Direction } from '../world/direction';
 import type { Defines } from './Defines';
 import { MovementRunner, towards, type Instruction } from './MovementRunner';
+import { SPECIALS, type SpecialEnv } from './specials';
 
 export interface ScriptsData {
   code: Instruction[];
@@ -36,9 +37,34 @@ export interface ScriptHost {
   openYesNo(): YesNoMenu;
   /** LOCALID_* names are generated per map from map.json `local_id` fields. */
   resolveLocalId(name: string): number | undefined;
+  /** ScriptMenu_ShowPokemonPic */
+  showMonPic(species: number, x: number, y: number): void;
+  /** ScriptMenu_HidePokemonPic: a wait that ends once the box is gone, or undefined if none is shown. */
+  hideMonPic(): Wait | undefined;
+  /** FadeScreen: returns a wait for IsPaletteNotActive. */
+  fadeScreen(mode: number): Wait;
+  /** StartTrainerBattle: returns a wait that ends when the battle is over, with the outcome. */
+  startTrainerBattle(battle: TrainerBattle): { done: Wait; playerWon(): boolean };
+  /** GetCurrentRegionMapSectionId, for a new mon's met location. */
+  mapSection(): string;
 }
 
-type Wait = () => boolean;
+/** The trainer battle configured by `trainerbattle` (battle_setup.c statics). */
+export interface TrainerBattle {
+  mode: number;
+  trainer: number;
+  /** Object local id, or the RIVAL_BATTLE_* flags for TRAINER_BATTLE_EARLY_RIVAL. */
+  localIdOrFlags: number;
+  introText?: string;
+  defeatText?: string;
+  victoryText?: string;
+  cannotBattleText?: string;
+  beatenScript?: string;
+  /** sTrainerBattleEndScript: the instruction after `trainerbattle`. */
+  returnPc: number;
+}
+
+export type Wait = () => boolean;
 
 /** Comparison result from `compare`/`checkflag`, consumed by the condition table below. */
 const enum Cmp {
@@ -86,10 +112,12 @@ export class ScriptEngine {
   private ctx?: ScriptContext;
   private movements: MovementRunner[] = [];
   private warned = new Set<string>();
-  /** textcolor: applies to the next messages until the script ends. */
-  private textColor: TextColor | undefined;
   /** Default colour for the NPC being talked to (GetColorFromTextColorTable). */
   npcTextColor: TextColor = 'neutral';
+  /** Set by specials that the script then blocks on with `waitstate`. */
+  private waitState?: Wait;
+  private battle?: TrainerBattle;
+  private specialEnv: SpecialEnv;
 
   constructor(
     private data: ScriptsData,
@@ -100,7 +128,18 @@ export class ScriptEngine {
     private messageBox: MessageBox,
     private input: Input,
     private host: ScriptHost,
-  ) {}
+  ) {
+    this.specialEnv = {
+      state,
+      host,
+      setWaitState: (w) => (this.waitState = w),
+      warnOnce: (key, message) => {
+        if (this.warned.has(key)) return;
+        this.warned.add(key);
+        console.warn(message);
+      },
+    };
+  }
 
   get running(): boolean {
     return this.ctx !== undefined;
@@ -118,7 +157,8 @@ export class ScriptEngine {
       return false;
     }
     this.ctx = new ScriptContext(pc, label);
-    this.textColor = undefined;
+    // ResetContextNpcTextColor (via ResetFacingNpcOrSignpostVars on field input)
+    this.state.setVar('VAR_TEXT_COLOR', NPC_TEXT_COLOR_DEFAULT);
     return true;
   }
 
@@ -151,10 +191,7 @@ export class ScriptEngine {
       if (ctx.done) break;
       this.step(ctx);
     }
-    if (ctx.done) {
-      this.ctx = undefined;
-      this.textColor = undefined;
-    }
+    if (ctx.done) this.ctx = undefined;
   }
 
   // ---------------------------------------------------------------- map script tables
@@ -274,7 +311,26 @@ export class ScriptEngine {
 
   private showMessage(ctx: ScriptContext, token: string): void {
     const bytes = this.stringFor(ctx, token);
-    if (bytes) this.messageBox.show(bytes, this.textColor ?? this.npcTextColor);
+    if (bytes) this.messageBox.show(bytes, this.contextTextColor());
+  }
+
+  /** ContextNpcGetTextColor */
+  private contextTextColor(): TextColor {
+    const c = this.state.getVar('VAR_TEXT_COLOR');
+    if (c !== NPC_TEXT_COLOR_DEFAULT) return textColorFromId(c);
+    return this.host.selectedObject ? this.npcTextColor : 'neutral';
+  }
+
+  /** The `stringvar` macro: STR_VAR_1..3 -> 0..2, anything else is a literal index. */
+  private stringVar(token: string): number {
+    const m = /^STR_VAR_([123])$/.exec(token.trim());
+    return m ? Number(m[1]) - 1 : (this.defines.get(token) ?? 0);
+  }
+
+  private callSpecial(name: string): number | void {
+    const special = SPECIALS[name];
+    if (special) return special(this.specialEnv);
+    this.unimplemented(`special ${name}`, []);
   }
 
   private commands = {
@@ -395,7 +451,7 @@ export class ScriptEngine {
       this.state.setFlag(a[0], true);
     },
     setvar(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
-      this.state.setVar(a[0], this.defines.get(a[1]) ?? 0);
+      this.state.setVar(a[0], this.defines.get(a[1]) ?? this.host.resolveLocalId(a[1]) ?? 0);
     },
     addvar(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
       this.state.setVar(a[0], this.state.getVar(a[0]) + this.state.value(a[1]));
@@ -445,9 +501,10 @@ export class ScriptEngine {
     closemessage(this: ScriptEngine) {
       this.messageBox.hide();
     },
+    /** ScrCmd_textcolor: also saves the previous colour for EventScript_RestorePrevTextColor. */
     textcolor(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
-      const c = this.defines.get(a[0]);
-      this.textColor = c === 0 ? 'male' : c === 1 ? 'female' : 'neutral';
+      this.state.setVar('VAR_PREV_TEXT_COLOR', this.state.getVar('VAR_TEXT_COLOR'));
+      this.state.setVar('VAR_TEXT_COLOR', this.defines.get(a[0]) ?? NPC_TEXT_COLOR_DEFAULT);
     },
     signmsg() {},
     normalmsg() {},
@@ -531,7 +588,169 @@ export class ScriptEngine {
       let frames = this.state.value(a[0]);
       ctx.wait = () => --frames <= 0;
     },
-    waitstate() {},
+    /** ScrCmd_waitstate: block until the task a special started re-enables the script. */
+    waitstate(this: ScriptEngine, ctx: ScriptContext) {
+      const w = this.waitState;
+      this.waitState = undefined;
+      if (w) ctx.wait = w;
+    },
+    special(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.callSpecial(a[0]);
+    },
+    specialvar(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      const r = this.callSpecial(a[1]);
+      this.state.setVar(a[0], typeof r === 'number' ? r : 0);
+    },
+    fadescreen(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
+      ctx.wait = this.host.fadeScreen(this.state.value(a[0]));
+    },
+
+    // ------------------------------------------------ items
+    additem(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      const ok = this.state.bag.add(this.state.value(a[0]), this.state.value(a[1] ?? '1'));
+      this.state.setVar('VAR_RESULT', ok ? 1 : 0);
+    },
+    removeitem(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      const ok = this.state.bag.remove(this.state.value(a[0]), this.state.value(a[1] ?? '1'));
+      this.state.setVar('VAR_RESULT', ok ? 1 : 0);
+    },
+    checkitem(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      const ok = this.state.bag.has(this.state.value(a[0]), this.state.value(a[1] ?? '1'));
+      this.state.setVar('VAR_RESULT', ok ? 1 : 0);
+    },
+    checkitemspace(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      const ok = this.state.bag.hasSpace(this.state.value(a[0]), this.state.value(a[1] ?? '1'));
+      this.state.setVar('VAR_RESULT', ok ? 1 : 0);
+    },
+    /** GetPocketByItemId */
+    checkitemtype(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.state.setVar('VAR_RESULT', this.state.pokemon.itemPocket(this.state.value(a[0])));
+    },
+
+    // ------------------------------------------------ string buffers
+    bufferspeciesname(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.state.stringVars[this.stringVar(a[0])] = [...this.state.pokemon.speciesName(this.state.value(a[1]))];
+    },
+    bufferleadmonspeciesname(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      const lead = this.state.party.find((m) => !m.isEgg) ?? this.state.party[0]; // GetLeadMonIndex
+      this.state.stringVars[this.stringVar(a[0])] = lead ? [...this.state.pokemon.speciesName(lead.species)] : [];
+    },
+    bufferpartymonnick(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      const mon = this.state.party[this.state.value(a[1])];
+      this.state.stringVars[this.stringVar(a[0])] = mon ? [...mon.nickname] : [];
+    },
+    bufferitemname(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.state.stringVars[this.stringVar(a[0])] = this.state.pokemon.itemName(this.state.value(a[1]));
+    },
+    /** ScrCmd_bufferitemnameplural: only POKé BALL ("S") and berries ("IES") are pluralised. */
+    bufferitemnameplural(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      const item = this.state.value(a[1]);
+      const quantity = this.state.value(a[2]);
+      const name = this.state.pokemon.itemName(item);
+      const first = this.defines.get('FIRST_BERRY_INDEX') ?? -1;
+      const last = this.defines.get('LAST_BERRY_INDEX') ?? -1;
+      if (item === this.defines.get('ITEM_POKE_BALL') && quantity >= 2) name.push(...this.charmap.encodePlain('S'));
+      else if (item >= first && item < last && quantity >= 2 && name.length) name.splice(-1, 1, ...this.charmap.encodePlain('IES'));
+      this.state.stringVars[this.stringVar(a[0])] = name;
+    },
+    buffernumberstring(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.state.stringVars[this.stringVar(a[0])] = this.charmap.encodePlain(String(this.state.value(a[1])));
+    },
+    bufferstdstring(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      const label = this.state.pokemon.tables.stdStrings[this.state.value(a[1])];
+      this.state.stringVars[this.stringVar(a[0])] = label ? this.charmap.encodePlain(this.strings[label] ?? '') : [];
+    },
+    bufferstring(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.state.stringVars[this.stringVar(a[0])] = this.charmap.encodePlain(this.strings[a[1]] ?? '');
+    },
+
+    // ------------------------------------------------ pokemon
+    /** ScriptGiveMon: CreateMon with random IVs, OT = player, then party (or PC) and Pokédex flags. */
+    givemon(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      const species = this.state.value(a[0]);
+      const level = this.defines.get(a[1]) ?? 5;
+      const item = this.state.value(a[2] ?? 'ITEM_NONE');
+      const mon = this.state.pokemon.createMon(species, level, {
+        otId: this.state.trainerId,
+        otName: this.state.playerName,
+        otGender: this.state.playerGender,
+        metLocation: this.host.mapSection(),
+      });
+      mon.heldItem = item;
+      const result = this.state.giveMon(mon);
+      if (result !== 2) this.state.setDexFlags(this.state.pokemon.nationalDex(species), true, true);
+      this.state.setVar('VAR_RESULT', result);
+    },
+    getpartysize(this: ScriptEngine) {
+      this.state.setVar('VAR_RESULT', this.state.party.length);
+    },
+    showmonpic(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.host.showMonPic(this.state.value(a[0]), this.defines.get(a[1]) ?? 0, this.defines.get(a[2]) ?? 0);
+    },
+    hidemonpic(this: ScriptEngine, ctx: ScriptContext) {
+      const w = this.host.hideMonPic();
+      if (w) ctx.wait = w;
+    },
+
+    // ------------------------------------------------ trainers
+    /** BattleSetup_ConfigureTrainerBattle: record the battle and jump to the script that runs it. */
+    trainerbattle(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
+      const mode = this.defines.get(a[0]) ?? 0;
+      const battle: TrainerBattle = {
+        mode,
+        trainer: this.defines.get(a[1]) ?? 0,
+        localIdOrFlags: this.defines.get(a[2]) ?? this.host.resolveLocalId(a[2]) ?? 0,
+        returnPc: ctx.pc,
+      };
+      if (mode === this.defines.get('TRAINER_BATTLE_EARLY_RIVAL')) {
+        // sEarlyRivalBattleParams
+        battle.defeatText = a[3];
+        battle.victoryText = a[4];
+        this.battle = battle;
+        this.jump(ctx, 'EventScript_DoNoIntroTrainerBattle');
+        return;
+      }
+      if (mode === this.defines.get('TRAINER_BATTLE_SINGLE_NO_INTRO_TEXT')) {
+        // sOrdinaryNoIntroBattleParams
+        battle.defeatText = a[3];
+        this.battle = battle;
+        this.jump(ctx, 'EventScript_DoNoIntroTrainerBattle');
+        return;
+      }
+      this.unimplemented(`trainerbattle ${a[0]}`, a);
+    },
+    /** ScrCmd_dotrainerbattle + CB2_EndTrainerBattle */
+    dotrainerbattle(this: ScriptEngine, ctx: ScriptContext) {
+      const battle = this.battle;
+      if (!battle) return;
+      const run = this.host.startTrainerBattle(battle);
+      ctx.wait = () => {
+        if (!run.done()) return false;
+        const won = run.playerWon();
+        if (battle.mode === this.defines.get('TRAINER_BATTLE_EARLY_RIVAL')) {
+          // Losing the early rival battles doesn't white out; VAR_RESULT says who won.
+          this.state.setVar('VAR_RESULT', won ? 0 : 1);
+          if (!won) this.callSpecial('HealPlayerParty');
+        }
+        this.setTrainerFlag(battle.trainer);
+        return true;
+      };
+    },
+    /** BattleSetup_GetScriptAddrAfterBattle */
+    gotopostbattlescript(this: ScriptEngine, ctx: ScriptContext) {
+      if (this.battle) ctx.pc = this.battle.returnPc;
+      else ctx.done = true;
+    },
+    checktrainerflag(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
+      ctx.cmp = this.trainerDefeated(a[0]) ? Cmp.Equal : Cmp.Less;
+    },
+    settrainerflag(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.setTrainerFlag(this.state.value(a[0]));
+    },
+    cleartrainerflag(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      const start = this.defines.get('TRAINER_FLAGS_START') ?? 0;
+      this.state.setFlag(start + this.state.value(a[0]), false);
+    },
 
     // ------------------------------------------------ audio (not implemented yet)
     playse() {},
@@ -557,12 +776,23 @@ export class ScriptEngine {
     ctx.done = true;
   }
 
-  private trainerDefeated(trainer: string): boolean {
-    const id = this.defines.get(trainer);
+  /** SetTrainerFlag */
+  private setTrainerFlag(trainer: number): void {
     const start = this.defines.get('TRAINER_FLAGS_START');
-    if (id === undefined || start === undefined) return false;
-    return this.state.getFlag(start + id);
+    if (start !== undefined) this.state.setFlag(start + trainer, true);
   }
+
+  private trainerDefeated(trainer: string): boolean {
+    const start = this.defines.get('TRAINER_FLAGS_START');
+    return start !== undefined && this.state.getFlag(start + this.state.value(trainer));
+  }
+}
+
+const NPC_TEXT_COLOR_DEFAULT = 255;
+
+/** NPC_TEXT_COLOR_MALE / FEMALE; MON and NEUTRAL both use the default dark-gray text. */
+export function textColorFromId(c: number): TextColor {
+  return c === 0 ? 'male' : c === 1 ? 'female' : 'neutral';
 }
 
 function dirArg(token: string, defines: Defines): Direction | undefined {

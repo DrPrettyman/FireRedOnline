@@ -4,18 +4,21 @@ import type { ObjectEventData, WarpEventData } from '../data/types';
 import { NpcBrain } from '../entities/NpcBrain';
 import { ObjectEvent } from '../entities/ObjectEvent';
 import { Input } from '../input/Input';
+import { PokemonData } from '../pokemon/Pokemon';
 import { Defines } from '../script/Defines';
-import { ScriptEngine, type ScriptHost } from '../script/ScriptEngine';
+import { ScriptEngine, textColorFromId, type ScriptHost, type TrainerBattle, type Wait } from '../script/ScriptEngine';
 import { GameState } from '../state/GameState';
 import { Charmap } from '../text/charmap';
 import { Fonts } from '../text/Font';
-import { MessageBox, type TextColor } from '../text/MessageBox';
+import { MessageBox } from '../text/MessageBox';
 import { Behaviors } from '../world/behaviors';
 import { DELTA, type Direction } from '../world/direction';
 import { MAPGRID_COLLISION_MASK, TILE } from '../world/MapChunk';
 import { World } from '../world/World';
 import { StartMenu } from '../ui/StartMenu';
 import { YesNoMenu } from '../ui/YesNoMenu';
+import { MonPicBox } from '../ui/MonPicBox';
+import { ScreenFade } from '../ui/ScreenFade';
 
 /** GBA runs at ~59.73Hz; we tick game logic at a fixed 60Hz regardless of display refresh. */
 const FRAME_MS = 1000 / 60;
@@ -49,6 +52,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   private charmap!: Charmap;
   /** A field UI overlay (start menu, notices) that owns input while open. */
   private overlay?: { tick(): boolean };
+  private screenFade!: ScreenFade;
+  private monPic?: MonPicBox;
   player!: ObjectEvent;
   selectedObject?: ObjectEvent;
   private npcs: Npc[] = [];
@@ -70,7 +75,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     this.assets = this.registry.get('assets');
     this.behaviors = new Behaviors(this.assets.behaviorIds);
     this.defines = new Defines(this.assets.scripts.defines);
-    this.state = new GameState(this.defines, this.assets.constants.newGameFlags);
+    this.charmap = new Charmap(this.assets.charmap);
+    const a = this.assets;
+    const pokemon = new PokemonData(a.species, a.moves, a.items, a.pokemonTables, this.charmap);
+    this.state = new GameState(this.defines, a.constants.newGameFlags, pokemon);
   }
 
   async create(start: OverworldStart): Promise<void> {
@@ -83,8 +91,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     kb.on('keydown-BACKTICK', () => this.hud.setVisible(!this.hud.visible));
 
     await this.assets.loadTextTextures(this);
-    const charmap = new Charmap(this.assets.charmap);
-    this.charmap = charmap;
+    const charmap = this.charmap;
+    this.screenFade = new ScreenFade(this);
     this.fonts = new Fonts(this, this.assets.fonts);
     this.messageBox = new MessageBox(this, this.fonts, this.buttons, charmap, this.state);
     this.scripts = new ScriptEngine(
@@ -127,6 +135,9 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     const scriptAtFrameStart = this.scripts.running;
     this.scripts.tick();
     this.messageBox.tick();
+    this.screenFade.tick();
+    this.monPic?.tick();
+    if (this.monPic?.gone) this.monPic = undefined;
     const overlay = this.overlay;
     // An overlay may hand off to another (start menu → notice); only clear it if it wasn't replaced.
     if (overlay && overlay.tick() && this.overlay === overlay) this.overlay = undefined;
@@ -252,7 +263,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       const script = npc.brain.data.script;
       if (script && script !== '0x0' && script !== '0') {
         this.selectedObject = npc.brain.obj;
-        this.scripts.npcTextColor = textColorOf(npc.brain.obj.info.textColor);
+        this.scripts.npcTextColor = textColorFromId(npc.brain.obj.info.textColor);
+        this.state.setVar('VAR_LAST_TALKED', npc.localId);
         this.state.setVar('VAR_FACING', directionId(this.player.facing));
         return this.scripts.start(script);
       }
@@ -481,6 +493,44 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     return new YesNoMenu(this, this.fonts, this.buttons, { yesNo: text('gText_YesNo'), cursor: text('gText_SelectorArrow2') });
   }
 
+  showMonPic(species: number, x: number, y: number): void {
+    if (this.monPic) return; // FindTaskIdByFunc(Task_ScriptShowMonPic) != TASK_NONE
+    this.monPic = new MonPicBox(this, this.fonts, this.buttons, x, y, this.assets.loadMonFrontPic(this, species));
+  }
+
+  hideMonPic(): Wait | undefined {
+    const box = this.monPic;
+    if (!box) return undefined;
+    box.hide();
+    return () => box.gone;
+  }
+
+  fadeScreen(mode: number): Wait {
+    this.screenFade.begin(mode);
+    return () => !this.screenFade.active;
+  }
+
+  /** Placeholder until the battle engine exists: say so, and count the battle as won. */
+  startTrainerBattle(battle: TrainerBattle): { done: Wait; playerWon(): boolean } {
+    console.warn('[battle] not implemented; counting trainer', battle.trainer, 'as defeated');
+    this.messageBox.show(this.charmap.encode("Battles aren't implemented yet.\\nLet's say you won!$"));
+    let closed = false;
+    return {
+      done: () => {
+        if (closed) return true;
+        if (this.messageBox.isPrinting || !this.buttons.pressedAorB()) return false;
+        this.messageBox.hide();
+        closed = true;
+        return true;
+      },
+      playerWon: () => true,
+    };
+  }
+
+  mapSection(): string {
+    return this.world.current.data.regionMapSection ?? 'MAPSEC_NONE';
+  }
+
   resolveLocalId(name: string): number | undefined {
     const i = this.templatesFor(this.world.current.name).findIndex((t) => t.local_id === name);
     return i < 0 ? undefined : i + 1;
@@ -560,11 +610,6 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
         `mt ${t.metatile} beh 0x${t.behavior.toString(16)} col ${t.collision} elev ${t.elevation}/${this.player.elevation}`,
     );
   }
-}
-
-/** NPC_TEXT_COLOR_MALE / FEMALE; Pokémon and neutral both use the default dark-gray text. */
-function textColorOf(c: number): TextColor {
-  return c === 0 ? 'male' : c === 1 ? 'female' : 'neutral';
 }
 
 /** DIR_SOUTH=1, DIR_NORTH=2, DIR_WEST=3, DIR_EAST=4 */
