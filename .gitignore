@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# Generated from the local pret/firered decomp by tools/extract.py — never commit.
+public/gen/
+__pycache__/
+.DS_Store
