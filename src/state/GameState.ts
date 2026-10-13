@@ -31,6 +31,8 @@ export class GameState {
   readonly dexSeen = new Set<number>();
   readonly dexCaught = new Set<number>();
   nationalDexEnabled = false;
+  /** GetCurrentRegionMapSectionId(), kept current by the overworld. */
+  currentMapSection = 'MAPSEC_NONE';
 
   constructor(
     readonly defines: Defines,

@@ -66,6 +66,8 @@ export interface Pokemon {
   metLocation: string;
   pokeball: number;
   isEgg: boolean;
+  /** MON_DATA_POKERUS (strain << 4 | days); absent = never infected. */
+  pokerus?: number;
   // Party-only fields
   level: number;
   status: number;
@@ -105,6 +107,11 @@ export class PokemonData {
       this.names.set(species, n);
     }
     return n;
+  }
+
+  /** Encode a runtime name (player/OT name) without the terminator. */
+  encodeName(name: string): number[] {
+    return this.charmap.encodePlain(name);
   }
 
   /** ItemId_GetName / CopyItemName, encoded without the terminator. */
