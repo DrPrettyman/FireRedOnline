@@ -49,7 +49,10 @@ Debug: `?map=PalletTown&x=12&y=10` starts at any map and coordinate. In dev buil
 | `text/charmap.json` | `charmap.txt` (used to encode strings exactly like `preproc`) |
 | `text/strings.json` | every `.string` label reachable from `data/event_scripts.s`, plus C strings in `src/strings.c` |
 | `text/dialogue_frame.png`, `frame_type1..10.png`, `down_arrows.png` | dialogue frame, user window frames, page arrow |
-| `scripts/scripts.json` | `data/event_scripts.s` and all its includes flattened to `[op, ...args]` with labels; script-file macros expanded; numeric `#define`s (incl. simple expressions); std script table |
+| `scripts/scripts.json` | `data/event_scripts.s` and all its includes flattened to `[op, ...args]` with labels; script-file macros and pure event macros (`giveitem_msg`, `famechecker`, ...) expanded; numeric `#define`s (incl. simple expressions); std script table |
+| `pokemon/species.json`, `moves.json`, `items.json` | `gSpeciesInfo` + names + level-up learnsets + national dex numbers, `gBattleMoves` + names, `src/data/items.json` |
+| `pokemon/tables.json` | `gExperienceTables` (EXP_* macros evaluated), `sNatureStatTable`, `gStdStringPtrs`, dex counts |
+| `pokemon/front/<species>.png` | front pics with the normal palette (`gMonFrontPicTable`, `gMonPaletteTable`) |
 | `constants.json` | metatile behavior ids, new-game hidden-object flags |
 
 Each metatile's two layers are split by layer type into a **below** atlas (under sprites) and an **above** atlas
@@ -65,9 +68,10 @@ Each metatile's two layers are split by layer type into a **below** atlas (under
 | Field | `scenes/OverworldScene.ts` | fixed 60 Hz tick; input order (START, A, then movement); warps; coord triggers; map scripts; object spawning (on map entry and as objects come into view) |
 | Input | `input/Input.ts` | GBA buttons sampled once per tick (`held` / `pressed`) |
 | Text | `text/charmap.ts`, `Font.ts`, `TextWindow.ts`, `TextPrinter.ts`, `MessageBox.ts`, `placeholders.ts` | port of `RenderText`; pixel-buffer windows; field message box |
-| Scripts | `script/ScriptEngine.ts`, `MovementRunner.ts`, `Defines.ts` | interpreter for decomp scripts at macro level; movement scripts; constant resolution |
-| State | `state/GameState.ts` | flags/vars by numeric id, names, text speed (memory only) |
-| UI | `ui/MenuWindow.ts`, `Menu.ts`, `YesNoMenu.ts`, `StartMenu.ts` | std-framed windows, cursor menus |
+| Scripts | `script/ScriptEngine.ts`, `MovementRunner.ts`, `Defines.ts`, `specials.ts` | interpreter for decomp scripts at macro level; movement scripts; constant resolution; `special` table |
+| Pokémon | `pokemon/Pokemon.ts`, `util/random.ts` | CreateMon, stats, movesets, gender/nature; the GBA RNG |
+| State | `state/GameState.ts`, `Bag.ts` | flags/vars by numeric id, names, text speed, party, bag, Pokédex (memory only) |
+| UI | `ui/MenuWindow.ts`, `Menu.ts`, `YesNoMenu.ts`, `StartMenu.ts`, `MonPicBox.ts`, `ScreenFade.ts` | std-framed windows, cursor menus, `showmonpic` box, `fadescreen` |
 
 ### Testing
 

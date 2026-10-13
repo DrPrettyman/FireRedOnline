@@ -22,8 +22,10 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [ ] Tile animations (water, flowers, etc.)
 - [ ] Door animation graphics
 - [ ] Field effect graphics (grass, shadows, emotes, ...)
-- [ ] Species / moves / items / trainers / wild encounters data
-- [ ] Battle graphics (mon front/back sprites, backgrounds, interface)
+- [x] Species (base stats, names, learnsets, national dex numbers), moves, items, experience tables, nature table, std strings
+- [ ] Trainers / trainer parties / wild encounters data
+- [~] Battle graphics: mon front pics (normal palette) only. Castform is skipped (its front.png isn't in the decomp)
+- [x] Pure event macros (giveitem_msg, famechecker, trainerbattle_earlyrival, ...) expanded like the assembler would
 - [ ] Audio
 
 ### Engine
@@ -39,15 +41,20 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] Input module with all GBA buttons (A, B, Start, Select, L, R), sampled per logic tick
 - [x] Text engine: port of RenderText (speed + A/B speed-up, all FC control codes, \n \l \p, placeholders)
 - [x] Message box (dialogue frame, down-arrow indicator)
-- [~] Game state: flags, vars, names, text speed (in memory only; names are placeholders until naming screen)
+- [~] Game state: flags, vars, names, text speed, trainer id, money, party, bag, Pokédex seen/caught (in memory only; names are placeholders until naming screen)
+- [x] Pokémon creation: CreateMon/CreateBoxMon port (personality, IVs, nature, ability, initial moveset, stats); GBA RNG (random.c)
+- [x] Bag: AddBagItem/RemoveBagItem/CheckBagHasItem/CheckBagHasSpace incl. TM case / berry pouch handling
 - [~] Script interpreter: flow/branching, flags/vars, msgbox via std scripts, text colour, movements, object add/remove/move, setmetatile, warps, delay. Unimplemented commands log once to the console
 - [x] NPC talk (incl. across counters) / signs / coord triggers / map scripts (on transition, on frame, on load, on warp-into)
 - [x] NPC text colours by gender
 - [x] YES/NO box (sYesNo_WindowTemplate, 5-frame input delay, B = NO)
 - [ ] Multichoice menus
-- [ ] Specials (`special X`): none implemented yet
-- [ ] Items: giveitem/finditem/hidden items, bag
-- [ ] Buffer commands (bufferspeciesname, bufferitemname, ...)
+- [~] Specials (`special X` / `specialvar`): table in `script/specials.ts`; HealPlayerParty, GetPokedexCount, EnableNationalPokedex, GetQuestLogState, GetPartyMonSpecies, BufferMonNickname, ChangePokemonNickname (stub), plus no-ops for audio/quest log/help/fame checker. Unknown specials log once
+- [~] Items: additem/removeitem/checkitem/checkitemspace/checkitemtype, giveitem/giveitem_msg through the std scripts. Not yet: hidden items, item balls (finditem) untested
+- [x] Buffer commands (species/lead mon/party nick/item/item plural/number/std string/string); `waitstate`
+- [x] givemon, getpartysize, showmonpic/hidemonpic (picture box), fadescreen (palette-fade timing)
+- [~] trainerbattle: EARLY_RIVAL and SINGLE_NO_INTRO_TEXT configure + run EventScript_DoNoIntroTrainerBattle; the battle itself is a stub that counts as a win. Other trainer battle types log as unimplemented
+- [x] Text colour through VAR_TEXT_COLOR / VAR_PREV_TEXT_COLOR (ContextNpcGetTextColor), VAR_LAST_TALKED
 - [ ] Movement emotes (exclamation mark etc.) and other field effects in movement scripts
 - [ ] Interacting with metatiles (PCs, bookshelves, TVs via behavior scripts)
 - [~] Start menu shell: items by flags, wrap-around cursor, remembered position, B/START close. Every entry except EXIT shows a "not implemented" notice
@@ -57,22 +64,28 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [ ] Save/load
 - [ ] Bag, party, summary, Pokédex, options
 - [ ] Wild encounters, trainer sight
-- [ ] Battle engine
+- [ ] Battle engine (stubbed: a message, then counted as a win)
 - [ ] Audio playback
-- [ ] Title screen / intro / Oak's speech / naming
+- [ ] Title screen / intro / Oak's speech / naming (ChangePokemonNickname keeps the name for now)
 
 ## Where to resume
 
 State as of the last log entry:
-- **Playable:** new game in Player's House 2F → walk around Pallet Town / Route 1 → talk to NPCs, read signs →
-  trigger Oak at the top of Pallet Town → walk to the lab → the starter-selection dialogue.
-- **Stops at:** receiving a starter. The lab scripts need (counts from the reachable code):
-  `special`/`specialvar` (~14), `buffernumberstring`/`bufferspeciesname`, `showmonpic`/`hidemonpic`, `givemon`,
-  `giveitem_msg`/`checkitem`/`removeitem`, `fadescreen`, `famechecker`, `trainerbattle_earlyrival`.
-- **Suggested next milestone:** save-data model (party, bag) + species/items extraction → `givemon`, item commands,
-  buffer commands, the common specials, `showmonpic` → then the battle engine for the rival fight.
-- **How to find what a script needs:** unimplemented script commands log once to the browser console as
-  `[script] unimplemented command ...`.
+- **Playable:** new game in Player's House 2F → Pallet Town → Oak's trigger → lab intro → choose a starter
+  (picture box, YES/NO, nickname prompt) → rival picks → walk down into the rival battle (stubbed as a win) →
+  rival leaves. Mom heals the party (with screen fade). Route 1 clerk gives a Potion into the bag.
+- **Next blockers on the main path:** Viridian City Mart parcel scene (`pokemart`, multichoice), trainer battles
+  on Route 22 (`trainerbattle_single`, trainer sight), Oak's parcel → Pokédex scene (EnableNationalPokedex is in,
+  `setflag FLAG_SYS_POKEDEX_GET` works).
+- **Suggested next milestone:** the battle engine. Needs trainer + party extraction (`src/data/trainers.h`,
+  `trainer_parties.h`), back pics, battle backgrounds/interface graphics, then a port of battle_main.c's turn
+  flow starting with the early rival battle (RIVAL_BATTLE_TUTORIAL). Alternatively, smaller: start menu
+  POKéMON/BAG screens now that party and bag exist.
+- **How to find what a script needs:** unimplemented script commands and specials log once to the browser console
+  as `[script] unimplemented command ...`.
+- **Testing long scenes:** `tools/browser-test.mjs` has `mash:<js>` (press A until a condition holds), e.g.
+  `mash:game.scene.getScene("Overworld").state.getVar("VAR_MAP_SCENE_PALLET_TOWN_PROFESSOR_OAKS_LAB")===2`.
+  Build step lists as a bash array (`args+=(...)`) so JS with spaces survives word splitting.
 - **Workflow used so far:** read the C in the decomp, port it, cite the function name, verify in headless Chrome with
   `tools/browser-test.mjs`, then add an entry below.
 
@@ -130,3 +143,25 @@ State as of the last log entry:
   every completed player step, scripted or not.
 - Verified: Oak walks up, is removed, and reappears at (6,3) as soon as the player takes a step.
 - Not yet: RemoveObjectEventsOutsideView (despawning objects that leave the view). Harmless for now.
+
+### Starter selection: Pokémon, bag, specials
+- Extractor: `pokemon/species.json` (gSpeciesInfo + names + level-up learnsets + national dex), `moves.json`
+  (gBattleMoves + names), `items.json` (from the decomp's items.json), `tables.json` (gExperienceTables evaluated
+  from the EXP_* macros, sNatureStatTable, gStdStringPtrs, dex counts), `pokemon/front/<species>.png`.
+  `#define` parsing moved into `parse_defines` (shared by scripts and pokemon).
+- Event macros made only of other script commands (giveitem_msg, msgreceiveditem, famechecker,
+  trainerbattle_earlyrival, ...) are now expanded at extraction, with default arguments.
+- `pokemon/Pokemon.ts`: CreateMon/CreateBoxMon, GiveBoxMonInitialMoveset, CalculateMonStats (incl. the u16
+  ModifyStatByNature), GetLevelFromMonExp, gender, CalculatePPWithBonus. `util/random.ts`: the GBA LCG.
+- `state/Bag.ts` (item.c), GameState party/bag/trainer id/money/Pokédex.
+- Script commands: givemon, showmonpic/hidemonpic (`ui/MonPicBox.ts`), fadescreen (`ui/ScreenFade.ts`, follows
+  UpdateNormalPaletteFade timing), item commands, buffer commands, special/specialvar/waitstate,
+  trainerbattle/dotrainerbattle/gotopostbattlescript, trainer flag commands.
+- Text colour now lives in VAR_TEXT_COLOR/VAR_PREV_TEXT_COLOR like the GBA (EventScript_RestorePrevTextColor
+  depends on it); `setvar` accepts LOCALID_* names (RIVAL_STARTER_ID); NPC interaction sets VAR_LAST_TALKED
+  (`removeobject VAR_LAST_TALKED` removes the chosen ball).
+- Fixed: `STR_VAR_n` arguments are names, not constants (the `stringvar` macro maps them to 0..2).
+- Verified in headless Chrome: Bulbasaur and Charmander paths (party mon species/level/moves/stats checked by hand
+  against CalculateMonStats), rival takes the counter starter, battle trigger (right and left) → stub → rival
+  exits, scene var 4 + FLAG_BEAT_RIVAL_IN_OAKS_LAB + trainer flag set. Route 1 Potion, Oak's 5 Poké Balls
+  ("put the POKé BALLS in the POKé BALLS POCKET"), Mom's heal with fade to black and back.
