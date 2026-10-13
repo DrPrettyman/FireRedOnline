@@ -68,6 +68,26 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [ ] Audio playback
 - [ ] Title screen / intro / Oak's speech / naming (ChangePokemonNickname keeps the name for now)
 
+## Known deviations from the decomp
+
+Things that are placeholders or approximations, so they aren't mistaken for ports. Remove entries as they get done properly.
+
+- **Placeholders (not in the decomp):**
+  - Trainer battles: our own "Battles aren't implemented yet" message, always a win (`OverworldScene.startTrainerBattle`).
+  - `ChangePokemonNickname`: keeps the name and fades back in instead of opening the naming screen.
+  - White-out (`CB2_WhiteOut`) after a lost battle: logs a warning and continues the script. Unreachable while battles always win.
+  - Full party: `givemon` returns MON_CANT_GIVE instead of sending the mon to the PC (`SendMonToPC`).
+  - No-op specials (`NO_OP` in `script/specials.ts`): audio, quest log, help system, fame checker, GameCube link flags.
+  - Player names are "PLAYER"/"RIVAL" until Oak's intro exists.
+- **Approximations:**
+  - `fadescreen` is an alpha overlay, not a palette blend: same ramp and timing, not bit-identical; weather palettes ignored.
+  - `showmonpic`: the sprite appears when its PNG has loaded; no cry.
+  - Text colour is reset to NPC_TEXT_COLOR_DEFAULT when a script starts, not in ProcessPlayerFieldInput.
+  - The RNG (`random.c` formula) is seeded from `Math.random`; the trainer id is rolled when the game state is created instead of in Oak's intro.
+  - A mon's met location is the MAPSEC_* name, not the numeric id.
+  - Warps fade with Phaser's camera fade (200 ms), not the field warp fade.
+- **Data:** Castform has no front pic (its `front.png` isn't in the decomp; it's built from per-form images).
+
 ## Where to resume
 
 State as of the last log entry:
@@ -165,3 +185,13 @@ State as of the last log entry:
   against CalculateMonStats), rival takes the counter starter, battle trigger (right and left) → stub → rival
   exits, scene var 4 + FLAG_BEAT_RIVAL_IN_OAKS_LAB + trainer flag set. Route 1 Potion, Oak's 5 Poké Balls
   ("put the POKé BALLS in the POKé BALLS POCKET"), Mom's heal with fade to black and back.
+
+### Decomp audit of the starter milestone
+- Constants that were hardcoded are now read from the extracted defines: Pokémon constants (`readPokemonConstants`:
+  MAX_LEVEL, PARTY_SIZE, SPECIES_SHEDINJA, ITEM_POKE_BALL, MON_GIVEN_TO_*, ...), FADE_*, POCKET_*,
+  NPC_TEXT_COLOR_*, DIR_*, LOCALID_PLAYER. Only the bag's 999 stack limit stays a literal (it is one in item.c).
+- Checked against the decomp: starting money 3000 (NewGameInitData), bufferleadmonspeciesname (GetLeadMonIndex).
+- Fixed: losing an early-rival battle only heals with RIVAL_BATTLE_HEAL_AFTER (CB2_EndTrainerBattle); otherwise
+  it's a white-out (not implemented, warns). GetPartyMonSpecies returns SPECIES_EGG for eggs (MON_DATA_SPECIES_OR_EGG).
+- Added "Known deviations from the decomp" above.
+

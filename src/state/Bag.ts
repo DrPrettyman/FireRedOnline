@@ -1,11 +1,6 @@
 // item.c: the player's bag. Pocket ids are POCKET_* (1-based), capacities BAG_*_COUNT.
 
-export const POCKET_ITEMS = 1;
-export const POCKET_KEY_ITEMS = 2;
-export const POCKET_POKE_BALLS = 3;
-export const POCKET_TM_CASE = 4;
-export const POCKET_BERRY_POUCH = 5;
-
+/** item.c compares stack sizes against a literal 999; there is no named constant for it. */
 const MAX_BAG_ITEM_CAPACITY = 999;
 
 export interface ItemSlot {
@@ -18,6 +13,9 @@ export interface BagConstants {
   ITEM_NONE: number;
   ITEM_TM_CASE: number;
   ITEM_BERRY_POUCH: number;
+  POCKET_KEY_ITEMS: number;
+  POCKET_TM_CASE: number;
+  POCKET_BERRY_POUCH: number;
 }
 
 export class Bag {
@@ -58,11 +56,12 @@ export class Bag {
       return true;
     }
     // The TM case and berry pouch are key items handed out with the first TM / berry.
-    if (pocket === POCKET_TM_CASE && !this.has(this.c.ITEM_TM_CASE, 1)) {
-      if (!this.put(POCKET_KEY_ITEMS, this.c.ITEM_TM_CASE, 1)) return false;
+    const c = this.c;
+    if (pocket === c.POCKET_TM_CASE && !this.has(c.ITEM_TM_CASE, 1)) {
+      if (!this.put(c.POCKET_KEY_ITEMS, c.ITEM_TM_CASE, 1)) return false;
     }
-    if (pocket === POCKET_BERRY_POUCH && !this.has(this.c.ITEM_BERRY_POUCH, 1)) {
-      if (!this.put(POCKET_KEY_ITEMS, this.c.ITEM_BERRY_POUCH, 1)) return false;
+    if (pocket === c.POCKET_BERRY_POUCH && !this.has(c.ITEM_BERRY_POUCH, 1)) {
+      if (!this.put(c.POCKET_KEY_ITEMS, c.ITEM_BERRY_POUCH, 1)) return false;
       this.onGotBerryPouch();
     }
     if (itemId === this.c.ITEM_BERRY_POUCH) this.onGotBerryPouch();

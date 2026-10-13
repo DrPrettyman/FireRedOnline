@@ -1,4 +1,5 @@
-// random.c: the GBA's LCG. Seeded once at boot (the GBA seeds from a timer at the title screen).
+// random.c: the GBA's LCG. Seeded from Math.random at load; the GBA seeds it from a timer at the
+// title screen, so sequences won't match a real cartridge.
 
 const RAND_MULT = 1103515245;
 let rngValue = (Math.random() * 0x100000000) >>> 0;

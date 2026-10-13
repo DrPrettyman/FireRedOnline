@@ -158,7 +158,8 @@ export class ScriptEngine {
     }
     this.ctx = new ScriptContext(pc, label);
     // ResetContextNpcTextColor (via ResetFacingNpcOrSignpostVars on field input)
-    this.state.setVar('VAR_TEXT_COLOR', NPC_TEXT_COLOR_DEFAULT);
+    // Approximation: the GBA does this in ProcessPlayerFieldInput before any interaction, not per script.
+    this.state.setVar('VAR_TEXT_COLOR', this.defines.require('NPC_TEXT_COLOR_DEFAULT'));
     return true;
   }
 
@@ -317,7 +318,7 @@ export class ScriptEngine {
   /** ContextNpcGetTextColor */
   private contextTextColor(): TextColor {
     const c = this.state.getVar('VAR_TEXT_COLOR');
-    if (c !== NPC_TEXT_COLOR_DEFAULT) return textColorFromId(c);
+    if (c !== this.defines.require('NPC_TEXT_COLOR_DEFAULT')) return textColorFromId(c, this.defines);
     return this.host.selectedObject ? this.npcTextColor : 'neutral';
   }
 
@@ -504,7 +505,7 @@ export class ScriptEngine {
     /** ScrCmd_textcolor: also saves the previous colour for EventScript_RestorePrevTextColor. */
     textcolor(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
       this.state.setVar('VAR_PREV_TEXT_COLOR', this.state.getVar('VAR_TEXT_COLOR'));
-      this.state.setVar('VAR_TEXT_COLOR', this.defines.get(a[0]) ?? NPC_TEXT_COLOR_DEFAULT);
+      this.state.setVar('VAR_TEXT_COLOR', this.defines.require(a[0]));
     },
     signmsg() {},
     normalmsg() {},
@@ -632,7 +633,7 @@ export class ScriptEngine {
       this.state.stringVars[this.stringVar(a[0])] = [...this.state.pokemon.speciesName(this.state.value(a[1]))];
     },
     bufferleadmonspeciesname(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
-      const lead = this.state.party.find((m) => !m.isEgg) ?? this.state.party[0]; // GetLeadMonIndex
+      const lead = this.state.party.find((m) => !m.isEgg) ?? this.state.party[0]; // GetLeadMonIndex: first non-egg, else slot 0
       this.state.stringVars[this.stringVar(a[0])] = lead ? [...this.state.pokemon.speciesName(lead.species)] : [];
     },
     bufferpartymonnick(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
@@ -678,7 +679,8 @@ export class ScriptEngine {
       });
       mon.heldItem = item;
       const result = this.state.giveMon(mon);
-      if (result !== 2) this.state.setDexFlags(this.state.pokemon.nationalDex(species), true, true);
+      const c = this.state.pokemon.c;
+      if (result === c.MON_GIVEN_TO_PARTY || result === c.MON_GIVEN_TO_PC) this.state.setDexFlags(this.state.pokemon.nationalDex(species), true, true);
       this.state.setVar('VAR_RESULT', result);
     },
     getpartysize(this: ScriptEngine) {
@@ -728,11 +730,21 @@ export class ScriptEngine {
         if (!run.done()) return false;
         const won = run.playerWon();
         if (battle.mode === this.defines.get('TRAINER_BATTLE_EARLY_RIVAL')) {
-          // Losing the early rival battles doesn't white out; VAR_RESULT says who won.
+          // VAR_RESULT = player lost. Losing heals only with RIVAL_BATTLE_HEAL_AFTER; otherwise it whites out.
           this.state.setVar('VAR_RESULT', won ? 0 : 1);
-          if (!won) this.callSpecial('HealPlayerParty');
+          if (!won) {
+            if (battle.localIdOrFlags & this.defines.require('RIVAL_BATTLE_HEAL_AFTER')) {
+              this.callSpecial('HealPlayerParty');
+            } else {
+              console.warn('[battle] CB2_WhiteOut not implemented; continuing the script');
+              return true;
+            }
+          }
+        } else if (!won) {
+          console.warn('[battle] CB2_WhiteOut not implemented; continuing the script');
+          return true;
         }
-        this.setTrainerFlag(battle.trainer);
+        this.setTrainerFlag(battle.trainer); // SetBattledTrainerFlag
         return true;
       };
     },
@@ -788,16 +800,27 @@ export class ScriptEngine {
   }
 }
 
-const NPC_TEXT_COLOR_DEFAULT = 255;
-
 /** NPC_TEXT_COLOR_MALE / FEMALE; MON and NEUTRAL both use the default dark-gray text. */
-export function textColorFromId(c: number): TextColor {
-  return c === 0 ? 'male' : c === 1 ? 'female' : 'neutral';
+export function textColorFromId(c: number, defines: Defines): TextColor {
+  if (c === defines.require('NPC_TEXT_COLOR_MALE')) return 'male';
+  if (c === defines.require('NPC_TEXT_COLOR_FEMALE')) return 'female';
+  return 'neutral';
+}
+
+const DIR_NAMES: [string, Direction][] = [
+  ['DIR_SOUTH', 'down'],
+  ['DIR_NORTH', 'up'],
+  ['DIR_WEST', 'left'],
+  ['DIR_EAST', 'right'],
+];
+
+/** DIR_* id for a direction. */
+export function directionId(d: Direction, defines: Defines): number {
+  return defines.require(DIR_NAMES.find(([, dir]) => dir === d)![0]);
 }
 
 function dirArg(token: string, defines: Defines): Direction | undefined {
   const n = defines.get(token);
-  // DIR_SOUTH=1, DIR_NORTH=2, DIR_WEST=3, DIR_EAST=4
-  if (n !== undefined) return ([undefined, 'down', 'up', 'left', 'right'] as const)[n];
+  if (n !== undefined) return DIR_NAMES.find(([name]) => defines.get(name) === n)?.[1];
   return parseDirection(token.replace('DIR_', ''));
 }

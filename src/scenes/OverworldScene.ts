@@ -4,9 +4,9 @@ import type { ObjectEventData, WarpEventData } from '../data/types';
 import { NpcBrain } from '../entities/NpcBrain';
 import { ObjectEvent } from '../entities/ObjectEvent';
 import { Input } from '../input/Input';
-import { PokemonData } from '../pokemon/Pokemon';
+import { PokemonData, readPokemonConstants } from '../pokemon/Pokemon';
 import { Defines } from '../script/Defines';
-import { ScriptEngine, textColorFromId, type ScriptHost, type TrainerBattle, type Wait } from '../script/ScriptEngine';
+import { directionId, ScriptEngine, textColorFromId, type ScriptHost, type TrainerBattle, type Wait } from '../script/ScriptEngine';
 import { GameState } from '../state/GameState';
 import { Charmap } from '../text/charmap';
 import { Fonts } from '../text/Font';
@@ -26,7 +26,6 @@ const FRAME_MS = 1000 / 60;
 const TURN_FRAMES = 8;
 const FADE_MS = 200;
 const PLAYER_GFX = 'OBJ_EVENT_GFX_RED_NORMAL';
-const LOCALID_PLAYER = 255;
 
 export interface OverworldStart {
   map: string;
@@ -77,7 +76,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     this.defines = new Defines(this.assets.scripts.defines);
     this.charmap = new Charmap(this.assets.charmap);
     const a = this.assets;
-    const pokemon = new PokemonData(a.species, a.moves, a.items, a.pokemonTables, this.charmap);
+    const pokemon = new PokemonData(readPokemonConstants(this.defines), a.species, a.moves, a.items, a.pokemonTables, this.charmap);
     this.state = new GameState(this.defines, a.constants.newGameFlags, pokemon);
   }
 
@@ -92,7 +91,13 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
 
     await this.assets.loadTextTextures(this);
     const charmap = this.charmap;
-    this.screenFade = new ScreenFade(this);
+    const d = this.defines;
+    this.screenFade = new ScreenFade(this, {
+      FADE_FROM_BLACK: d.require('FADE_FROM_BLACK'),
+      FADE_TO_BLACK: d.require('FADE_TO_BLACK'),
+      FADE_FROM_WHITE: d.require('FADE_FROM_WHITE'),
+      FADE_TO_WHITE: d.require('FADE_TO_WHITE'),
+    });
     this.fonts = new Fonts(this, this.assets.fonts);
     this.messageBox = new MessageBox(this, this.fonts, this.buttons, charmap, this.state);
     this.scripts = new ScriptEngine(
@@ -263,9 +268,9 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       const script = npc.brain.data.script;
       if (script && script !== '0x0' && script !== '0') {
         this.selectedObject = npc.brain.obj;
-        this.scripts.npcTextColor = textColorFromId(npc.brain.obj.info.textColor);
+        this.scripts.npcTextColor = textColorFromId(npc.brain.obj.info.textColor, this.defines);
         this.state.setVar('VAR_LAST_TALKED', npc.localId);
-        this.state.setVar('VAR_FACING', directionId(this.player.facing));
+        this.state.setVar('VAR_FACING', directionId(this.player.facing, this.defines));
         return this.scripts.start(script);
       }
       return false;
@@ -510,7 +515,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     return () => !this.screenFade.active;
   }
 
-  /** Placeholder until the battle engine exists: say so, and count the battle as won. */
+  /** Placeholder (not from the decomp) until the battle engine exists: say so, and count the battle as won. */
   startTrainerBattle(battle: TrainerBattle): { done: Wait; playerWon(): boolean } {
     console.warn('[battle] not implemented; counting trainer', battle.trainer, 'as defeated');
     this.messageBox.show(this.charmap.encode("Battles aren't implemented yet.\\nLet's say you won!$"));
@@ -537,7 +542,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   }
 
   objectByLocalId(localId: number): ObjectEvent | undefined {
-    if (localId === LOCALID_PLAYER) return this.player;
+    if (localId === this.defines.require('LOCALID_PLAYER')) return this.player;
     return this.npcs.find((n) => n.localId === localId)?.brain.obj;
   }
 
@@ -610,11 +615,6 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
         `mt ${t.metatile} beh 0x${t.behavior.toString(16)} col ${t.collision} elev ${t.elevation}/${this.player.elevation}`,
     );
   }
-}
-
-/** DIR_SOUTH=1, DIR_NORTH=2, DIR_WEST=3, DIR_EAST=4 */
-function directionId(d: Direction): number {
-  return { down: 1, up: 2, left: 3, right: 4 }[d];
 }
 
 /** bg event player_facing_dir: BG_EVENT_PLAYER_FACING_ANY / _NORTH / _SOUTH / _EAST / _WEST. */

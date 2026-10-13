@@ -1,18 +1,21 @@
 import Phaser from 'phaser';
 import { DEPTH_UI } from '../text/TextWindow';
 
-// include/constants/field_weather.h
-export const FADE_FROM_BLACK = 0;
-export const FADE_TO_BLACK = 1;
-export const FADE_FROM_WHITE = 2;
-export const FADE_TO_WHITE = 3;
+/** FADE_* modes (include/constants/field_weather.h). */
+export interface FadeModes {
+  FADE_FROM_BLACK: number;
+  FADE_TO_BLACK: number;
+  FADE_FROM_WHITE: number;
+  FADE_TO_WHITE: number;
+}
 
 /** Above the map, objects and every window: the fade covers all palettes. */
 const DEPTH_FADE = DEPTH_UI + 1000;
 
 /**
- * FadeScreen / BeginNormalPaletteFade over all palettes, drawn as a full-screen overlay (a palette
- * blend towards one colour is the same as alpha-blending that colour on top).
+ * FadeScreen / BeginNormalPaletteFade over all palettes, drawn as a full-screen overlay.
+ * Approximation: BlendPalette mixes 5-bit colour channels with integer maths; alpha-blending the fade
+ * colour on top gives the same ramp but not bit-identical pixels. Weather palettes are ignored.
  *
  * Timing follows UpdateNormalPaletteFade with delay 0: the blend coefficient moves 2/16 per step,
  * each step takes two frames (BG palettes, then OBJ palettes), and the fade stays active for
@@ -26,7 +29,10 @@ export class ScreenFade {
   private finishing = -1;
   active = false;
 
-  constructor(scene: Phaser.Scene) {
+  constructor(
+    scene: Phaser.Scene,
+    private modes: FadeModes,
+  ) {
     const { width, height } = scene.scale;
     this.rect = scene.add.rectangle(0, 0, width, height, 0x000000, 1).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH_FADE);
     this.rect.setAlpha(0);
@@ -34,9 +40,11 @@ export class ScreenFade {
 
   /** FadeScreen(mode, 0). Returns false (and does nothing) if a fade is already running. */
   begin(mode: number): boolean {
+    const m = this.modes;
     if (this.active) return false;
-    const toWhite = mode === FADE_FROM_WHITE || mode === FADE_TO_WHITE;
-    const fadeOut = mode === FADE_TO_BLACK || mode === FADE_TO_WHITE;
+    if (![m.FADE_FROM_BLACK, m.FADE_TO_BLACK, m.FADE_FROM_WHITE, m.FADE_TO_WHITE].includes(mode)) return false;
+    const toWhite = mode === m.FADE_FROM_WHITE || mode === m.FADE_TO_WHITE;
+    const fadeOut = mode === m.FADE_TO_BLACK || mode === m.FADE_TO_WHITE;
     this.rect.setFillStyle(toWhite ? 0xffffff : 0x000000);
     this.y = fadeOut ? 0 : 16;
     this.targetY = fadeOut ? 16 : 0;

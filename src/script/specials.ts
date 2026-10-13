@@ -1,6 +1,4 @@
-import { MAX_MON_MOVES } from '../pokemon/Pokemon';
 import type { GameState } from '../state/GameState';
-import { FADE_FROM_BLACK } from '../ui/ScreenFade';
 import type { ScriptHost } from './ScriptEngine';
 
 export interface SpecialEnv {
@@ -33,7 +31,7 @@ export const SPECIALS: Record<string, Special> = {
   HealPlayerParty({ state }) {
     for (const mon of state.party) {
       mon.hp = mon.maxHP;
-      for (let j = 0; j < MAX_MON_MOVES; j++) mon.pp[j] = state.pokemon.ppWithBonus(mon.moves[j], mon.ppBonuses, j);
+      for (let j = 0; j < state.pokemon.c.MAX_MON_MOVES; j++) mon.pp[j] = state.pokemon.ppWithBonus(mon.moves[j], mon.ppBonuses, j);
       mon.status = 0;
     }
   },
@@ -63,12 +61,14 @@ export const SPECIALS: Record<string, Special> = {
   /** ChangePokemonNickname: opens the naming screen, which doesn't exist yet. Keep the name and fade back in. */
   ChangePokemonNickname(env) {
     env.warnOnce('ChangePokemonNickname', '[special] naming screen not implemented; keeping the current name');
-    env.setWaitState(env.host.fadeScreen(FADE_FROM_BLACK));
+    env.setWaitState(env.host.fadeScreen(env.state.defines.require('FADE_FROM_BLACK')));
   },
 
-  /** GetPartyMonSpecies: species of party slot VAR_0x8004. */
+  /** GetPartyMonSpecies: MON_DATA_SPECIES_OR_EGG of party slot VAR_0x8004. */
   GetPartyMonSpecies({ state }) {
-    return state.party[state.getVar('VAR_0x8004')]?.species ?? 0;
+    const mon = state.party[state.getVar('VAR_0x8004')];
+    if (!mon) return 0;
+    return mon.isEgg ? state.pokemon.c.SPECIES_EGG : mon.species;
   },
 
   /** BufferMonNickname: nickname of party slot VAR_0x8004 into STR_VAR_1. */

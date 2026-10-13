@@ -1,4 +1,4 @@
-import { PARTY_SIZE, type Pokemon, type PokemonData } from '../pokemon/Pokemon';
+import type { Pokemon, PokemonData } from '../pokemon/Pokemon';
 import { TEMP_VARS_END, TEMP_VARS_START, type Defines } from '../script/Defines';
 import type { TextSpeed } from '../text/TextPrinter';
 import { random32 } from '../util/random';
@@ -20,8 +20,9 @@ export class GameState {
   /** STR_VAR_1..3 contents as encoded bytes (filled by buffer* script commands). */
   stringVars: number[][] = [[], [], []];
 
-  /** gSaveBlock2Ptr->playerTrainerId (randomised in the intro on the GBA). */
+  /** gSaveBlock2Ptr->playerTrainerId. The GBA rolls it in Oak's intro; until that exists, at state creation. */
   trainerId = random32();
+  /** NewGameInitData: SetMoney(&gSaveBlock1Ptr->money, 3000) */
   money = 3000;
   /** gPlayerParty: up to PARTY_SIZE mons, no gaps. */
   party: Pokemon[] = [];
@@ -46,6 +47,9 @@ export class GameState {
         ITEM_NONE: defines.require('ITEM_NONE'),
         ITEM_TM_CASE: defines.require('ITEM_TM_CASE'),
         ITEM_BERRY_POUCH: defines.require('ITEM_BERRY_POUCH'),
+        POCKET_KEY_ITEMS: defines.require('POCKET_KEY_ITEMS'),
+        POCKET_TM_CASE: defines.require('POCKET_TM_CASE'),
+        POCKET_BERRY_POUCH: defines.require('POCKET_BERRY_POUCH'),
       },
       (item) => pokemon.itemPocket(item),
       () => this.setFlag('FLAG_SYS_GOT_BERRY_POUCH'),
@@ -53,19 +57,20 @@ export class GameState {
   }
 
   /**
-   * GiveMonToPlayer: OT is the player; first free party slot. Returns MON_GIVEN_TO_PARTY (0), or
-   * MON_CANT_GIVE (2) when the party is full (the PC isn't implemented yet).
+   * GiveMonToPlayer: OT is the player; first free party slot. When the party is full the GBA calls
+   * SendMonToPC; PC storage doesn't exist yet, so that case returns MON_CANT_GIVE.
    */
   giveMon(mon: Pokemon): number {
+    const c = this.pokemon.c;
     mon.otName = this.playerName;
     mon.otGender = this.playerGender;
     mon.otId = this.trainerId;
-    if (this.party.length >= PARTY_SIZE) {
-      console.warn('[state] party full; PC storage not implemented');
-      return 2;
+    if (this.party.length >= c.PARTY_SIZE) {
+      console.warn('[state] party full; SendMonToPC not implemented');
+      return c.MON_CANT_GIVE;
     }
     this.party.push(mon);
-    return 0;
+    return c.MON_GIVEN_TO_PARTY;
   }
 
   /** GetSetPokedexFlag(FLAG_SET_SEEN / FLAG_SET_CAUGHT) */

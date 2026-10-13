@@ -1,18 +1,32 @@
 import type { ItemInfo, MoveInfo, PokemonTables, SpeciesInfo } from '../data/types';
+import type { Defines } from '../script/Defines';
 import type { Charmap } from '../text/charmap';
 import { random, random32 } from '../util/random';
 
-// include/constants/pokemon.h
-export const MAX_LEVEL = 100;
-export const MAX_MON_MOVES = 4;
-export const PARTY_SIZE = 6;
-export const NUM_NATURES = 25;
-export const USE_RANDOM_IVS = 32;
-const MAX_IV_MASK = 31;
-export const MON_MALE = 0x00;
-export const MON_FEMALE = 0xfe;
-export const MON_GENDERLESS = 0xff;
-const SPECIES_SHEDINJA = 303;
+const CONSTANT_NAMES = [
+  'MAX_LEVEL',
+  'MAX_MON_MOVES',
+  'PARTY_SIZE',
+  'NUM_NATURES',
+  'USE_RANDOM_IVS',
+  'MAX_IV_MASK',
+  'MON_MALE',
+  'MON_FEMALE',
+  'MON_GENDERLESS',
+  'SPECIES_SHEDINJA',
+  'SPECIES_EGG',
+  'ITEM_POKE_BALL',
+  'MON_GIVEN_TO_PARTY',
+  'MON_GIVEN_TO_PC',
+  'MON_CANT_GIVE',
+] as const;
+
+/** Constants from include/constants (pokemon.h, species.h, items.h), read from the extracted defines. */
+export type PokemonConstants = Record<(typeof CONSTANT_NAMES)[number], number>;
+
+export function readPokemonConstants(defines: Defines): PokemonConstants {
+  return Object.fromEntries(CONSTANT_NAMES.map((n) => [n, defines.require(n)])) as PokemonConstants;
+}
 
 /** Stat order of struct Pokemon and sNatureStatTable (STAT_HP .. STAT_SPDEF). */
 export const STATS = ['hp', 'attack', 'defense', 'speed', 'spAttack', 'spDefense'] as const;
@@ -48,6 +62,7 @@ export interface Pokemon {
   evs: StatBlock;
   abilityNum: number;
   metLevel: number;
+  /** MAPSEC_* name; the GBA stores the numeric map section id. */
   metLocation: string;
   pokeball: number;
   isEgg: boolean;
@@ -74,6 +89,7 @@ export class PokemonData {
   private names = new Map<number, number[]>();
 
   constructor(
+    readonly c: PokemonConstants,
     readonly species: SpeciesInfo[],
     readonly moves: MoveInfo[],
     readonly items: ItemInfo[],
@@ -105,6 +121,7 @@ export class PokemonData {
     const info = this.species[speciesId];
     const personality = opts.personality ?? random32();
     let ivs: StatBlock;
+    const { USE_RANDOM_IVS, MAX_IV_MASK } = this.c;
     if ((opts.fixedIV ?? USE_RANDOM_IVS) < USE_RANDOM_IVS) {
       const v = opts.fixedIV!;
       ivs = { hp: v, attack: v, defense: v, speed: v, spAttack: v, spDefense: v };
@@ -139,7 +156,7 @@ export class PokemonData {
       abilityNum: info.abilities[1] ? personality & 1 : 0,
       metLevel: level,
       metLocation: opts.metLocation,
-      pokeball: 4, // ITEM_POKE_BALL
+      pokeball: this.c.ITEM_POKE_BALL,
       isEgg: false,
       level,
       status: 0,
@@ -163,7 +180,7 @@ export class PokemonData {
 
   /** GiveMoveToBoxMon */
   giveMove(mon: Pokemon, move: number): number | 'known' | 'full' {
-    for (let i = 0; i < MAX_MON_MOVES; i++) {
+    for (let i = 0; i < this.c.MAX_MON_MOVES; i++) {
       if (!mon.moves[i]) {
         mon.moves[i] = move;
         mon.pp[i] = this.moves[move].pp;
@@ -185,7 +202,7 @@ export class PokemonData {
   levelFromExp(mon: Pokemon): number {
     const table = this.tables.experience[this.species[mon.species].growthRate];
     let level = 1;
-    while (level <= MAX_LEVEL && table[level] <= mon.exp) level++;
+    while (level <= this.c.MAX_LEVEL && table[level] <= mon.exp) level++;
     return level - 1;
   }
 
@@ -197,6 +214,7 @@ export class PokemonData {
     const level = this.levelFromExp(mon);
     mon.level = level;
 
+    const { SPECIES_SHEDINJA } = this.c;
     const newMaxHP =
       mon.species === SPECIES_SHEDINJA
         ? 1
@@ -239,11 +257,12 @@ export class PokemonData {
 
   /** GetNature */
   nature(mon: Pokemon): number {
-    return (mon.personality >>> 0) % NUM_NATURES;
+    return (mon.personality >>> 0) % this.c.NUM_NATURES;
   }
 
   /** GetMonGender / GetGenderFromSpeciesAndPersonality */
   gender(mon: Pokemon): number {
+    const { MON_MALE, MON_FEMALE, MON_GENDERLESS } = this.c;
     const ratio = this.species[mon.species].genderRatio;
     if (ratio === MON_MALE || ratio === MON_FEMALE || ratio === MON_GENDERLESS) return ratio;
     return ratio > (mon.personality & 0xff) ? MON_FEMALE : MON_MALE;
