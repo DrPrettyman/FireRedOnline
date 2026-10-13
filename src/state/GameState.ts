@@ -14,6 +14,9 @@ export class GameState {
   rivalName = 'RIVAL';
   playerGender: 'male' | 'female' = 'male';
   textSpeed: TextSpeed = 'mid';
+  /** gSaveBlock2Ptr->optionsBattleSceneOff / optionsBattleStyle (OPTIONS_BATTLE_STYLE_SET) */
+  battleSceneOff = false;
+  battleStyleSet = false;
 
   private flags = new Set<number>();
   private vars = new Map<number, number>();
@@ -24,6 +27,14 @@ export class GameState {
   trainerId = random32();
   /** NewGameInitData: SetMoney(&gSaveBlock1Ptr->money, 3000) */
   money = 3000;
+  /** AddMoney (money.c): capped at MAX_MONEY. */
+  addMoney(amount: number): void {
+    this.money = Math.min(this.money + amount, 999999);
+  }
+  /** RemoveMoney: floored at 0. */
+  removeMoney(amount: number): void {
+    this.money = Math.max(this.money - amount, 0);
+  }
   /** gPlayerParty: up to PARTY_SIZE mons, no gaps. */
   party: Pokemon[] = [];
   readonly bag: Bag;

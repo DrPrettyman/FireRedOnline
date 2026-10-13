@@ -185,6 +185,16 @@ export class BattleGlobals {
   trainerBattleOpponent_B = 0;
   /** GetCurrentWeather() at battle start (WEATHER_*), for ABILITYEFFECT_SWITCH_IN_WEATHER. */
   overworldWeather = 0;
+  /** GetCurrentMapType() at battle start (MAP_TYPE_*), for the Dive Ball. */
+  mapType = 0;
+  /** battle_setup.c statics: GetTrainerBattleMode() / GetRivalBattleFlags() */
+  trainerBattleMode = 0;
+  rivalBattleFlags = 0;
+  /** sTrainerADefeatSpeech / sTrainerVictorySpeech, encoded */
+  trainerADefeatSpeech?: number[];
+  trainerVictorySpeech?: number[];
+  /** SetMainCallback2(gMain.savedCallback) at the end of ReturnFromBattleToOverworld. */
+  onBattleEnd?: (outcome: number) => void;
 
   constructor(readonly mem: Memory) {
     this.battleScripting = new BattleScripting(mem, mem.symbol('gBattleScripting'));

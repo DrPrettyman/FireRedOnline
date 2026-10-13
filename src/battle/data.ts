@@ -34,6 +34,8 @@ export interface BattleStringsData {
   pointerTables: Record<string, (string | null)[]>;
   /** sGrammarMoveUsedTable */
   grammarMoveUsed: number[];
+  /** gStatusConditionStringsTable: [Japanese status string symbol, English symbol] */
+  statusConditionStrings: [string, string][];
   /** sTextOnWindowsInfo_Normal indexed by B_WIN_* */
   textOnWindows: (BattleWindowText | null)[];
   abilityNames: (string | null)[];
@@ -78,6 +80,8 @@ export interface BattleTablesData {
     trainerBack: ([number, number] | null)[];
     enemyElevation: number[];
   };
+  /** Small mechanics tables from battle_script_commands.c etc., keyed by their C names. */
+  mech: Record<string, unknown>;
 }
 
 export type Rgb = [number, number, number];
