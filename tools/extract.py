@@ -231,6 +231,7 @@ def extract_maps(decomp, out, ts_folders):
             "weather": m.get("weather"),
             "mapType": m.get("map_type"),
             "regionMapSection": m.get("region_map_section"),
+            "battleScene": m.get("battle_scene"),
             "allowCycling": m.get("allow_cycling"),
             "allowRunning": m.get("allow_running"),
             "showMapName": m.get("show_map_name"),
@@ -686,6 +687,9 @@ EXTRA_DEFINE_HEADERS = (
     "include/battle_interface.h", "include/battle_ai_script_commands.h", "include/battle_setup.h",
     "include/battle_anim.h", "include/pokemon.h", "include/characters.h", "include/text.h",
     "include/battle_ai_switch_items.h", "include/battle_util.h", "include/battle_gfx_sfx_util.h",
+    "include/pokeball.h", "include/sprite.h", "include/gba/io_reg.h", "include/bg.h", "include/window.h",
+    "include/palette.h", "include/scanline_effect.h", "include/trainer_pokemon_sprites.h", "include/decompress.h",
+    "include/battle_main.h", "include/gba/types.h", "include/gba/defines.h", "include/menu.h", "include/pokemon_icon.h",
 )
 
 
@@ -994,6 +998,9 @@ def main():
     from extract_battle import extract_battle
 
     extract_battle(decomp, out)
+    print("gfx")
+    from extract_gfx import extract_gfx
+    extract_gfx(decomp, out)
     print("maps + tilesets")
     extract_maps(decomp, out, parse_tileset_symbols(decomp))
 
