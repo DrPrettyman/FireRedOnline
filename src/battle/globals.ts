@@ -169,14 +169,32 @@ export class BattleGlobals {
   multiUsePlayerCursor = 0;
   numberOfMovesToChoose = 0;
   battleControllerData = new Uint8Array(4);
-  battle_BG0_X = 0;
-  battle_BG0_Y = 0;
-  battle_BG1_X = 0;
-  battle_BG1_Y = 0;
-  battle_BG2_X = 0;
-  battle_BG2_Y = 0;
-  battle_BG3_X = 0;
-  battle_BG3_Y = 0;
+  /** gBattle_BG0_X .. gBattle_WIN1V (u16) */
+  private readonly bgRegs = new Uint16Array(12);
+  get battle_BG0_X() { return this.bgRegs[0]; }
+  set battle_BG0_X(v: number) { this.bgRegs[0] = v; }
+  get battle_BG0_Y() { return this.bgRegs[1]; }
+  set battle_BG0_Y(v: number) { this.bgRegs[1] = v; }
+  get battle_BG1_X() { return this.bgRegs[2]; }
+  set battle_BG1_X(v: number) { this.bgRegs[2] = v; }
+  get battle_BG1_Y() { return this.bgRegs[3]; }
+  set battle_BG1_Y(v: number) { this.bgRegs[3] = v; }
+  get battle_BG2_X() { return this.bgRegs[4]; }
+  set battle_BG2_X(v: number) { this.bgRegs[4] = v; }
+  get battle_BG2_Y() { return this.bgRegs[5]; }
+  set battle_BG2_Y(v: number) { this.bgRegs[5] = v; }
+  get battle_BG3_X() { return this.bgRegs[6]; }
+  set battle_BG3_X(v: number) { this.bgRegs[6] = v; }
+  get battle_BG3_Y() { return this.bgRegs[7]; }
+  set battle_BG3_Y(v: number) { this.bgRegs[7] = v; }
+  get battle_WIN0H() { return this.bgRegs[8]; }
+  set battle_WIN0H(v: number) { this.bgRegs[8] = v; }
+  get battle_WIN0V() { return this.bgRegs[9]; }
+  set battle_WIN0V(v: number) { this.bgRegs[9] = v; }
+  get battle_WIN1H() { return this.bgRegs[10]; }
+  set battle_WIN1H(v: number) { this.bgRegs[10] = v; }
+  get battle_WIN1V() { return this.bgRegs[11]; }
+  set battle_WIN1V(v: number) { this.bgRegs[11] = v; }
   /** gPlayerParty / gEnemyParty: PARTY_SIZE slots, undefined = empty (SPECIES_NONE). */
   playerParty: (Pokemon | undefined)[] = [];
   enemyParty: (Pokemon | undefined)[] = [];
@@ -187,6 +205,8 @@ export class BattleGlobals {
   overworldWeather = 0;
   /** GetCurrentMapType() at battle start (MAP_TYPE_*), for the Dive Ball. */
   mapType = 0;
+  /** GetCurrentMapBattleScene() at battle start (MAP_BATTLE_SCENE_*). */
+  mapBattleScene = 0;
   /** battle_setup.c statics: GetTrainerBattleMode() / GetRivalBattleFlags() */
   trainerBattleMode = 0;
   rivalBattleFlags = 0;

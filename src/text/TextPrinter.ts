@@ -1,7 +1,7 @@
 import type { Input } from '../input/Input';
 import { CHAR_NEWLINE, CHAR_PROMPT_CLEAR, CHAR_PROMPT_SCROLL, EOS, EXT_CTRL_CODE_BEGIN, PLACEHOLDER_BEGIN } from './charmap';
 import type { Fonts } from './Font';
-import type { TextWindow } from './TextWindow';
+import type { TextSurface } from './TextWindow';
 
 const CHAR_KEYPAD_ICON = 0xf8;
 const CHAR_EXTRA_SYMBOL = 0xf9;
@@ -97,7 +97,7 @@ export class TextPrinter {
   private arrowFrame = 0;
 
   constructor(
-    private window: TextWindow,
+    private window: TextSurface,
     private fonts: Fonts,
     private input: Input,
     private arrowSheet: ImageData,
@@ -356,7 +356,7 @@ export class TextPrinter {
 }
 
 /** DrawDownArrow: a 10x12 cell of the arrow sheet; frames step through x = 0,16,32,16. */
-export function drawDownArrowAt(window: TextWindow, sheet: ImageData, x: number, y: number, bg: number, frame: number): void {
+export function drawDownArrowAt(window: TextSurface, sheet: ImageData, x: number, y: number, bg: number, frame: number): void {
   window.fillRect(x, y, 10, 12, bg);
   window.blit(sheet, DOWN_ARROW_FRAMES[frame & 3], 0, x, y, 10, 12, bg);
 }

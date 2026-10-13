@@ -6,7 +6,8 @@ import { EOS, EXT_CTRL_CODE_BEGIN, PLACEHOLDER_BEGIN } from '../text/charmap';
 import { expandPlaceholders } from '../text/placeholders';
 import { K } from './constants';
 import type { BattleMsgData } from './controllers';
-import { bdata, charmap, g, gBattleMoves, pokemon, state } from './env';
+import { bdata, charmap, g, gBattleMoves, pokemon, state, textStrings } from './env';
+import { ConvertIntToDecimalStringN, STR_CONV_MODE_LEFT_ALIGN } from './stringUtil';
 import { getBattlerAtPosition, getBattlerSide, setBattleStringEncoder } from './util';
 
 const encoded = new Map<string, number[]>();
@@ -15,7 +16,7 @@ const encoded = new Map<string, number[]>();
 export function encodeBattleText(sym: string): number[] {
   let e = encoded.get(sym);
   if (!e) {
-    const raw = bdata.strings.strings[sym];
+    const raw = bdata.strings.strings[sym] ?? textStrings[sym];
     if (raw === undefined) console.warn(`[battle] missing string ${sym}`);
     e = charmap.encode(raw ?? '$');
     encoded.set(sym, e);
@@ -378,9 +379,7 @@ function expandBattleTextBuffPlaceholders(src: ArrayLike<number>): number[] {
             value = (u16At(src, srcId + 3) | (u16At(src, srcId + 5) << 16)) >>> 0;
             break;
         }
-        // ConvertIntToDecimalStringN(STR_CONV_MODE_LEFT_ALIGN, n digits): keeps the low n digits
-        const digits = src[srcId + 2];
-        append(charmap.encodePlain(String(value % 10 ** digits)));
+        append(ConvertIntToDecimalStringN(value, STR_CONV_MODE_LEFT_ALIGN, src[srcId + 2]));
         srcId += src[srcId + 1] + 3;
         break;
       }

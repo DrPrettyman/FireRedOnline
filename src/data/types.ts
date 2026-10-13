@@ -66,6 +66,8 @@ export interface MapData {
   weather: string | null;
   mapType: string | null;
   regionMapSection: string | null;
+  /** MAP_BATTLE_SCENE_* (GetCurrentMapBattleScene) */
+  battleScene: string | null;
   allowCycling: boolean;
   allowRunning: boolean;
   showMapName: boolean;

@@ -21,6 +21,12 @@ export let gSpeciesInfo: SpeciesInfo[];
 /** gBattleMoves */
 export let gBattleMoves: MoveInfo[];
 export let gItems: ItemInfo[];
+/** C strings from src/strings.c (text/strings.json), for the gText_* battle code also uses. */
+export let textStrings: Record<string, string> = {};
+
+export function setTextStrings(t: Record<string, string>): void {
+  textStrings = t;
+}
 
 export function initBattleEnv(data: BattleData, defines: Record<string, number>, pk: PokemonData, gs: GameState, cm: Charmap): void {
   initConstants(defines);

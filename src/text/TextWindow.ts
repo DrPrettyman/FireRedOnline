@@ -5,12 +5,25 @@ export const DEPTH_UI = 2_000_000;
 
 let nextId = 0;
 
+/** What TextPrinter draws on: colour indices into a 16-colour palette (0 = transparent). */
+export interface TextSurface {
+  readonly width: number;
+  readonly height: number;
+  fill(color: number): void;
+  fillRect(x: number, y: number, w: number, h: number, color: number): void;
+  /** Returns the glyph width. */
+  drawGlyph(font: Font, code: number, x: number, y: number, fg: number, bg: number, shadow: number): number;
+  /** The down-arrow blit: a region of the arrow sheet. */
+  blit(src: ImageData, sx: number, sy: number, dx: number, dy: number, w: number, h: number, bg: number): void;
+  scrollUp(dy: number, color: number): void;
+}
+
 /**
  * A GBA "window": an RGBA pixel buffer backed by a canvas texture, drawn in screen space.
  * Colours are indices into the window palette (stdpal_0), like the GBA's 4bpp BG windows.
  * Colour 0 is transparent.
  */
-export class TextWindow {
+export class TextWindow implements TextSurface {
   readonly image: Phaser.GameObjects.Image;
   private texture: Phaser.Textures.CanvasTexture;
   private imageData: ImageData;
