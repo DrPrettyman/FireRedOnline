@@ -528,8 +528,8 @@ def strip_comment(line):
 
 
 def eval_const_expr(expr, known):
-    """Evaluate a C constant expression made of numbers, known names and + - * / << >> | &."""
-    tokens = re.findall(r"0x[0-9A-Fa-f]+|\d+|\w+|<<|>>|[()+\-*/|&]", expr)
+    """Evaluate a C constant expression made of numbers, known names and + - * / << >> | & ~ ^."""
+    tokens = re.findall(r"0x[0-9A-Fa-f]+|\d+|\w+|<<|>>|[()+\-*/|&~^]", expr)
     out = []
     for t in tokens:
         if re.fullmatch(r"0x[0-9A-Fa-f]+|\d+", t):
@@ -680,24 +680,36 @@ def extract_scripts(decomp, out):
 # ---------------------------------------------------------------- pokemon, moves, items
 
 
+# Non-constants headers whose #defines and enums the battle engine needs (B_ACTION_*, CONTROLLER_*, ...).
+EXTRA_DEFINE_HEADERS = (
+    "include/global.h", "include/battle.h", "include/battle_controllers.h", "include/battle_message.h",
+    "include/battle_interface.h", "include/battle_ai_script_commands.h", "include/battle_setup.h",
+    "include/battle_anim.h", "include/pokemon.h", "include/characters.h", "include/text.h",
+    "include/battle_ai_switch_items.h", "include/battle_util.h", "include/battle_gfx_sfx_util.h",
+)
+
+
 def parse_defines(decomp):
-    """Numeric #defines from include/constants (incl. simple expressions and aliases)."""
+    """Numeric #defines and enum values from include/constants and the battle headers
+    (incl. simple expressions and aliases)."""
     defines = {}
-    headers = sorted((decomp / "include/constants").glob("*.h")) + [decomp / "include/global.h"]
-    for hdr in headers:
-        for name, val in re.findall(r"^#define\s+(\w+)\s+\(?(-?(?:0x[0-9A-Fa-f]+|\d+))\)?\s*(?://.*)?$", hdr.read_text(errors="ignore"), re.M):
+    headers = sorted((decomp / "include/constants").glob("*.h")) + [decomp / h for h in EXTRA_DEFINE_HEADERS]
+    texts = [re.sub(r"/\*.*?\*/", "", hdr.read_text(errors="ignore"), flags=re.S) for hdr in headers if hdr.exists()]
+    for text in texts:
+        for name, val in re.findall(r"^#define\s+(\w+)\s+\(?(-?(?:0x[0-9A-Fa-f]+|\d+))\)?\s*(?://.*)?$", text, re.M):
             defines.setdefault(name, int(val, 0))
     # Assembler symbols such as MSGBOX_NPC = 2 / STD_OBTAIN_ITEM = 0 live in the event macros.
     for name, val in re.findall(r"^\s*(\w+)\s*=\s*(\d+)\s*$", (decomp / "asm/macros/event.inc").read_text(), re.M):
         defines.setdefault(name, int(val))
     # Resolve aliases and simple arithmetic (#define FLAG_X (SYS_FLAGS + 0x90)) until nothing changes.
     pending = {}
-    for hdr in headers:
-        for name, expr in re.findall(r"^#define\s+(\w+)\s+(.+?)\s*(?://.*)?$", hdr.read_text(errors="ignore"), re.M):
-            if name not in defines and re.fullmatch(r"[\w\s()+\-*/<>|&]+", expr):
+    for text in texts:
+        for name, expr in re.findall(r"^#define\s+(\w+)\s+(.+?)\s*(?://.*)?$", text, re.M):
+            if name not in defines and re.fullmatch(r"[\w\s()+\-*/<>|&~^]+", expr):
                 pending[name] = expr
+    enums = [body for text in texts for body in re.findall(r"\benum\s*\w*\s*\{(.*?)\}", text, re.S)]
     progress = True
-    while progress and pending:
+    while progress:
         progress = False
         for name, expr in list(pending.items()):
             v = eval_const_expr(expr, defines)
@@ -705,6 +717,24 @@ def parse_defines(decomp):
                 defines[name] = v
                 del pending[name]
                 progress = True
+        # enum { A, B = X + 1, C }: values follow the previous one; stop at an unresolvable expression.
+        for body in enums:
+            value = -1
+            for entry in re.sub(r"//[^\n]*", "", body).split(","):
+                entry = entry.strip()
+                m = re.fullmatch(r"(\w+)(?:\s*=\s*(.+))?", entry, re.S)
+                if not m:
+                    continue
+                if m.group(2) is not None:
+                    v = eval_const_expr(m.group(2), defines)
+                    if v is None:
+                        break
+                    value = v
+                else:
+                    value += 1
+                if m.group(1) not in defines:
+                    defines[m.group(1)] = value
+                    progress = True
     return defines
 
 
@@ -960,6 +990,10 @@ def main():
     extract_object_events(decomp, out)
     print("pokemon")
     extract_pokemon(decomp, out)
+    print("battle")
+    from extract_battle import extract_battle
+
+    extract_battle(decomp, out)
     print("maps + tilesets")
     extract_maps(decomp, out, parse_tileset_symbols(decomp))
 
