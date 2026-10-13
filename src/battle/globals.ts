@@ -183,6 +183,8 @@ export class BattleGlobals {
   /** gBattlePartyCurrentOrder (party_menu.c) */
   battlePartyCurrentOrder = new Uint8Array(3);
   trainerBattleOpponent_B = 0;
+  /** GetCurrentWeather() at battle start (WEATHER_*), for ABILITYEFFECT_SWITCH_IN_WEATHER. */
+  overworldWeather = 0;
 
   constructor(readonly mem: Memory) {
     this.battleScripting = new BattleScripting(mem, mem.symbol('gBattleScripting'));
