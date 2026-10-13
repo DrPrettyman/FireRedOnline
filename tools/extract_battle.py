@@ -156,6 +156,47 @@ def c_strings(text):
     return out
 
 
+def item_effects(decomp, defines):
+    """gItemEffectTable (src/data/pokemon/item_effects.h) -> {ITEM id: effect bytes}."""
+    text = (decomp / "src/data/pokemon/item_effects.h").read_text()
+    text = re.sub(r"/\*.*?\*/", "", re.sub(r"//[^\n]*", "", text), flags=re.S)
+    # Expand the file's own #define macros (VITAMIN_FRIENDSHIP_CHANGE(i), STAT_BOOST_FRIENDSHIP_CHANGE).
+    macros = {}
+    for name, params, body in re.findall(r"#define (\w+)(?:\(([^)]*)\))?((?:[^\n]*\\\n)*[^\n]*)", text):
+        macros[name] = ([p.strip() for p in params.split(",")] if params else None, body.replace("\\\n", " "))
+    text = re.sub(r"#define (\w+)(?:\(([^)]*)\))?((?:[^\n]*\\\n)*[^\n]*)", "", text)
+    for name, (params, body) in macros.items():
+        if params is None:
+            text = re.sub(rf"\b{name}\b", body, text)
+        else:
+            def expand(m, params=params, body=body):
+                out = body
+                for p, a in zip(params, m.group(1).split(",")):
+                    out = re.sub(rf"\b{p}\b", a.strip(), out)
+                return out
+            text = re.sub(rf"\b{name}\(([^)]*)\)", expand, text)
+    # ITEM6_HEAL_HP_FULL etc. are `((u8) -n)`
+    known = dict(defines, ITEM6_HEAL_HP_FULL=0xFF, ITEM6_HEAL_HP_HALF=0xFE, ITEM6_HEAL_HP_LVL_UP=0xFD)
+    defines = known
+    arrays = {}
+    for name, size, body in re.findall(r"static const u8 (\w+)\[(\w+)\]\s*=\s*\{(.*?)\};", text, re.S):
+        out = [0] * eval_const_expr(size, defines)
+        pos = 0
+        for entry in [e.strip() for e in body.split(",") if e.strip()]:
+            m = re.fullmatch(r"\[(.+?)\]\s*=\s*(.+)", entry, re.S)
+            if m:
+                pos = eval_const_expr(m.group(1), defines)
+                entry = m.group(2)
+            out[pos] = eval_const_expr(entry, defines) & 0xFF
+            pos += 1
+        arrays[name] = out
+    table = {}
+    for key, sym in re.findall(r"\[(\w+)\s*-\s*ITEM_POTION\]\s*=\s*(\w+)", c_array_body(text, "gItemEffectTable")):
+        if sym in arrays:
+            table[defines[key]] = arrays[sym]
+    return table
+
+
 def c_array_body(text, name):
     m = re.search(rf"\b{name}\s*\[[^\]]*\](?:\[[^\]]*\])?\s*=\s*\{{", text)
     if not m:
@@ -206,6 +247,9 @@ MECHANICS_TABLES = [
     ("src/pokemon.c", "gPPUpGetMask"),
     ("src/pokemon.c", "gPPUpClearMask"),
     ("src/battle_message.c", "gTrappingMoves"),
+    ("src/overworld.c", "sWhiteOutMoneyLossMultipliers"),
+    ("src/overworld.c", "sWhiteOutMoneyLossBadgeFlagIDs"),
+    ("src/pokemon.c", "sHMMoves"),
 ]
 # Tables of battle script pointers: (file, symbol) -> list of label names.
 SCRIPT_POINTER_TABLES = [
@@ -344,7 +388,11 @@ def extract_battle(decomp, out):
     (bd / "scripts.json").write_text(json.dumps(scripts, separators=(",", ":")))
 
     # ------------------------------------------------------------ strings
+    main_c_text = (decomp / "src/battle_main.c").read_text()
     strings = c_strings(msg_c)
+    strings.update(c_strings(main_c_text))  # gStatusConditionString_*Jpn
+    # gStatusConditionStringsTable: [Japanese status string, English replacement] pairs.
+    status_strings = re.findall(r"\{(\w+),\s*(\w+)\}", c_array_body(main_c_text, "gStatusConditionStringsTable"))
     table_body = c_array_body(msg_c, "gBattleStringsTable")
     start = defines["BATTLESTRINGS_TABLE_START"]
     battle_strings = {}
@@ -379,6 +427,7 @@ def extract_battle(decomp, out):
         "stringIdTables": string_tables,
         "pointerTables": pointer_tables,
         "grammarMoveUsed": grammar,
+        "statusConditionStrings": [list(p) for p in status_strings],
         "textOnWindows": windows,
         "abilityNames": c_list_of_strings(misc_names, "gAbilityNames", defines),
         "typeNames": c_list_of_strings((decomp / "src/battle_main.c").read_text(), "gTypeNames", defines),
@@ -413,6 +462,17 @@ def extract_battle(decomp, out):
             labels += [None] * (idx + 1 - len(labels))
             labels[idx] = label
         mech[name] = labels
+    # gPokedexEntries height/weight by national dex number (GetPokedexHeightWeight, Low Kick).
+    dex_hw = []
+    for key, body in c_initializers((decomp / "src/data/pokemon/pokedex_entries.h").read_text(), "gPokedexEntries").items():
+        idx = defines.get(key)
+        if idx is None:
+            continue
+        f = dict(re.findall(r"\.(height|weight)\s*=\s*(\d+)", body))
+        dex_hw += [None] * (idx + 1 - len(dex_hw))
+        dex_hw[idx] = [int(f.get("height", 0)), int(f.get("weight", 0))]
+    mech["pokedexHeightWeight"] = dex_hw
+    mech["itemEffects"] = item_effects(decomp, defines)
     tables = {"typeEffectiveness": type_chart, "trainerMoney": money, "statStageRatios": stat_ratios, "trainers": trainers, "coords": coords, "mech": mech}
     (bd / "tables.json").write_text(json.dumps(tables, ensure_ascii=False, separators=(",", ":")))
 
