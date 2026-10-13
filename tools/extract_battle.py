@@ -473,8 +473,16 @@ def extract_battle(decomp, out):
         dex_hw[idx] = [int(f.get("height", 0)), int(f.get("weight", 0))]
     mech["pokedexHeightWeight"] = dex_hw
     mech["itemEffects"] = item_effects(decomp, defines)
+    # trig.c: gSineTable (Q8.8) and gSineDegreeTable (Q4.12)
+    trig_c = (decomp / "src/trig.c").read_text()
+    for name, macro, scale in (("gSineTable", "Q_8_8", 256), ("gSineDegreeTable", "Q_4_12", 4096)):
+        body = re.sub(r"//[^\n]*", "", c_array_body(trig_c, name))
+        mech[name] = [int(float(v) * scale) for v in re.findall(macro + r"\(\s*(-?[\d.]+)\s*\)", body)]
     tables = {"typeEffectiveness": type_chart, "trainerMoney": money, "statStageRatios": stat_ratios, "trainers": trainers, "coords": coords, "mech": mech}
     (bd / "tables.json").write_text(json.dumps(tables, ensure_ascii=False, separators=(",", ":")))
+    from extract_anims import extract_anims
+
+    extract_anims(decomp, out, defines)
 
     # ------------------------------------------------------------ graphics
     n_gfx = extract_battle_graphics(decomp, bd, defines)
