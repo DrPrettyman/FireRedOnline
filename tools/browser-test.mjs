@@ -6,6 +6,7 @@
 //   key:<Code>:<ms>        press and hold a key for ms (Code: ArrowUp, KeyZ, KeyX, Enter, Backspace, KeyA, KeyS, Backquote)
 //   down:<Code> / up:<Code> hold / release a key across other steps
 //   eval:<js>              evaluate JS in the page and print the JSON result (dev builds expose window.game)
+//   mash:<js>              press A (Z, held 300ms) until <js> is truthy, up to 300 presses; prints how many it took
 //   shot:<name>            save a screenshot to <outPrefix>-<name>.png
 // Console warnings/errors from the page are printed as [console] lines.
 //
@@ -39,6 +40,16 @@ for (const s of steps) {
     if (a === 'Backquote') k.key = '`'; if (a === 'Enter' || a === 'Backspace') k.key = a;
     if (a.startsWith('Arrow')) k.key = a;
     await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...k }); await sleep(+(b ?? 100)); await send('Input.dispatchKeyEvent', { type: 'keyUp', ...k });
+  } else if (cmd === 'mash') {
+    const expr = s.slice(5);
+    const k = { code: 'KeyZ', key: 'z', windowsVirtualKeyCode: 90, nativeVirtualKeyCode: 90 };
+    let n = 0;
+    for (; n < 300; n++) {
+      const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true });
+      if (r.result?.value) break;
+      await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...k }); await sleep(300); await send('Input.dispatchKeyEvent', { type: 'keyUp', ...k }); await sleep(60);
+    }
+    console.log('[mash]', n === 300 ? 'gave up' : `${n} presses`);
   } else if (cmd === 'eval') { const r = await send('Runtime.evaluate', { expression: s.slice(5), returnByValue: true }); console.log('[eval]', JSON.stringify(r.result?.value ?? r.exceptionDetails?.text)); 
   } else if (cmd === 'down' || cmd === 'up') { const k = { code: a, key: a, windowsVirtualKeyCode: keyInfo[a], nativeVirtualKeyCode: keyInfo[a] }; await send('Input.dispatchKeyEvent', { type: cmd === 'down' ? 'rawKeyDown' : 'keyUp', ...k });
   } else if (cmd === 'shot') { const r = await send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(`${out}-${a}.png`, Buffer.from(r.data, 'base64')); console.log('shot', a); }
