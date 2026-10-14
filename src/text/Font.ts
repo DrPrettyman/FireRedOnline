@@ -5,12 +5,14 @@ export const FONT_NORMAL = 2;
 export const FONT_MALE = 4;
 export const FONT_FEMALE = 5;
 
-/** Glyph cell size in the latin font sheets (16 cells per row). */
+/** Glyph cell size in the full-width latin font sheets (16 cells per row). */
 const CELL = 16;
 
 export interface FontInfoData {
   name: string;
   image: string;
+  /** .hwlatfont: 8x16 glyphs, 32 per row (otherwise 16x16 cells, 16 per row). */
+  halfWidth?: boolean;
   widths: number[];
   maxLetterWidth: number;
   maxLetterHeight: number;
@@ -24,6 +26,8 @@ export interface FontInfoData {
 export interface FontsData {
   fonts: Record<string, FontInfoData>;
   windowPalette: [number, number, number][];
+  /** sKeypadIcons: [tile offset into gKeypadIconTiles, width, height] by keypad icon id */
+  keypadIcons: ([number, number, number] | null)[];
 }
 
 /** Glyph pixel values: 0 = background, 1 = foreground, 2 = shadow (sFontHalfRowLookupTable order). */
@@ -60,10 +64,14 @@ export class Font {
 
   /** Glyph pixel value at (x, y) within the glyph for charmap byte `code`. */
   pixel(code: number, x: number, y: number): number {
+    if (this.info.halfWidth) {
+      if (x >= 8 || y >= 16) return 0;
+      return this.pixels[(Math.floor(code / 32) * 16 + y) * this.sheetWidth + (code % 32) * 8 + x];
+    }
     if (this.id === FONT_SMALL) {
-      // DecompressGlyph_Small: glyphs are two 8x8 tiles, 0x10 u16s apart, so each 16x16 latfont
-      // cell holds two: the even glyph is the cell's top tiles (top-left above top-right), the odd
-      // glyph its bottom tiles.
+      // The older latin_small.latfont sheet (DecompressGlyph_Small): glyphs are two 8x8 tiles, 0x10
+      // u16s apart, so each 16x16 cell holds two: the even glyph is the cell's top tiles (top-left
+      // above top-right), the odd glyph its bottom tiles.
       const cell = code >> 1;
       const cx = (cell % 16) * CELL + (y >= 8 ? 8 : 0);
       const cy = Math.floor(cell / 16) * CELL + (code & 1) * 8 + (y & 7);
@@ -79,9 +87,11 @@ export class Font {
 export class Fonts {
   private fonts = new Map<number, Font>();
   readonly windowPalette: [number, number, number][];
+  readonly keypadIcons: ([number, number, number] | null)[];
 
   constructor(scene: Phaser.Scene, data: FontsData) {
     this.windowPalette = data.windowPalette;
+    this.keypadIcons = data.keypadIcons ?? [];
     for (const [id, info] of Object.entries(data.fonts)) {
       const img = scene.textures.get(fontTextureKey(info.image)).getSourceImage() as HTMLImageElement;
       this.fonts.set(Number(id), new Font(Number(id), info, img));

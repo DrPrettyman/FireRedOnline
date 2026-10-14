@@ -1,9 +1,10 @@
-// What a host scene does before the party menu or bag can run: load menus.json, preload every
-// graphic the two screens can touch (graphics are fetched asynchronously, the screens use them
+// What a host scene does before the party menu, bag or summary screen can run: load menus.json, preload every
+// graphic the screens can touch (graphics are fetched asynchronously, the screens use them
 // synchronously), and point the menu helpers at the save-block options and string tables.
 // Call after initBattleEnv (the K constants and battle data are needed).
 
 import { K } from '../battle/constants';
+import { ballGfxSymbols, monPalSymbols, monPicSymbol } from '../battle/gfx';
 import { loadGfx } from '../gba/gfx';
 import { menuEnv } from '../gba/menu';
 import { setStringVarLookup } from '../gba/window';
@@ -13,6 +14,7 @@ import { StringExpandPlaceholders, text } from './common';
 import { loadMenusData } from './data';
 import { itemIconSymbols } from './itemMenuIcons';
 import { GetIconSpecies, monIconSymbol } from './pokemonIcon';
+import { SUMMARY_SCREEN_GFX } from './summaryScreen';
 
 const PARTY_MENU_GFX = [
   'gPartyMenuBg_Gfx',
@@ -53,11 +55,17 @@ const BAG_GFX = [
   'sRedArrowPal',
 ];
 
-const WINDOW_GFX = ['gMenuMessageWindow_Gfx', 'gStdTextWindow_Gfx', 'gTextWindowPalettes', 'gHelpMessageWindow_Gfx', 'sDownArrowTiles'];
+const WINDOW_GFX = ['gMenuMessageWindow_Gfx', 'gStdTextWindow_Gfx', 'gTextWindowPalettes', 'gHelpMessageWindow_Gfx', 'sDownArrowTiles', 'gKeypadIconTiles'];
 
-/** Every graphics symbol the party menu and bag can load for this save. */
+/** Every graphics symbol the party menu, bag and summary screen can load for this save. */
 export function menuGfxSymbols(state: GameState): string[] {
-  const syms = new Set<string>([...PARTY_MENU_GFX, ...BAG_GFX, ...WINDOW_GFX]);
+  const syms = new Set<string>([...PARTY_MENU_GFX, ...BAG_GFX, ...WINDOW_GFX, ...SUMMARY_SCREEN_GFX, ...ballGfxSymbols()]);
+  // Summary screen front pics and their palettes (normal and shiny).
+  for (const mon of state.party) {
+    const species = mon.isEgg ? K.SPECIES_EGG : mon.species;
+    syms.add(monPicSymbol(true, species, mon.personality));
+    for (const p of monPalSymbols(species)) syms.add(p);
+  }
   const frame = `sUserFrame_Type${state.optionsWindowFrameType + 1}`;
   syms.add(`${frame}_Gfx`).add(`${frame}_Pal`);
   syms.add(monIconSymbol(K.SPECIES_EGG));

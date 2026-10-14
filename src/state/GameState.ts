@@ -50,6 +50,8 @@ export class GameState {
   nationalDexEnabled = false;
   /** GetCurrentRegionMapSectionId(), kept current by the overworld. */
   currentMapSection = 'MAPSEC_NONE';
+  /** gSaveBlock1Ptr->location as a MAP_* name, kept current by the overworld. */
+  currentMap = '';
 
   constructor(
     readonly defines: Defines,

@@ -116,6 +116,8 @@ export interface Constants {
 
 /** gSpeciesInfo entry + name + level-up learnset (pokemon/species.json, indexed by SPECIES_* id). */
 export interface SpeciesInfo {
+  /** gSpeciesInfo[].noFlip: the summary screen and trade scene show the pic unflipped */
+  noFlip?: boolean;
   id: string;
   name: string;
   nationalDex?: number;

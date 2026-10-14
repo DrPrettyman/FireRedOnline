@@ -1,0 +1,99 @@
+// trainer_pokemon_sprites.c: front/back pic sprites outside battle (summary screen, Hall of Fame,
+// trainer card). Only the Pokémon half is ported; trainer pics warn. ignoreDeoxys has no effect:
+// FireRed's Deoxys pic is its Normal form either way.
+
+import { animTable, GetMonSpritePalFromSpeciesAndPersonality, GetMonSpritePalStructFromOtIdPersonality, LoadSpecialPokePic } from '../battle/gfx';
+import { LoadPalette, OBJ_PLTT_ID, PLTT_SIZE_4BPP } from '../gba/palette';
+import {
+  CreateSprite,
+  DestroySprite,
+  FreeSpritePaletteByTag,
+  gDummySpriteAffineAnimTable,
+  GetSpritePaletteTagByPaletteNum,
+  gSprites,
+  LoadCompressedSpritePalette,
+  oam,
+  SPRITE_SHAPE,
+  TAG_NONE,
+  type Sprite,
+  type SpriteFrameImage,
+  type SpriteTemplate,
+} from '../gba/sprite';
+
+interface PicData {
+  frames: Uint8Array | null;
+  images: SpriteFrameImage[] | null;
+  paletteTag: number;
+  spriteId: number;
+  active: boolean;
+}
+
+const PICS_COUNT = 8;
+const sDummyPicData = (): PicData => ({ frames: null, images: null, paletteTag: 0, spriteId: 0, active: false });
+const sSpritePics: PicData[] = Array.from({ length: PICS_COUNT }, sDummyPicData);
+
+const sOamData_Normal = oam({ shape: SPRITE_SHAPE['64x64'][0], size: SPRITE_SHAPE['64x64'][1] });
+
+export function DummyPicSpriteCallback(_sprite: Sprite): void {}
+
+export function ResetAllPicSprites(): boolean {
+  for (let i = 0; i < PICS_COUNT; i++) sSpritePics[i] = sDummyPicData();
+  return false;
+}
+
+function CreatePicSprite(species: number, otId: number, personality: number, isFrontPic: boolean, x: number, y: number, paletteSlot: number, paletteTag: number, isTrainer: boolean): number {
+  if (isTrainer) {
+    console.warn('[trainer_pokemon_sprites] trainer pic sprites are not implemented');
+    return 0xffff;
+  }
+  let i = 0;
+  for (; i < PICS_COUNT; i++) if (!sSpritePics[i].active) break;
+  if (i === PICS_COUNT) return 0xffff;
+
+  const framePics = new Uint8Array(4 * 0x800);
+  LoadSpecialPokePic(isFrontPic, species, personality, framePics);
+  const images: SpriteFrameImage[] = [0, 1, 2, 3].map((j) => ({ data: framePics.subarray(0x800 * j, 0x800 * (j + 1)), size: 0x800 }));
+  const template: SpriteTemplate = {
+    tileTag: TAG_NONE,
+    paletteTag: TAG_NONE,
+    oam: sOamData_Normal,
+    anims: animTable('data.c', 'gAnims_MonPic'), // AssignSpriteAnimsTable
+    images,
+    affineAnims: gDummySpriteAffineAnimTable,
+    callback: DummyPicSpriteCallback,
+  };
+  // LoadPicPaletteByTagOrSlot
+  if (paletteTag === TAG_NONE) {
+    LoadPalette(GetMonSpritePalFromSpeciesAndPersonality(species, otId, personality), OBJ_PLTT_ID(paletteSlot), PLTT_SIZE_4BPP);
+  } else {
+    const pal = GetMonSpritePalStructFromOtIdPersonality(species, otId, personality);
+    template.paletteTag = pal.tag;
+    LoadCompressedSpritePalette(pal);
+  }
+  const spriteId = CreateSprite(template, x, y, 0);
+  if (paletteTag === TAG_NONE) gSprites[spriteId].oam.paletteNum = paletteSlot;
+  sSpritePics[i] = { frames: framePics, images, paletteTag, spriteId, active: true };
+  return spriteId;
+}
+
+function FreeAndDestroyPicSpriteInternal(spriteId: number): number {
+  let i = 0;
+  for (; i < PICS_COUNT; i++) if (sSpritePics[i].spriteId === spriteId) break;
+  if (i === PICS_COUNT) return 0xffff;
+  if (sSpritePics[i].paletteTag !== TAG_NONE) FreeSpritePaletteByTag(GetSpritePaletteTagByPaletteNum(gSprites[spriteId].oam.paletteNum));
+  DestroySprite(gSprites[spriteId]);
+  sSpritePics[i] = sDummyPicData();
+  return 0;
+}
+
+export function CreateMonPicSprite(species: number, otId: number, personality: number, isFrontPic: boolean, x: number, y: number, paletteSlot: number, paletteTag: number, _ignoreDeoxys: boolean): number {
+  return CreatePicSprite(species, otId, personality, isFrontPic, x, y, paletteSlot, paletteTag, false);
+}
+
+export function CreateMonPicSprite_HandleDeoxys(species: number, otId: number, personality: number, isFrontPic: boolean, x: number, y: number, paletteSlot: number, paletteTag: number): number {
+  return CreateMonPicSprite(species, otId, personality, isFrontPic, x, y, paletteSlot, paletteTag, false);
+}
+
+export function FreeAndDestroyMonPicSprite(spriteId: number): number {
+  return FreeAndDestroyPicSpriteInternal(spriteId);
+}

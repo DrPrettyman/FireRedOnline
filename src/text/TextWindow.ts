@@ -16,6 +16,8 @@ export interface TextSurface {
   /** The down-arrow blit: a region of the arrow sheet. */
   blit(src: ImageData, sx: number, sy: number, dx: number, dy: number, w: number, h: number, bg: number): void;
   scrollUp(dy: number, color: number): void;
+  /** DrawKeypadIcon: returns the icon width (surfaces without the icon tiles skip it). */
+  drawKeypadIcon?(icon: [number, number, number], x: number, y: number): number;
 }
 
 /**

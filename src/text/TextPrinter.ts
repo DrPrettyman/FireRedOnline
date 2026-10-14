@@ -221,9 +221,13 @@ export class TextPrinter {
       case CHAR_EXTRA_SYMBOL:
         c = this.next() | 0x100;
         break;
-      case CHAR_KEYPAD_ICON:
-        this.pos++; // keypad icons not yet supported
+      case CHAR_KEYPAD_ICON: {
+        const icon = this.fonts.keypadIcons[this.next()];
+        const w = icon ? (this.window.drawKeypadIcon?.(icon, this.currentX, this.currentY) ?? 0) : 0;
+        // currentX += width + letterSpacing (the template's; the latin fonts' is 0)
+        this.currentX += w + this.fonts.get(this.glyphId).info.letterSpacing;
         return Result.Print;
+      }
     }
 
     const font = this.fonts.get(this.glyphId);

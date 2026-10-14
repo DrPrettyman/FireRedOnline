@@ -19,3 +19,13 @@ export function IsFanfareTaskInactive(): boolean {
 export function IsSEPlaying(): boolean {
   return false;
 }
+
+/** PlayCry_ByMode: no cries yet. */
+export function PlayCry_ByMode(_species: number, _pan: number, _mode: number): void {}
+
+export function StopCryAndClearCrySongs(): void {}
+
+/** IsCryPlayingOrClearCrySongs: TRUE while a cry is playing. */
+export function IsCryPlayingOrClearCrySongs(): boolean {
+  return false;
+}

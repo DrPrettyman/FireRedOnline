@@ -1,7 +1,4 @@
-// What battle code needs from outside the emulated GBA video layer: input, audio, save data and
-// screens that don't exist in the battle (summary). BattleScene implements it.
-
-import type { Pokemon } from '../pokemon/Pokemon';
+// What battle code needs from outside the emulated GBA video layer: input, audio and save data. BattleScene implements it.
 
 export type GbaButton = 'A' | 'B' | 'START' | 'SELECT' | 'L' | 'R' | 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
 
@@ -23,11 +20,6 @@ export interface BattleUi {
   addBagItem(itemId: number, count: number): void;
   /** gSaveBlock2Ptr->playerGender (MALE 0 / FEMALE 1, which is also the TRAINER_BACK_PIC id) */
   playerGender(): number;
-  /**
-   * ShowSelectMovePokemonSummaryScreen + GetMoveSlotToReplace: start choosing a move to forget;
-   * poll() returns undefined while open, then the slot (MAX_MON_MOVES = keep old moves).
-   */
-  selectMoveToForget(mon: Pokemon, moveToLearn: number): { poll(): number | undefined };
 }
 
 export let ui: BattleUi;

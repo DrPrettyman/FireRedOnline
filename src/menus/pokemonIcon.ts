@@ -98,6 +98,11 @@ export function SafeLoadMonIconPalette(species: number): void {
   if (IndexOfSpritePaletteTag(POKE_ICON_BASE_PAL_TAG + palIndex) === 0xff) LoadSpritePalette({ data: monIconPalette(palIndex), tag: POKE_ICON_BASE_PAL_TAG + palIndex });
 }
 
+export function SafeFreeMonIconPalette(species: number): void {
+  if (species > K.NUM_SPECIES) species = K.SPECIES_NONE;
+  FreeSpritePaletteByTag(POKE_ICON_BASE_PAL_TAG + paletteIndex(species));
+}
+
 export function FreeMonIconPalettes(): void {
   for (let i = 0; i < MON_ICON_PALETTE_TABLE_COUNT; i++) FreeSpritePaletteByTag(POKE_ICON_BASE_PAL_TAG + i);
 }

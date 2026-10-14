@@ -14,6 +14,7 @@ import {
   CreateInvisibleSprite,
   CreateSprite,
   DestroySprite,
+  DestroySpriteAndFreeResources,
   FreeSpriteOamMatrix,
   FreeSpritePaletteByTag,
   FreeSpriteTilesByTag,
@@ -615,8 +616,8 @@ export function IsMoveWithoutAnimation(_moveId: number, _animationTurn: number):
   return false;
 }
 
-/** HandleLoadSpecialPokePic: Unown letters use their own pic; Spinda's spots aren't drawn yet. */
-function loadMonPic(front: boolean, species: number, personality: number, dest: Uint8Array): void {
+/** HandleLoadSpecialPokePic / LoadSpecialPokePic: Unown letters use their own pic; Spinda's spots aren't drawn yet. */
+export function LoadSpecialPokePic(front: boolean, species: number, personality: number, dest: Uint8Array): void {
   const table = front ? bdata.anims.monFrontPics : bdata.anims.monBackPics;
   let sp = species;
   if (species === K.SPECIES_UNOWN) {
@@ -628,6 +629,28 @@ function loadMonPic(front: boolean, species: number, personality: number, dest: 
   const pic = gfx(sym);
   dest.fill(0);
   dest.set(pic.subarray(0, Math.min(pic.length, dest.length)));
+}
+
+/** The pic symbol LoadSpecialPokePic reads (for preloading). */
+export function monPicSymbol(front: boolean, species: number, personality: number): string {
+  const table = front ? bdata.anims.monFrontPics : bdata.anims.monBackPics;
+  let sp = species;
+  if (species === K.SPECIES_UNOWN) {
+    const letter = GET_UNOWN_LETTER(personality);
+    if (letter) sp = K.NUM_SPECIES + letter;
+  }
+  return table[sp] ?? table[0]!;
+}
+
+/** Both palette symbols GetMonSpritePalFromSpeciesAndPersonality can pick (for preloading). */
+export function monPalSymbols(species: number): string[] {
+  return [bdata.anims.monPalettes[species] ?? bdata.anims.monPalettes[0]!, bdata.anims.monShinyPalettes[species] ?? bdata.anims.monPalettes[0]!];
+}
+
+/** GetMonSpritePalStructFromOtIdPersonality: shiny palettes are tagged species + SPECIES_SHINY_TAG. */
+export function GetMonSpritePalStructFromOtIdPersonality(species: number, otId: number, personality: number): { data: Uint16Array; tag: number } {
+  const shinyValue = ((otId >>> 16) ^ (otId & 0xffff) ^ (personality >>> 16) ^ (personality & 0xffff)) & 0xffff;
+  return { data: GetMonSpritePalFromSpeciesAndPersonality(species, otId, personality), tag: shinyValue < K.SHINY_ODDS ? species + K.SPECIES_SHINY_TAG : species };
 }
 
 /** GetMonSpritePalFromSpeciesAndPersonality */
@@ -656,7 +679,7 @@ export function BattleLoadOpponentMonSpriteGfx(mon: Pokemon, battlerId: number):
   const t = sbd().battlerData[battlerId].transformSpecies;
   const species = t || mon.species;
   const personality = t ? g.transformedPersonalities[battlerId] : mon.personality;
-  loadMonPic(true, species, personality, gMonSpritesGfxPtr!.sprites[getBattlerPosition(battlerId)]);
+  LoadSpecialPokePic(true, species, personality, gMonSpritesGfxPtr!.sprites[getBattlerPosition(battlerId)]);
   loadBattlerPalette(mon, battlerId, species);
 }
 
@@ -665,7 +688,7 @@ export function BattleLoadPlayerMonSpriteGfx(mon: Pokemon, battlerId: number): v
   const t = sbd().battlerData[battlerId].transformSpecies;
   const species = t || mon.species;
   const personality = t ? g.transformedPersonalities[battlerId] : mon.personality;
-  loadMonPic(false, species, personality, gMonSpritesGfxPtr!.sprites[getBattlerPosition(battlerId)]);
+  LoadSpecialPokePic(false, species, personality, gMonSpritesGfxPtr!.sprites[getBattlerPosition(battlerId)]);
   loadBattlerPalette(mon, battlerId, species);
 }
 
@@ -978,7 +1001,7 @@ export function ItemIdToBallId(ballItem: number): number {
 
 let ballTemplates: SpriteTemplate[] | undefined;
 /** gBallSpriteTemplates */
-function gBallSpriteTemplates(): SpriteTemplate[] {
+export function gBallSpriteTemplates(): SpriteTemplate[] {
   if (ballTemplates) return ballTemplates;
   const anims = animTable('pokeball.c', 'sBallAnimSequences');
   const affine = affineAnimTable('pokeball.c', 'sAffineAnim_BallRotate');
@@ -1009,6 +1032,10 @@ export function LoadBallGfx(ballId: number): void {
     const start = GetSpriteTileStartByTag(tag);
     vram.set(gfx('gOpenPokeballGfx'), OBJ_VRAM0 + 0x100 + start * 32);
   }
+}
+
+export function DestroySpriteAndFreeResources_Ball(sprite: Sprite): void {
+  DestroySpriteAndFreeResources(sprite);
 }
 
 export function FreeBallGfx(ballId: number): void {

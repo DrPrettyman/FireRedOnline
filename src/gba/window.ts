@@ -307,6 +307,11 @@ class WindowSurface implements TextSurface {
     }
     return w;
   }
+  /** DrawKeypadIcon: a rect of gKeypadIconTiles (a 128x128 sheet). */
+  drawKeypadIcon([tileOffset, width, height]: [number, number, number], x: number, y: number): number {
+    BlitBitmapRectToWindow(this.windowId, gfx('gKeypadIconTiles').subarray(tileOffset * 0x20), 0, 0, 0x80, 0x80, x, y, width, height);
+    return width;
+  }
   /** TextPrinterDrawDownArrow: sDownArrowTiles (+DARK_DOWN_ARROW_OFFSET when useAlternateDownArrow). */
   blit(_src: ImageData, sx: number, sy: number, dx: number, dy: number, w: number, h: number): void {
     const tiles = gfx('sDownArrowTiles');
@@ -516,6 +521,15 @@ export function GetStringWidth(fontId: number, str: number[], letterSpacing: num
       case 0xfa: // CHAR_PROMPT_SCROLL
       case 0xfb: // CHAR_PROMPT_CLEAR
         break;
+      case 0xf8: // CHAR_KEYPAD_ICON: GetKeypadIconWidth
+      case 0xf9: {
+        // CHAR_EXTRA_SYMBOL
+        let w = c === 0xf9 ? font.width(str[++i] | 0x100) : (textFonts.keypadIcons[str[++i]]?.[1] ?? 0);
+        if (minGlyphWidth > 0) w = Math.max(w, minGlyphWidth);
+        else if (isJapanese) w += spacing;
+        lineWidth += w;
+        break;
+      }
       case 0xfc: // EXT_CTRL_CODE_BEGIN
         switch (str[++i]) {
           case 0x04: // COLOR_HIGHLIGHT_SHADOW

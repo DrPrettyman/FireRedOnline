@@ -1,4 +1,4 @@
-// public/gen/menus.json (tools/extract_menus.py): tables the party menu and bag index.
+// public/gen/menus.json (tools/extract_menus.py): tables the party menu, bag and summary screen index.
 
 export interface MenusData {
   /** gMonIconTable: species -> icon graphics symbol */
@@ -17,6 +17,16 @@ export interface MenusData {
   tmhmLearnsets: ([number, number] | null)[];
   /** gEvolutionTable: species -> [method, param, targetSpecies][] */
   evolutions: ([number, number, number][] | null)[];
+  /** gNatureNamePointers (raw decomp strings) */
+  natureNames: string[];
+  /** gAbilityDescriptionPointers */
+  abilityDescriptions: string[];
+  /** gMoveDescriptionPointers: indexed move - 1 */
+  moveDescriptions: string[];
+  /** sMapNames: indexed mapsec - KANTO_MAPSEC_START */
+  mapsecNames: (string | null)[];
+  /** sMenuInfoIcons: [width, height, tile offset] */
+  menuInfoIcons: [number, number, number][];
 }
 
 export let menusData: MenusData;

@@ -2,12 +2,17 @@
 // here it lives in a table keyed by that task id.
 
 import { K } from '../battle/constants';
+import { menusData } from '../menus/data';
+import { gfx, gfx16 } from './gfx';
+import { TILE_SIZE_4BPP } from './sprite';
+import { LoadPalette, PLTT_SIZE_4BPP } from './palette';
 import { A_BUTTON, B_BUTTON, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT, DPAD_UP, gMain, JOY_NEW, L_BUTTON, R_BUTTON } from './main';
 import { GetMenuCursorDimensionByFont, menuEnv } from './menu';
 import { PlaySE } from './sound';
 import { CreateTask, DestroyTask } from './task';
 import {
   AddTextPrinterParameterized4,
+  BlitBitmapRectToWindow,
   COPYWIN_GFX,
   CopyWindowToVram,
   FillWindowPixelBuffer,
@@ -367,4 +372,15 @@ export function ListMenuSetTemplateField(taskId: number, field: number, value: n
   // Only the field the ported screens set (LISTFIELD_CURSORKIND) is needed.
   if (field === LISTFIELD_CURSORKIND) data.template.cursorKind = value;
   else console.warn(`[list_menu] ListMenuSetTemplateField(${field}) not implemented`);
+}
+
+/** ListMenuLoadStdPalAt: the caught-ball palette (0) or the type icons' palette (1). */
+export function ListMenuLoadStdPalAt(palOffset: number, palId: number): void {
+  LoadPalette(gfx16(palId === 1 ? 'gMenuInfoElements2_Pal' : 'gMenuInfoElements1_Pal'), palOffset, PLTT_SIZE_4BPP);
+}
+
+/** BlitMenuInfoIcon: a type / category icon from gMenuInfoElements_Gfx (a 128x128 sheet), by sMenuInfoIcons. */
+export function BlitMenuInfoIcon(windowId: number, iconId: number, x: number, y: number): void {
+  const [width, height, offset] = menusData.menuInfoIcons[iconId];
+  BlitBitmapRectToWindow(windowId, gfx('gMenuInfoElements_Gfx').subarray(offset * TILE_SIZE_4BPP), 0, 0, 128, 128, x, y, width, height);
 }

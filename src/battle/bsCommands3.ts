@@ -7,7 +7,11 @@ import { BG_PLTT_ID, BeginNormalPaletteFade, gPaletteFade, LoadPalette } from '.
 import { PALETTES_ALL, RGB_BLACK } from '../gba/hw';
 import { IsDma3ManagerBusyWithBgCopy, SetBgAttribute, ShowBg, BG_ATTR_PRIORITY } from '../gba/bg';
 import { gfx, gfx16 } from '../gba/gfx';
-import { AddTextPrinter, AddTextPrinterParameterized3, ClearWindowTilemap, COPYWIN_FULL, COPYWIN_GFX, COPYWIN_MAP, CopyToWindowPixelBuffer, CopyWindowToVram, FillWindowPixelBuffer, PIXEL_FILL, PutWindowTilemap, TEXT_SKIP_DRAW } from '../gba/window';
+import { gMain } from '../gba/main';
+import { GetMoveSlotToReplace, ShowSelectMovePokemonSummaryScreen } from '../menus/summaryScreen';
+import { BattleMainCB2 } from './battleCallbacks';
+import { ReshowBattleScreenAfterMenu } from './reshowBattleScreen';
+import { AddTextPrinter, AddTextPrinterParameterized3, FreeAllWindowBuffers, ClearWindowTilemap, COPYWIN_FULL, COPYWIN_GFX, COPYWIN_MAP, CopyToWindowPixelBuffer, CopyWindowToVram, FillWindowPixelBuffer, PIXEL_FILL, PutWindowTilemap, TEXT_SKIP_DRAW } from '../gba/window';
 import { ConvertIntToDecimalStringN, STR_CONV_MODE_LEFT_ALIGN, strBody } from './stringUtil';
 import type { Pokemon } from '../pokemon/Pokemon';
 import { ui } from './battleUi';
@@ -132,8 +136,6 @@ function textOf(sym: string): number[] {
   return encodeBattleText(sym);
 }
 
-let moveForget: { poll(): number | undefined } | undefined;
-
 export function Cmd_yesnoboxlearnmove(): void {
   g.activeBattler = 0;
   const scr = g.battleScripting;
@@ -161,14 +163,14 @@ export function Cmd_yesnoboxlearnmove(): void {
       break;
     case 2:
       if (!gPaletteFade.active) {
-        moveForget = ui.selectMoveToForget(g.playerParty[id]!, g.moveToLearn);
+        FreeAllWindowBuffers();
+        ShowSelectMovePokemonSummaryScreen(state.party, id, state.party.length - 1, ReshowBattleScreenAfterMenu, g.moveToLearn);
         scr.learnMoveState++;
       }
       break;
     case 3: {
-      const movePosition = moveForget?.poll();
-      if (movePosition === undefined || gPaletteFade.active) break;
-      moveForget = undefined;
+      if (gPaletteFade.active || gMain.callback2 !== BattleMainCB2) break;
+      const movePosition = GetMoveSlotToReplace();
       if (movePosition === K.MAX_MON_MOVES) {
         scr.learnMoveState = 4;
       } else {

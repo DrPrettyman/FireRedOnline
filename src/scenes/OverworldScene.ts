@@ -394,6 +394,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   private async onMapLoaded(warped: boolean): Promise<void> {
     const name = this.world.current.name;
     await this.preloadMapSprites();
+    this.state.currentMap = name;
+    this.state.currentMapSection = this.mapSection();
     this.state.clearTemps();
     const transition = this.scripts.mapScript(name, 'MAP_SCRIPT_ON_TRANSITION');
     if (transition) this.scripts.runImmediately(transition);

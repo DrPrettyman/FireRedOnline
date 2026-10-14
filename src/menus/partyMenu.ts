@@ -1,9 +1,7 @@
 // party_menu.c: the party menu, from the field (start menu, using and giving items) and in battle
 // (switching, choosing a mon for an item, Oak's first-battle narration).
 //
-// Not ported because their screens or systems don't exist yet: the summary screen (Summary goes
-// straight back to the party menu), the move-forget summary (learning stops instead), the
-// evolution scene, the item-use animation (pokemon_special_anim.c), mail, field moves (they report
+// Not ported because their screens or systems don't exist yet: the evolution scene, the item-use animation (pokemon_special_anim.c), mail, field moves (they report
 // "can't use here"), link/multi battles, the Union Room, minigames and the Pokédude/Teachy TV demos.
 
 import { K } from '../battle/constants';
@@ -127,6 +125,7 @@ import {
 } from '../gba/window';
 import type { Pokemon } from '../pokemon/Pokemon';
 import { animTable } from '../battle/gfx';
+import { GetLastViewedMonIndex, GetMoveSlotToReplace, ShowPokemonSummaryScreen, ShowSelectMovePokemonSummaryScreen } from './summaryScreen';
 import {
   AddBagItem,
   CalculatePlayerPartyCount,
@@ -2299,19 +2298,14 @@ function CursorCB_Summary(taskId: number): void {
   Task_ClosePartyMenu(taskId);
 }
 
-/**
- * CB2_ShowPokemonSummaryScreen: the summary screen doesn't exist yet, so this goes straight back to
- * the party menu as if the player had left the summary on the same mon.
- */
 function CB2_ShowPokemonSummaryScreen(): void {
   if (gPartyMenu.menuType === K.PARTY_MENU_TYPE_IN_BATTLE) UpdatePartyToBattleOrder();
-  console.warn('[party_menu] the summary screen is not implemented');
-  CB2_ReturnToPartyMenuFromSummaryScreen();
+  ShowPokemonSummaryScreen(state.party, gPartyMenu.slotId, CalculatePlayerPartyCount() - 1, CB2_ReturnToPartyMenuFromSummaryScreen, K.PSS_MODE_NORMAL);
 }
 
 function CB2_ReturnToPartyMenuFromSummaryScreen(): void {
   gPaletteFade.bufferTransferDisabled = true;
-  // gPartyMenu.slotId = GetLastViewedMonIndex(): unchanged
+  gPartyMenu.slotId = GetLastViewedMonIndex();
   InitPartyMenu(gPartyMenu.menuType, K.KEEP_PARTY_LAYOUT, gPartyMenu.action, true, K.PARTY_MSG_DO_WHAT_WITH_MON, Task_TryCreateSelectionWindow, gPartyMenu.exitCallback);
 }
 
@@ -3268,21 +3262,43 @@ function Task_ShowSummaryScreenToForgetMove(taskId: number): void {
   }
 }
 
-/**
- * CB2_ShowSummaryScreenToForgetMove: the move-select summary screen doesn't exist yet, so no move
- * is chosen (GetMoveSlotToReplace() == MAX_MON_MOVES), which leads to "Stop learning?".
- */
 function CB2_ShowSummaryScreenToForgetMove(): void {
-  console.warn('[party_menu] the move-forget summary screen is not implemented; no move forgotten');
-  CB2_ReturnToPartyMenuWhileLearningMove();
-}
-
-function GetMoveSlotToReplace(): number {
-  return K.MAX_MON_MOVES;
+  ShowSelectMovePokemonSummaryScreen(state.party, gPartyMenu.slotId, CalculatePlayerPartyCount() - 1, CB2_ReturnToPartyMenuWhileLearningMove, gPartyMenu.learnMoveId);
 }
 
 function CB2_ReturnToPartyMenuWhileLearningMove(): void {
-  InitPartyMenu(K.PARTY_MENU_TYPE_FIELD, K.PARTY_LAYOUT_SINGLE, K.PARTY_ACTION_CHOOSE_MON, true, K.PARTY_MSG_NONE, Task_ReturnToPartyMenuWhileLearningMove, gPartyMenu.exitCallback);
+  const moveIdx = GetMoveSlotToReplace();
+  const learnMethod = gPartyMenu.learnMoveMethod;
+
+  if (learnMethod === LEARN_VIA_TMHM && moveIdx !== K.MAX_MON_MOVES) {
+    // StartUseItemAnim_ForgetMoveAndLearnTMorHM (pokemon_special_anim.c) isn't implemented: its
+    // callback runs at once.
+    gItemUseCB = ItemUseCB_ReplaceMoveWithTMHM;
+    gPartyMenu.action = K.PARTY_ACTION_CHOOSE_MON;
+    SetMainCallback2(CB2_UseTMHMAfterForgettingMove);
+  } else
+    InitPartyMenu(K.PARTY_MENU_TYPE_FIELD, K.PARTY_LAYOUT_SINGLE, K.PARTY_ACTION_CHOOSE_MON, true, K.PARTY_MSG_NONE, Task_ReturnToPartyMenuWhileLearningMove, gPartyMenu.exitCallback);
+}
+
+/** CB2_UseTMHMAfterForgettingMove: PSA_IsCancelDisabled() is FALSE without the animation. */
+function CB2_UseTMHMAfterForgettingMove(): void {
+  InitPartyMenu(gPartyMenu.menuType, K.KEEP_PARTY_LAYOUT, gPartyMenu.action, gPartyMenu.slotId !== 0, K.PARTY_MSG_NONE, Task_SetSacredAshCB, gPartyMenu.exitCallback);
+}
+
+function ItemUseCB_ReplaceMoveWithTMHM(taskId: number, _func: TaskFunc): void {
+  Task_ReplaceMoveWithTMHM(taskId);
+}
+
+function Task_ReplaceMoveWithTMHM(taskId: number): void {
+  const mon = P(gPartyMenu.slotId);
+  const moveIdx = GetMoveSlotToReplace();
+  const move = mon.moves[moveIdx];
+  // ItemUse_SetQuestLogEvent: no quest log
+  gStringVar1.set(GetMonNickname(mon));
+  gStringVar2.set(moveName(move));
+  removeMonPPBonus(mon, moveIdx);
+  setMonMoveSlot(mon, gPartyMenu.learnMoveId, moveIdx);
+  Task_LearnedMove(taskId);
 }
 
 function Task_ReturnToPartyMenuWhileLearningMove(taskId: number): void {

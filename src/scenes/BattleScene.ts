@@ -201,12 +201,6 @@ export class BattleScene extends GbaHostScene implements BattleUi {
   playerGender(): number {
     return this.start.state.playerGender === 'female' ? K.FEMALE : K.MALE;
   }
-
-  /** The summary screen doesn't exist yet: keep the old moves. */
-  selectMoveToForget(_mon: Pokemon, _moveToLearn: number): { poll(): number | undefined } {
-    console.warn('[battle] move-forget summary screen not implemented; keeping old moves');
-    return { poll: () => K.MAX_MON_MOVES };
-  }
 }
 
 /** GbaButton -> key bit (include/gba/io_reg.h) */
