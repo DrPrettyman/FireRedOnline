@@ -2,11 +2,14 @@ import Phaser from 'phaser';
 import { spriteTextureKey, type Assets } from '../data/assets';
 import type { ObjectEventData, WarpEventData } from '../data/types';
 import { NpcBrain } from '../entities/NpcBrain';
+import { applyStartPreset, type StartPreset } from '../dev/startPresets';
 import { ObjectEvent, type ObjectEventField } from '../entities/ObjectEvent';
+import { healPlayerParty } from '../script/specials';
+import { WhiteOutText } from '../ui/WhiteOutText';
 import { Input } from '../input/Input';
 import { PokemonData, readPokemonConstants } from '../pokemon/Pokemon';
 import { Defines } from '../script/Defines';
-import { directionId, ScriptEngine, textColorFromId, type ScriptHost, type TrainerBattle, type Wait } from '../script/ScriptEngine';
+import { directionId, ScriptEngine, textColorFromId, type ScriptHost, type TrainerBattle, type TrainerBattleRun, type Wait } from '../script/ScriptEngine';
 import { GameState } from '../state/GameState';
 import { Charmap } from '../text/charmap';
 import { Fonts } from '../text/Font';
@@ -35,6 +38,8 @@ export interface OverworldStart {
   x: number;
   y: number;
   facing?: Direction;
+  /** Dev: start from a story preset instead of a new game. */
+  preset?: StartPreset;
 }
 
 interface Npc {
@@ -144,6 +149,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     this.player = new ObjectEvent(this, playerInfo, 0, 0, this.field);
     this.cameras.main.startFollow(this.player.anchor, true, 1, 1, 0, CAMERA_FOLLOW_OFFSET_Y);
 
+    if (start.preset) await applyStartPreset(this.state, start.preset, this.assets.scripts.healLocations);
     await this.enterMap(start.map, start.x, start.y, start.facing ?? 'down', true);
     this.busy = false;
   }
@@ -666,9 +672,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
 
   /**
    * StartTrainerBattle + DoTrainerBattle (battle_setup.c): fade out (the battle transitions aren't
-   * implemented), run the battle scene, and come back with CB2_ReturnToFieldContinueScript's fade in.
+   * implemented) and run the battle scene. The field stays black afterwards until the script engine
+   * either returns to it (`returnToField`) or whites out.
    */
-  startTrainerBattle(battle: TrainerBattle): { done: Wait; playerWon(): boolean } {
+  startTrainerBattle(battle: TrainerBattle): TrainerBattleRun {
     const d = this.defines;
     let battleTypeFlags = d.require('BATTLE_TYPE_TRAINER');
     if (battle.mode === d.require('TRAINER_BATTLE_EARLY_RIVAL') && battle.localIdOrFlags & d.require('RIVAL_BATTLE_TUTORIAL')) {
@@ -699,8 +706,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
         outcome = o;
         this.scene.stop('Battle');
         this.scene.wake('Overworld');
-        this.screenFade.begin(d.require('FADE_FROM_BLACK'));
-        phase = 'fadeIn';
+        phase = 'done';
       },
     };
     return {
@@ -710,12 +716,123 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
           this.scene.launch('Battle', start);
           this.scene.sleep();
         }
-        if (phase === 'fadeIn' && !this.screenFade.active) phase = 'done';
         return phase === 'done';
       },
       // IsPlayerDefeated: B_OUTCOME_LOST or B_OUTCOME_DREW
       playerWon: () => outcome !== d.require('B_OUTCOME_LOST') && outcome !== d.require('B_OUTCOME_DREW'),
+      returnToField: () => {
+        this.screenFade.begin(d.require('FADE_FROM_BLACK'));
+        return () => !this.screenFade.active;
+      },
     };
+  }
+
+  /**
+   * CB2_WhiteOut, run from the black screen a lost battle leaves: 120 frames, then DoWhiteOut, then
+   * FieldCB_RushInjuredPokemonToCenter's task (the "scurried" text, the player turned north, a fade in,
+   * and the nurse's or Mom's healing script).
+   */
+  whiteOut(): void {
+    const d = this.defines;
+    let frames = 0;
+    let step: 'wait' | 'warp' | 'text' | 'fade' = 'wait';
+    let text: WhiteOutText | undefined;
+    let home = false;
+    this.overlay = {
+      tick: () => {
+        switch (step) {
+          case 'wait':
+            if (++frames < 120) return false;
+            step = 'warp';
+            void this.doWhiteOut().then(() => {
+              // Task_RushInjuredPokemonToCenter: the scene changes if the last heal location is home
+              const pallet = this.assets.scripts.healLocations[d.require('HEAL_LOCATION_PALLET_TOWN') - 1];
+              const last = this.state.lastHealLocation;
+              home = !!last && last.map === pallet.map && last.x === pallet.x && last.y === pallet.y;
+              const label = home ? 'gText_PlayerScurriedBackHome' : 'gText_PlayerScurriedToCenter';
+              text = new WhiteOutText(this, this.fonts, this.buttons, this.charmap, this.state, this.charmap.encode(this.assets.strings[label]));
+              step = 'text';
+            });
+            return false;
+          case 'warp':
+            return false;
+          case 'text':
+            if (!text!.tick()) return false;
+            this.player.face('up'); // ObjectEventTurn(player, DIR_NORTH)
+            text!.destroy();
+            this.screenFade.begin(d.require('FADE_FROM_BLACK')); // FadeInFromBlack
+            step = 'fade';
+            return false;
+          case 'fade':
+            if (this.screenFade.active) return false;
+            this.scripts.start(home ? 'EventScript_AfterWhiteOutMomHeal' : 'EventScript_AfterWhiteOutHeal');
+            return true;
+        }
+      },
+    };
+  }
+
+  /** DoWhiteOut: lose money, heal, reset field state and warp to the respawn point facing north. */
+  private async doWhiteOut(): Promise<void> {
+    this.busy = true;
+    this.scripts.runImmediately('EventScript_ResetEliteFourEnd');
+    this.state.removeMoney(this.whiteOutMoneyLoss());
+    healPlayerParty(this.state);
+    // Overworld_ResetStateAfterWhitingOut (+ ResetSafariZoneFlag_)
+    for (const f of ['FLAG_SYS_ON_CYCLING_ROAD', 'FLAG_SYS_CRUISE_MODE', 'FLAG_SYS_SAFARI_MODE', 'FLAG_SYS_USE_STRENGTH', 'FLAG_SYS_FLASH_ACTIVE', 'FLAG_SYS_QL_DEPARTED']) {
+      this.state.setFlag(f, false);
+    }
+    for (const v of ['VAR_MAP_SCENE_ROUTE16', 'VAR_MAP_SCENE_FUCHSIA_CITY_SAFARI_ZONE_ENTRANCE', 'VAR_QL_ENTRANCE']) this.state.setVar(v, 0);
+    const respawn = this.whiteOutRespawn();
+    const name = this.assets.mapNameForId(respawn.map);
+    if (name) await this.enterMap(name, respawn.x, respawn.y, 'up', true); // WarpIntoMap, DIR_NORTH
+    else console.warn('[whiteout] unknown respawn map', respawn.map);
+    if (respawn.healer) {
+      // SetWhiteoutRespawnHealerNpcAsLastTalked
+      const id = this.resolveLocalId(respawn.healer);
+      if (id !== undefined) this.state.setVar('VAR_LAST_TALKED', id);
+    }
+    this.busy = false;
+  }
+
+  /** SetWhiteoutRespawnWarpAndHealerNpc (heal_location.c). */
+  private whiteOutRespawn(): { map: string; x: number; y: number; healer?: string } {
+    if (this.state.getVar('VAR_MAP_SCENE_TRAINER_TOWER') === 1) {
+      // The Trainer Tower challenge isn't tracked yet, so spokeToOwner reads as FALSE.
+      this.state.setVar('VAR_MAP_SCENE_TRAINER_TOWER', 0);
+      this.state.setVar('VAR_LAST_TALKED', 1);
+      return { map: 'MAP_TRAINER_TOWER_LOBBY', x: 4, y: 11 };
+    }
+    const locs = this.assets.scripts.healLocations;
+    const last = this.state.lastHealLocation;
+    let i = last ? locs.findIndex((h) => h.map === last.map) : -1; // GetHealLocationIndexFromMapGroupAndNum
+    if (i < 0) {
+      console.warn('[whiteout] no heal location for', last?.map, '- using Pallet Town');
+      i = this.defines.require('HEAL_LOCATION_PALLET_TOWN') - 1;
+    }
+    const { respawnMap: map, respawnNpc: healer } = locs[i];
+    const at = (x: number, y: number) => ({ map, x, y, healer });
+    switch (map) {
+      case 'MAP_PALLET_TOWN_PLAYERS_HOUSE_1F':
+        return at(8, 5);
+      case 'MAP_INDIGO_PLATEAU_POKEMON_CENTER_1F':
+        return at(13, 12);
+      case 'MAP_ONE_ISLAND_POKEMON_CENTER_1F':
+        return at(5, 4);
+      case 'MAP_TRAINER_TOWER_LOBBY':
+        this.state.setVar('VAR_MAP_SCENE_TRAINER_TOWER', 0);
+        return at(4, 11);
+      default:
+        return at(7, 4);
+    }
+  }
+
+  /** ComputeWhiteOutMoneyLoss: highest party level * 4 * a multiplier by badge count, capped at your money. */
+  private whiteOutMoneyLoss(): number {
+    const { moneyLossMultipliers, moneyLossBadgeFlags } = this.assets.scripts.whiteOut;
+    const badges = moneyLossBadgeFlags.filter((f) => this.state.getFlag(f)).length;
+    const topLevel = this.state.party.reduce((m, p) => (!p.isEgg && p.level > m ? p.level : m), 0); // GetPlayerPartyHighestLevel
+    return Math.min(topLevel * 4 * moneyLossMultipliers[badges], this.state.money);
   }
 
   /** BattleSetup_GetTerrainId (no surfing yet, so the PLAYER_AVATAR_FLAG_SURFING checks are skipped) */
@@ -757,6 +874,14 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   resolveLocalId(name: string): number | undefined {
     const i = this.templatesFor(this.world.current).findIndex((t) => t.local_id === name);
     return i < 0 ? undefined : i + 1;
+  }
+
+  selectObject(localId: number): void {
+    this.selectedObject = this.objectByLocalId(localId);
+  }
+
+  setObjectMovementType(obj: ObjectEvent, movementType: string): void {
+    this.npcs.find((n) => n.brain.obj === obj)?.brain.setMovementType(movementType);
   }
 
   objectByLocalId(localId: number): ObjectEvent | undefined {

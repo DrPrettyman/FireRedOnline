@@ -9,7 +9,7 @@ FireRed rebuilt in Phaser 3 + TypeScript (Vite). See README.md for setup and arc
 - Prefer reading constants (behavior ids, etc.) from extracted JSON over hardcoding numbers.
 - Game logic ticks at a fixed 60 Hz (`OverworldScene.tick`), so express timings in GBA frames.
 - Coordinates: entities use world tile coordinates; map-local = world - chunk origin.
-- Verify with `npm run typecheck`; for runtime checks use `?map=Name&x=&y=`, `window.game` in dev, and
+- Verify with `npm run typecheck`; for runtime checks use `?map=Name&x=&y=`, `?start=after-rival` (story preset), `window.game` in dev, and
   `tools/browser-test.mjs` (headless Chrome driver) for scripted key presses/evals/screenshots.
 - Keep PROGRESS.md current: tick the checklist, update "Where to resume", and append a log entry for each change.
 - Git: never commit (or push). The user makes all commits; leave changes in the working tree.

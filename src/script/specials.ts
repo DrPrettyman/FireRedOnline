@@ -27,13 +27,8 @@ const NO_OP = [
 export const SPECIALS: Record<string, Special> = {
   ...Object.fromEntries(NO_OP.map((name) => [name, () => {}])),
 
-  /** HealPlayerParty: full HP, PP (with PP Ups) and no status. */
   HealPlayerParty({ state }) {
-    for (const mon of state.party) {
-      mon.hp = mon.maxHP;
-      for (let j = 0; j < state.pokemon.c.MAX_MON_MOVES; j++) mon.pp[j] = state.pokemon.ppWithBonus(mon.moves[j], mon.ppBonuses, j);
-      mon.status = 0;
-    }
+    healPlayerParty(state);
   },
 
   /** GetQuestLogState: QL_STATE_* (0 = not recording or playing back). */
@@ -78,6 +73,15 @@ export const SPECIALS: Record<string, Special> = {
 };
 
 /** IsNationalPokedexEnabled */
+/** HealPlayerParty: full HP, PP (with PP Ups) and no status. */
+export function healPlayerParty(state: GameState): void {
+  for (const mon of state.party) {
+    mon.hp = mon.maxHP;
+    for (let j = 0; j < state.pokemon.c.MAX_MON_MOVES; j++) mon.pp[j] = state.pokemon.ppWithBonus(mon.moves[j], mon.ppBonuses, j);
+    mon.status = 0;
+  }
+}
+
 export function isNationalDexEnabled(state: GameState): boolean {
   return state.nationalDexEnabled && state.getVar('VAR_NATIONAL_DEX') === 0x6258 && state.getFlag('FLAG_SYS_NATIONAL_DEX');
 }

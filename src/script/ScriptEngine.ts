@@ -14,6 +14,23 @@ export interface ScriptsData {
   labels: Record<string, number>;
   defines: Record<string, number>;
   stdScripts: string[];
+  /** vs_seeker.c sRematches: each rematchable trainer's parties, SKIP = 0xFFFF. */
+  rematches: number[][];
+  /** heal_locations.json, indexed by HEAL_LOCATION_* - 1. */
+  healLocations: HealLocation[];
+  /** ComputeWhiteOutMoneyLoss tables (overworld.c). */
+  whiteOut: { moneyLossMultipliers: number[]; moneyLossBadgeFlags: number[] };
+}
+
+/** sHealLocations + sWhiteoutRespawnHealCenterMapIdxs + sWhiteoutRespawnHealerNpcIds. */
+export interface HealLocation {
+  map: string;
+  x: number;
+  y: number;
+  /** Where a white-out sends you (a Pokémon Center 1F, or the player's house). */
+  respawnMap: string;
+  /** LOCALID_* of the nurse (or Mom) on the respawn map. */
+  respawnNpc: string;
 }
 
 /** What the interpreter needs from the overworld. Implemented by OverworldScene. */
@@ -26,6 +43,10 @@ export interface ScriptHost {
   removeObject(localId: number): void;
   /** addobject: spawn the object from the map template. */
   addObject(localId: number): void;
+  /** gSelectedObjectEvent = the current map's object with this local id (SetMapVarsToTrainer). */
+  selectObject(localId: number): void;
+  /** SetTrainerMovementType: switch a live object to another MOVEMENT_TYPE_*. */
+  setObjectMovementType(obj: ObjectEvent, movementType: string): void;
   /** setobjectxyperm / setobjectmovementtype: edit the map's object template. */
   setObjectTemplate(localId: number, patch: { x?: number; y?: number; movementType?: string }): void;
   setObjectPosition(localId: number, x: number, y: number): void;
@@ -43,10 +64,19 @@ export interface ScriptHost {
   hideMonPic(): Wait | undefined;
   /** FadeScreen: returns a wait for IsPaletteNotActive. */
   fadeScreen(mode: number): Wait;
-  /** StartTrainerBattle: returns a wait that ends when the battle is over, with the outcome. */
-  startTrainerBattle(battle: TrainerBattle): { done: Wait; playerWon(): boolean };
+  /** StartTrainerBattle: `done` ends when the battle is over (screen still black), with the outcome. */
+  startTrainerBattle(battle: TrainerBattle): TrainerBattleRun;
+  /** CB2_WhiteOut: from the black screen after a lost battle to the last heal location. */
+  whiteOut(): void;
   /** GetCurrentRegionMapSectionId, for a new mon's met location. */
   mapSection(): string;
+}
+
+export interface TrainerBattleRun {
+  done: Wait;
+  playerWon(): boolean;
+  /** CB2_ReturnToFieldContinueScriptPlayMapMusic: fade the field back in. */
+  returnToField(): Wait;
 }
 
 /** The trainer battle configured by `trainerbattle` (battle_setup.c statics). */
@@ -329,6 +359,7 @@ export class ScriptEngine {
   }
 
   private callSpecial(name: string): number | void {
+    if (TRAINER_SPECIALS.has(name)) return this.trainerSpecial(name);
     const special = SPECIALS[name];
     if (special) return special(this.specialEnv);
     this.unimplemented(`special ${name}`, []);
@@ -695,63 +726,72 @@ export class ScriptEngine {
     },
 
     // ------------------------------------------------ trainers
-    /** BattleSetup_ConfigureTrainerBattle: record the battle and jump to the script that runs it. */
+    /**
+     * BattleSetup_ConfigureTrainerBattle: load the mode's arguments (TrainerBattleLoadArgs with the
+     * matching s*BattleParams table) and jump to the event script that runs the battle. The script
+     * continues after `trainerbattle` (sTrainerBattleEndScript) once the battle is over or skipped.
+     */
     trainerbattle(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
-      const mode = this.defines.get(a[0]) ?? 0;
+      const d = this.defines;
+      const mode = d.get(a[0]) ?? 0;
+      const is = (...names: string[]) => names.some((n) => mode === d.get(n));
       const battle: TrainerBattle = {
         mode,
-        trainer: this.defines.get(a[1]) ?? 0,
-        localIdOrFlags: this.defines.get(a[2]) ?? this.host.resolveLocalId(a[2]) ?? 0,
+        trainer: d.get(a[1]) ?? 0,
+        localIdOrFlags: d.get(a[2]) ?? this.host.resolveLocalId(a[2]) ?? 0,
         returnPc: ctx.pc,
       };
-      if (mode === this.defines.get('TRAINER_BATTLE_EARLY_RIVAL')) {
-        // sEarlyRivalBattleParams
-        battle.defeatText = a[3];
-        battle.victoryText = a[4];
-        this.battle = battle;
-        this.jump(ctx, 'EventScript_DoNoIntroTrainerBattle');
-        return;
+      let script: string;
+      let setMapVars = true;
+      if (is('TRAINER_BATTLE_SINGLE_NO_INTRO_TEXT')) {
+        [battle.defeatText] = a.slice(3); // sOrdinaryNoIntroBattleParams
+        script = 'EventScript_DoNoIntroTrainerBattle';
+        setMapVars = false;
+      } else if (is('TRAINER_BATTLE_EARLY_RIVAL')) {
+        [battle.defeatText, battle.victoryText] = a.slice(3); // sEarlyRivalBattleParams (local id = RIVAL_BATTLE_* flags)
+        script = 'EventScript_DoNoIntroTrainerBattle';
+        setMapVars = false;
+      } else if (is('TRAINER_BATTLE_CONTINUE_SCRIPT', 'TRAINER_BATTLE_CONTINUE_SCRIPT_NO_MUSIC')) {
+        [battle.introText, battle.defeatText, battle.beatenScript] = a.slice(3); // sContinueScriptBattleParams
+        script = 'EventScript_TryDoNormalTrainerBattle';
+      } else if (is('TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE', 'TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE_NO_MUSIC')) {
+        [battle.introText, battle.defeatText, battle.cannotBattleText, battle.beatenScript] = a.slice(3); // sContinueScriptDoubleBattleParams
+        script = 'EventScript_TryDoDoubleTrainerBattle';
+      } else if (is('TRAINER_BATTLE_DOUBLE', 'TRAINER_BATTLE_REMATCH_DOUBLE')) {
+        [battle.introText, battle.defeatText, battle.cannotBattleText] = a.slice(3); // sDoubleBattleParams
+        script = is('TRAINER_BATTLE_DOUBLE') ? 'EventScript_TryDoDoubleTrainerBattle' : 'EventScript_TryDoDoubleRematchBattle';
+      } else {
+        [battle.introText, battle.defeatText] = a.slice(3); // sOrdinaryBattleParams (SINGLE, REMATCH, anything else)
+        script = is('TRAINER_BATTLE_REMATCH') ? 'EventScript_TryDoRematchBattle' : 'EventScript_TryDoNormalTrainerBattle';
       }
-      if (mode === this.defines.get('TRAINER_BATTLE_SINGLE_NO_INTRO_TEXT')) {
-        // sOrdinaryNoIntroBattleParams
-        battle.defeatText = a[3];
-        this.battle = battle;
-        this.jump(ctx, 'EventScript_DoNoIntroTrainerBattle');
-        return;
+      this.battle = battle;
+      // SetMapVarsToTrainer
+      if (setMapVars && battle.localIdOrFlags !== d.require('LOCALID_NONE')) {
+        this.state.setVar('VAR_LAST_TALKED', battle.localIdOrFlags);
+        this.host.selectObject(battle.localIdOrFlags);
       }
-      this.unimplemented(`trainerbattle ${a[0]}`, a);
+      if (is('TRAINER_BATTLE_REMATCH', 'TRAINER_BATTLE_REMATCH_DOUBLE')) battle.trainer = this.getRematchTrainerId(battle.trainer);
+      this.jump(ctx, script);
     },
-    /** ScrCmd_dotrainerbattle + CB2_EndTrainerBattle */
+    /** ScrCmd_dotrainerbattle: BattleSetup_StartTrainerBattle, then CB2_EndTrainerBattle. */
     dotrainerbattle(this: ScriptEngine, ctx: ScriptContext) {
       const battle = this.battle;
       if (!battle) return;
-      const run = this.host.startTrainerBattle(battle);
-      ctx.wait = () => {
-        if (!run.done()) return false;
-        const won = run.playerWon();
-        if (battle.mode === this.defines.get('TRAINER_BATTLE_EARLY_RIVAL')) {
-          // VAR_RESULT = player lost. Losing heals only with RIVAL_BATTLE_HEAL_AFTER; otherwise it whites out.
-          this.state.setVar('VAR_RESULT', won ? 0 : 1);
-          if (!won) {
-            if (battle.localIdOrFlags & this.defines.require('RIVAL_BATTLE_HEAL_AFTER')) {
-              this.callSpecial('HealPlayerParty');
-            } else {
-              console.warn('[battle] CB2_WhiteOut not implemented; continuing the script');
-              return true;
-            }
-          }
-        } else if (!won) {
-          console.warn('[battle] CB2_WhiteOut not implemented; continuing the script');
-          return true;
-        }
-        this.setTrainerFlag(battle.trainer); // SetBattledTrainerFlag
-        return true;
-      };
+      ctx.wait = this.runTrainerBattle(battle, false);
+    },
+    /** ScrCmd_gotobeatenscript: BattleSetup_GetTrainerPostBattleScript */
+    gotobeatenscript(this: ScriptEngine, ctx: ScriptContext) {
+      this.jump(ctx, this.battle?.beatenScript ?? 'EventScript_TestSignpostMsg');
     },
     /** BattleSetup_GetScriptAddrAfterBattle */
     gotopostbattlescript(this: ScriptEngine, ctx: ScriptContext) {
       if (this.battle) ctx.pc = this.battle.returnPc;
-      else ctx.done = true;
+      else this.jump(ctx, 'EventScript_TestSignpostMsg');
+    },
+    /** ScrCmd_setrespawn → SetLastHealLocationWarp */
+    setrespawn(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      const loc = this.data.healLocations[this.state.value(a[0]) - 1];
+      if (loc) this.state.lastHealLocation = { map: loc.map, x: loc.x, y: loc.y };
     },
     checktrainerflag(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
       ctx.cmp = this.trainerDefeated(a[0]) ? Cmp.Equal : Cmp.Less;
@@ -788,6 +828,143 @@ export class ScriptEngine {
     ctx.done = true;
   }
 
+  /**
+   * DoTrainerBattle, then CB2_EndTrainerBattle: either back to the field to continue the script, or a
+   * white-out, which ends the script (ScriptContext_Init) and never comes back to it.
+   */
+  private runTrainerBattle(battle: TrainerBattle, rematch: boolean): Wait {
+    const run = this.host.startTrainerBattle(battle);
+    let fadeIn: Wait | undefined;
+    return () => {
+      if (fadeIn) return fadeIn();
+      if (!run.done()) return false;
+      if (this.endTrainerBattle(battle, run.playerWon(), rematch)) {
+        fadeIn = run.returnToField();
+        return false;
+      }
+      if (this.ctx) this.ctx.done = true;
+      this.host.whiteOut();
+      return true;
+    };
+  }
+
+  /**
+   * CB2_EndTrainerBattle (and CB2_EndRematchBattle, which also clears the trainer's rematch state).
+   * Returns false when the player whites out.
+   */
+  private endTrainerBattle(battle: TrainerBattle, won: boolean, rematch = false): boolean {
+    if (battle.mode === this.defines.get('TRAINER_BATTLE_EARLY_RIVAL')) {
+      // VAR_RESULT = player lost. Losing heals only with RIVAL_BATTLE_HEAL_AFTER; otherwise it whites out.
+      this.state.setVar('VAR_RESULT', won ? 0 : 1);
+      if (!won && !(battle.localIdOrFlags & this.defines.require('RIVAL_BATTLE_HEAL_AFTER'))) return false;
+      if (!won) this.callSpecial('HealPlayerParty');
+    } else if (!won) {
+      return false;
+    }
+    if (rematch) this.state.trainerRematches[this.state.getVar('VAR_LAST_TALKED')] = 0; // ClearRematchStateOfLastTalked
+    this.setTrainerFlag(battle.trainer); // SetBattledTrainerFlag
+    return true;
+  }
+
+  /**
+   * battle_setup.c / vs_seeker.c specials that read the configured battle. The VS Seeker itself isn't
+   * implemented, so `state.trainerRematches` stays clear and no trainer is ever ready for a rematch;
+   * ShouldTryRematchBattle still sends a beaten trainer down the rematch script, which then falls
+   * through to the post-battle text, as on the GBA.
+   */
+  private trainerSpecial(name: string): number | void {
+    const battle = this.battle;
+    const d = this.defines;
+    switch (name) {
+      case 'Script_HasTrainerBeenFought':
+        return battle && this.trainerFlag(battle.trainer) ? 1 : 0;
+      case 'SetBattledTrainerFlag':
+        if (battle) this.setTrainerFlag(battle.trainer);
+        return;
+      case 'GetTrainerBattleMode':
+        return battle?.mode ?? 0;
+      case 'SetUpTrainerMovement': {
+        // SetTrainerMovementType(GetTrainerFacingDirectionMovementType(facing)): stop wandering
+        const obj = this.host.selectedObject;
+        if (obj) this.host.setObjectMovementType(obj, `MOVEMENT_TYPE_FACE_${obj.facing.toUpperCase()}`);
+        return;
+      }
+      case 'ShowTrainerIntroSpeech':
+        this.showFieldMessage(battle?.introText);
+        return;
+      case 'ShowTrainerCantBattleSpeech':
+        this.showFieldMessage(battle?.cannotBattleText);
+        return;
+      case 'HasEnoughMonsForDoubleBattle': {
+        // GetMonsStateToDoubles
+        const party = this.state.party;
+        const alive = party.filter((m) => m.hp !== 0 && m.species !== 0 && !m.isEgg).length;
+        const result = party.length === 1 ? 'PLAYER_HAS_ONE_MON' : alive > 1 ? 'PLAYER_HAS_TWO_USABLE_MONS' : 'PLAYER_HAS_ONE_USABLE_MON';
+        this.state.setVar('VAR_RESULT', d.require(result));
+        return;
+      }
+      case 'ShouldTryRematchBattle': {
+        if (!battle) return 0;
+        const i = this.data.rematches.findIndex((r) => r[0] === battle.trainer); // GetRematchIdx
+        if (i < 0) return 0;
+        if (this.trainerRematchable()) return 1; // ShouldTryRematchBattleInternal
+        return this.trainerFlag(this.data.rematches[i][0]) ? 1 : 0; // HasRematchTrainerAlreadyBeenFought
+      }
+      case 'IsTrainerReadyForRematch': {
+        // IsTrainerReadyForRematchInternal (LookupVsSeekerOpponentInArray skips SKIP entries)
+        const found = battle && this.data.rematches.some((r) => r.includes(battle.trainer));
+        return found && this.trainerRematchable() ? 1 : 0;
+      }
+      case 'StartRematchBattle': {
+        if (battle) this.waitState = this.runTrainerBattle(battle, true);
+        return;
+      }
+    }
+  }
+
+  /** IsThisTrainerRematchable(gSpecialVar_LastTalked) */
+  private trainerRematchable(): boolean {
+    return !!this.state.trainerRematches[this.state.getVar('VAR_LAST_TALKED')];
+  }
+
+  /** GetRematchTrainerId: the next rematch party not yet beaten, held back by story progress. */
+  private getRematchTrainerId(trainer: number): number {
+    const SKIP = 0xffff;
+    const NONE = this.defines.require('TRAINER_NONE');
+    const MAX_REMATCH_PARTIES = 6;
+    // GetNextAvailableRematchTrainer
+    const ids = this.data.rematches.find((r) => r[0] === trainer);
+    if (!ids) return 0;
+    const at = (j: number) => ids[j] ?? NONE;
+    let j = 1;
+    for (; j < MAX_REMATCH_PARTIES; j++) {
+      if (at(j) === NONE) break;
+      if (at(j) === SKIP || this.trainerFlag(at(j))) continue;
+      break;
+    }
+    if (j === MAX_REMATCH_PARTIES || at(j) === NONE) j--;
+    if (j === 0) return 0;
+    // TryGetRematchTrainerIdGivenGameState: tiers unlock with the VS Seeker, Celadon, Fuchsia, the credits, RS link
+    const gate = ['', 'FLAG_GOT_VS_SEEKER', 'FLAG_WORLD_MAP_CELADON_CITY', 'FLAG_WORLD_MAP_FUCHSIA_CITY', 'FLAG_SYS_GAME_CLEAR', 'FLAG_SYS_CAN_LINK_WITH_RS'][j];
+    if (gate && !this.state.getFlag(gate)) {
+      // GetRematchTrainerIdGivenGameState
+      do j--;
+      while (j !== 0 && at(j) === SKIP);
+    }
+    return at(j);
+  }
+
+  /** ShowFieldMessage */
+  private showFieldMessage(label?: string): void {
+    const raw = label && this.strings[label];
+    this.messageBox.show(raw ? this.charmap.encode(raw) : this.charmap.encode('$'), this.contextTextColor());
+  }
+
+  private trainerFlag(trainer: number): boolean {
+    const start = this.defines.get('TRAINER_FLAGS_START');
+    return start !== undefined && this.state.getFlag(start + trainer);
+  }
+
   /** SetTrainerFlag */
   private setTrainerFlag(trainer: number): void {
     const start = this.defines.get('TRAINER_FLAGS_START');
@@ -799,6 +976,20 @@ export class ScriptEngine {
     return start !== undefined && this.state.getFlag(start + this.state.value(trainer));
   }
 }
+
+/** Specials handled by ScriptEngine.trainerSpecial (some return nothing). */
+const TRAINER_SPECIALS = new Set([
+  'Script_HasTrainerBeenFought',
+  'SetBattledTrainerFlag',
+  'GetTrainerBattleMode',
+  'SetUpTrainerMovement',
+  'ShowTrainerIntroSpeech',
+  'ShowTrainerCantBattleSpeech',
+  'HasEnoughMonsForDoubleBattle',
+  'ShouldTryRematchBattle',
+  'IsTrainerReadyForRematch',
+  'StartRematchBattle',
+]);
 
 /** NPC_TEXT_COLOR_MALE / FEMALE; MON and NEUTRAL both use the default dark-gray text. */
 export function textColorFromId(c: number, defines: Defines): TextColor {

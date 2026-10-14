@@ -539,7 +539,9 @@ def mon_coords(path, name, defines):
 def extract_trainers(decomp, defines):
     parties_src = (decomp / "src/data/trainer_parties.h").read_text()
     parties = {}
-    for name, body in re.findall(r"static const struct TrainerMon\w+ (\w+)\[\] = \{(.*?)\n\};", parties_src, re.S):
+    # Each definition runs to the next one: one-liners like `sParty_EliteFourDrake[] = {DUMMY_TRAINER_MON};`
+    # have no "\n};", so a lazy match up to that would swallow the following party.
+    for name, body in re.findall(r"static const struct TrainerMon\w+ (\w+)\[\] = \{(.*?)\};\s*(?=static const|//|\Z)", parties_src, re.S):
         mons = []
         for mon in re.findall(r"\{\s*(\..*?)\}\s*,?\s*(?=\{|$)", body.strip() + "\n", re.S):
             mons.append(c_struct_fields(mon, defines))

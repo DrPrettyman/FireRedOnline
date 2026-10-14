@@ -16,6 +16,8 @@ const GEN = 'gen';
 export class Assets {
   mapIndex: Record<string, string> = {}; // MAP_* id -> map name
   sprites: Record<string, SpriteInfo> = {}; // OBJ_EVENT_GFX_* -> sheet
+  /** Sprite sheets being loaded, by texture key. */
+  private spriteLoads = new Map<string, Promise<void>>();
   private tilesets!: TilesetIndex;
   private pairs = new Map<string, TilesetPair>();
   constants!: Constants;
@@ -118,8 +120,11 @@ export class Assets {
     const info = this.sprites[gfxId];
     if (!info) return undefined;
     const key = spriteTextureKey(info);
-    if (!scene.textures.exists(key)) {
-      await new Promise<void>((resolve) => {
+    if (scene.textures.exists(key)) return info;
+    // Overlapping calls share one load: queueing the same key twice makes Phaser reject the second.
+    let loading = this.spriteLoads.get(key);
+    if (!loading) {
+      loading = new Promise<void>((resolve) => {
         scene.load.spritesheet(key, `${GEN}/sprites/${info.key}.png`, {
           frameWidth: info.frameWidth,
           frameHeight: info.frameHeight,
@@ -127,8 +132,10 @@ export class Assets {
         scene.load.once(`filecomplete-spritesheet-${key}`, () => resolve());
         scene.load.once(Phaser.Loader.Events.COMPLETE, () => resolve());
         scene.load.start();
-      });
+      }).finally(() => this.spriteLoads.delete(key));
+      this.spriteLoads.set(key, loading);
     }
+    await loading;
     return info;
   }
 }

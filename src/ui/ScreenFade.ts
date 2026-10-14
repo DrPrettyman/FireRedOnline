@@ -10,7 +10,7 @@ export interface FadeModes {
 }
 
 /** Above the map, objects and every window: the fade covers all palettes. */
-const DEPTH_FADE = DEPTH_UI + 1000;
+export const DEPTH_FADE = DEPTH_UI + 1000;
 
 /**
  * FadeScreen / BeginNormalPaletteFade over all palettes, drawn as a full-screen overlay.

@@ -7,8 +7,8 @@ export class NpcBrain {
   private wait: number;
   private readonly homeX: number;
   private readonly homeY: number;
-  private readonly kind: string;
-  private readonly lookDirs: Direction[];
+  private kind!: string;
+  private lookDirs!: Direction[];
   private walkDir: Direction | undefined;
 
   constructor(
@@ -18,11 +18,16 @@ export class NpcBrain {
   ) {
     this.homeX = obj.tileX;
     this.homeY = obj.tileY;
-    this.kind = data.movement_type.replace('MOVEMENT_TYPE_', '');
+    this.wait = randomWait();
+    this.setMovementType(data.movement_type);
+    if (this.lookDirs.length) obj.face(this.lookDirs[0]);
+  }
+
+  /** SetTrainerMovementType: switch to another MOVEMENT_TYPE_* from the next frame on. */
+  setMovementType(movementType: string): void {
+    this.kind = movementType.replace('MOVEMENT_TYPE_', '');
     this.lookDirs = parseLookDirections(this.kind);
     this.walkDir = this.lookDirs[0];
-    this.wait = randomWait();
-    if (this.lookDirs.length) obj.face(this.lookDirs[0]);
   }
 
   /** Paused NPCs (e.g. while talking) hold still. */

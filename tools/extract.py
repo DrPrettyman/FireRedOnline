@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import struct
 import sys
 from pathlib import Path
@@ -325,6 +326,9 @@ def extract_object_events(decomp, out):
         n = gfx_ids.get(gfx_id)
         return colors_by_gfx.get(n, 3) if n is not None else 3
 
+    # Start clean: on a case-insensitive disk, overwriting an old "Blackbelt.png" keeps that name, and the
+    # dev server's case-sensitive lookup of "BlackBelt.png" then misses it.
+    shutil.rmtree(out / "sprites", ignore_errors=True)
     (out / "sprites").mkdir(parents=True, exist_ok=True)
     manifest = {}
     written = {}
@@ -562,7 +566,50 @@ EXPAND_EVENT_MACROS = {
     "giveitem", "finditem", "putitemaway", "msgreceiveditem", "giveitem_msg", "famechecker", "set_gym_trainers",
     "goto_if_questlog", "seteventmon", "braillemessage_wait",
     "trainerbattle_earlyrival", "trainerbattle_rematch", "trainerbattle_rematch_double", "trainerbattle_no_intro",
+    "trainerbattle_single", "trainerbattle_double",
 }
+
+
+def asm_condition(cond, known):
+    """`.if` operand after argument substitution: `A == B`, `A != B` or a bare value. Names that aren't
+    constants (script labels) compare as themselves, so `SomeLabel == FALSE` is false like in gas."""
+
+    def value(x):
+        x = x.strip()
+        v = eval_const_expr(x, known)
+        return x if v is None else v
+
+    m = re.fullmatch(r"(.+?)\s*(==|!=)\s*(.+)", cond.strip())
+    if m:
+        eq = value(m.group(1)) == value(m.group(3))
+        return eq if m.group(2) == "==" else not eq
+    v = value(cond)
+    return v != 0 if isinstance(v, int) else True
+
+
+def expand_conditionals(lines, known):
+    """Keep the lines of a macro body whose .if/.elseif/.else/.endif branch is taken."""
+    out, stack = [], []  # stack entries: [this branch active, some branch already taken, parent active]
+    for line in lines:
+        directive = line.split(None, 1)
+        d, rest = directive[0], (directive[1] if len(directive) > 1 else "")
+        active = all(e[0] for e in stack)
+        if d == ".if":
+            ok = active and asm_condition(rest, known)
+            stack.append([ok, ok, active])
+        elif d == ".elseif":
+            e = stack[-1]
+            e[0] = e[2] and not e[1] and asm_condition(rest, known)
+            e[1] = e[1] or e[0]
+        elif d == ".else":
+            e = stack[-1]
+            e[0] = e[2] and not e[1]
+            e[1] = True
+        elif d == ".endif":
+            stack.pop()
+        elif active:
+            out.append(line)
+    return out
 
 
 def macro_params(header):
@@ -588,6 +635,7 @@ def extract_scripts(decomp, out):
         return equs.get(tok, tok)
 
     macros = {}  # name -> (params, body lines); only macros defined in script files (asm/ is skipped)
+    known = {}  # constants for macro .if conditions, filled before the walk
 
     def walk(rel):
         if rel in seen or rel.startswith("asm/") or rel.endswith(("script_cmd_table.inc", "specials.inc")):
@@ -643,10 +691,13 @@ def extract_scripts(decomp, out):
                 params, body = macros[op]
                 # Longest names first so \\item doesn't clobber \\items.
                 order = sorted(range(len(params)), key=lambda i: -len(params[i][0]))
+                lines = []
                 for bl in body:
                     for i in order:
                         prm, default = params[i]
                         bl = bl.replace("\\" + prm, args[i] if i < len(args) and args[i] else default)
+                    lines.append(bl)
+                for bl in expand_conditionals(lines, known):
                     handle(bl)
                 return
             code.append([op] + [subst(a) for a in args])
@@ -664,19 +715,54 @@ def extract_scripts(decomp, out):
             lines = [strip_comment(l).strip() for l in body.splitlines()]
             macros[name] = (macro_params(header), [l for l in lines if l])
 
+    # Numeric constants scripts compare against (TRUE, MALE, DIR_*, MSGBOX_*, ITEM_*, ...), plus the
+    # assembler symbols the event macros' .if conditions use (e.g. `NO_MUSIC = FALSE`).
+    defines = parse_defines(decomp)
+    known.update(defines)
+    known.update({"TRUE": 1, "FALSE": 0})
+    known.update({k: known[v] for k, v in re.findall(r"^\s*(\w+)\s*=\s*(TRUE|FALSE)\s*$", event_inc, re.M)})
+
     walk("data/event_scripts.s")
 
-    # Numeric constants scripts compare against (TRUE, MALE, DIR_*, MSGBOX_*, ITEM_*, ...).
-    defines = parse_defines(decomp)
     std = []
     i = labels.get("gStdScripts")
     while i is not None and i < len(code) and code[i][0] == ".4byte":
         std.append(code[i][1])
         i += 1
 
+    # vs_seeker.c sRematches: each trainer's rematch parties (SKIP = 0xFFFF), for ShouldTryRematchBattle etc.
+    vs = (decomp / "src/vs_seeker.c").read_text()
+    body = re.search(r"sRematches\[\]\s*=\s*\{(.*?)\n\};", vs, re.S).group(1)
+    rematches = [
+        [0xFFFF if t == "SKIP" else defines[t] for t in re.findall(r"\w+", ids)]
+        for ids in re.findall(r"\{\s*\{([^}]*)\}", body)
+    ]
+
+    # src/data/heal_locations.json (the decomp generates HEAL_LOCATION_* = index + 1 from it): fly/respawn
+    # points, plus the map and healer NPC a white-out sends you to (sWhiteoutRespawnHealCenterMapIdxs/NpcIds).
+    heal_locations = []
+    for i, h in enumerate(json.loads((decomp / "src/data/heal_locations.json").read_text())["heal_locations"]):
+        defines[h["id"]] = i + 1
+        heal_locations.append({"map": h["map"], "x": h["x"], "y": h["y"], "respawnMap": h["respawn_map"], "respawnNpc": h["respawn_npc"]})
+
+    # overworld.c ComputeWhiteOutMoneyLoss tables.
+    ow = (decomp / "src/overworld.c").read_text()
+
+    def c_array(name):
+        body = re.search(rf"{name}\[\]\s*=\s*\{{(.*?)\}};", ow, re.S).group(1)
+        return [int(t) if t.isdigit() else defines[t] for t in re.findall(r"\w+", body)]
+
+    white_out = {"moneyLossMultipliers": c_array("sWhiteOutMoneyLossMultipliers"), "moneyLossBadgeFlags": c_array("sWhiteOutMoneyLossBadgeFlagIDs")}
+
     sd = out / "scripts"
     sd.mkdir(parents=True, exist_ok=True)
-    (sd / "scripts.json").write_text(json.dumps({"code": code, "labels": labels, "defines": defines, "stdScripts": std}, ensure_ascii=False, separators=(",", ":")))
+    (sd / "scripts.json").write_text(
+        json.dumps(
+            {"code": code, "labels": labels, "defines": defines, "stdScripts": std, "rematches": rematches, "healLocations": heal_locations, "whiteOut": white_out},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    )
     # C strings (menu labels etc.): const u8 gText_X[] = _("..." "...");
     for cfile in ("src/strings.c",):
         src = (decomp / cfile).read_text(encoding="utf-8")

@@ -108,6 +108,9 @@ export class MovementRunner {
       case 'set_visible':
         obj.setVisible(true);
         return false;
+      case 'reveal_trainer':
+        // MovementAction_RevealTrainer only acts on tree/mountain-disguised trainers, which FRLG doesn't use
+        return false;
       default:
         // emotes, affine anims, bike tricks etc. are not implemented yet
         console.debug('[movement] unimplemented', op);

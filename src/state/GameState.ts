@@ -21,6 +21,10 @@ export class GameState {
   optionsButtonMode = 0;
   /** gSaveBlock2Ptr->optionsWindowFrameType (frame 1 = 0) */
   optionsWindowFrameType = 0;
+  /** gSaveBlock1Ptr->lastHealLocation (set by `setrespawn`): where a white-out sends you. */
+  lastHealLocation?: { map: string; x: number; y: number };
+  /** gSaveBlock1Ptr->trainerRematches, by local id: set by the VS Seeker (not implemented yet). */
+  trainerRematches: number[] = [];
   /** gSaveBlock1Ptr->registeredItem (ITEM_NONE = 0) */
   registeredItem = 0;
 

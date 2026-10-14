@@ -29,7 +29,7 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] Battle scripts (assembled ROM image), battle strings, mechanics tables, anim command tables (`tools/extract_anims.py`)
 - [x] Party menu / bag / item icon / mon icon / help-window graphics; `menus.json` (`tools/extract_menus.py`: mon and item icon tables, TM/HM + tutor learnsets, TM/HM + tutor moves, evolutions)
 - [ ] Move/status battle animation scripts
-- [x] Pure event macros (giveitem_msg, famechecker, trainerbattle_earlyrival, ...) expanded like the assembler would
+- [x] Pure event macros (giveitem_msg, famechecker, trainerbattle_*, ...) expanded like the assembler would, incl. `.if/.elseif/.else` on arguments
 - [ ] Audio
 
 ### Engine
@@ -58,7 +58,8 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [~] Items: additem/removeitem/checkitem/checkitemspace/checkitemtype, giveitem/giveitem_msg through the std scripts. Not yet: hidden items, item balls (finditem) untested
 - [x] Buffer commands (species/lead mon/party nick/item/item plural/number/std string/string); `waitstate`
 - [x] givemon, getpartysize, showmonpic/hidemonpic (picture box), fadescreen (palette-fade timing)
-- [~] trainerbattle: EARLY_RIVAL and SINGLE_NO_INTRO_TEXT configure + run EventScript_DoNoIntroTrainerBattle and start the real battle. Other trainer battle types log as unimplemented
+- [x] White-out (CB2_WhiteOut → DoWhiteOut → FieldCB_RushInjuredPokemonToCenter) and `setrespawn`
+- [x] trainerbattle: every mode (BattleSetup_ConfigureTrainerBattle + the trainer_battle.inc scripts and their specials, gotobeatenscript, rematch checks against vs_seeker.c sRematches). Talk-to only: trainer sight isn't implemented
 - [x] Text colour through VAR_TEXT_COLOR / VAR_PREV_TEXT_COLOR (ContextNpcGetTextColor), VAR_LAST_TALKED
 - [ ] Movement emotes (exclamation mark etc.) and other field effects in movement scripts
 - [ ] Interacting with metatiles (PCs, bookshelves, TVs via behavior scripts)
@@ -84,7 +85,10 @@ Things that are placeholders or approximations, so they aren't mistaken for port
 
 - **Placeholders (not in the decomp):**
   - `ChangePokemonNickname`: keeps the name and fades back in instead of opening the naming screen.
-  - White-out (`CB2_WhiteOut`) after a lost battle: logs a warning and continues the script.
+  - Pokémon Center heal: the healing machine (`dofieldeffect FLDEFF_POKECENTER_HEAL`) and the nurse's bow
+    (`nurse_joy_bow`) are skipped; the heal itself happens.
+  - White-out after the Trainer Tower: its challenge state isn't tracked, so `spokeToOwner` reads as FALSE.
+  - VS Seeker: `state.trainerRematches` is never set, so no trainer is ever ready for a rematch.
   - Battles: no move/status/special battle animation scripts (InitAndLaunchSpecialAnimation etc. finish at once;
     only the Poké Ball open burst is drawn); no shiny sparkle; no audio (PlaySE/cries/BGM are no-ops).
   - Battles: evolutions are skipped.
@@ -159,8 +163,8 @@ State as of the last log entry:
 - **Open overworld follow-ups:** dynamic-graphics objects have only been checked on Viridian's old man; other maps
   that use them (e.g. rival appearances) are untested. A script that sets `VAR_OBJ_GFX_ID_*` and then `addobject`s
   in the same run only works if that sprite was already preloaded; otherwise it logs `[overworld] no sprite loaded`.
-- **Next blockers on the main path:** Viridian City Mart parcel scene (`pokemart`, multichoice), Route 22 trainers
-  (`trainerbattle_single`, trainer sight), Oak's parcel → Pokédex scene; in battle: move animations
+- **Next blockers on the main path:** Viridian City Mart parcel scene (`pokemart`, multichoice), trainer sight
+  (trainers only battle when talked to; Route 22 rival, Viridian Forest, gym trainers), Oak's parcel → Pokédex scene; in battle: move animations
   (battle_anim scripts), wild battles, evolution scene.
 - **GBA screens:** `src/gba/main.ts` is gMain (callbacks, ReadKeys with key repeat). `GbaHostScene` runs the
   main loop; `BattleScene` and `FieldMenuScene` extend it. Screens hand over with SetMainCallback2 like the C
@@ -175,6 +179,9 @@ State as of the last log entry:
   battle globals (`g`).
 - **How to find what a script needs:** unimplemented script commands and specials log once to the browser console
   as `[script] unimplemented command ...`.
+- **Skip the intro:** `?start=after-rival[&starter=bulbasaur|squirtle|charmander]` (dev only) starts in Oak's lab
+  right after the first rival battle, won (`src/dev/startPresets.ts`); add `&map=&x=&y=` to start elsewhere with
+  that state. When a script on the way changes, update the preset to match.
 - **Bugs that depend on world position:** `?map=` always loads at origin 0, so maps that are far from the origin in
   a real playthrough (e.g. Viridian at y = -80 after walking up from Pallet) need either a real walk or
   `await s.world.load(name, ox, oy)`, then `s.player.setPosition(...)` and `await s.onMapLoaded(false)`.
@@ -441,3 +448,56 @@ State as of the last log entry:
   set the vars yet (see "Deliberate QOL changes": neighbour spawning).
 - Verified headless: walking north from Route 1 (10,3) up x=22, the old man is drawn lying at (21,11) and the
   coord trigger starts beside him; Pallet's Oak trigger unchanged.
+
+### Dev start preset: after the rival battle (user request)
+- `?start=after-rival[&starter=...]` applies, to a new-game state, what the scripts leave behind from the house
+  through the won lab battle: house/Pallet/Oak scene vars, FLAG_WORLD_MAP_PALLET_TOWN, FLAG_VISITED_OAKS_LAB,
+  starter + Pokédex, both balls' hide flags, VAR_STARTER_MON, trainer flag, FLAG_HIDE_RIVAL_IN_LAB, scene var 4,
+  FLAG_BEAT_RIVAL_IN_OAKS_LAB. Battle effects follow MonGainEVs, Cmd_getexp (×1.5 trainer), TryIncrementMonLevel +
+  AdjustFriendship(GROW_LEVEL, +1 met here), Cmd_getmoneyreward, then HealPlayerParty. Start: lab (6,8) facing down.
+- Verified headless: a real playthrough (Squirtle, mid trigger, won) and the preset give identical flags, scene
+  vars, money (3080), Pokédex and party (Lv6, exp 202, friendship 76, 1 Sp. Atk EV, moves/PP), apart from the house
+  var the real run skipped. Bulbasaur/Charmander give exp 204/205 as the formula predicts.
+- Not covered: losing the battle, and having opened the start menu before the rival picks
+  (VAR_MAP_SCENE_PALLET_TOWN_SIGN_LADY).
+
+### Trainer battles (user report: Brock gave TM39 without a battle)
+- Causes: (1) the extractor never expanded `trainerbattle_single`/`_double`, whose bodies pick the mode with
+  `.if/.elseif`, so the interpreter skipped the line and Brock's script fell through to `goto_if_unset
+  FLAG_GOT_TM39_FROM_BROCK`; (2) `trainerbattle` only handled EARLY_RIVAL and SINGLE_NO_INTRO_TEXT.
+- Extractor: macro bodies now go through `.if/.elseif/.else/.endif` (constants from the defines plus event.inc's
+  `NO_MUSIC = FALSE` symbols; labels compare as themselves); all 729 trainer battles expand to `trainerbattle`.
+  `sRematches` is extracted into scripts.json. Trainer parties: one-line dummy parties (`{DUMMY_TRAINER_MON};`)
+  made the regex swallow the next party, leaving 64 real trainers (Youngster Ben, Camper Chris, ...) with none.
+  The sprites folder is cleared before writing: an old `Blackbelt.png` survived on the case-insensitive disk and the
+  dev server's case-sensitive lookup of `BlackBelt.png` failed (Route 4's Black Belt never spawned).
+- Engine: `trainerbattle` ports BattleSetup_ConfigureTrainerBattle (all s*BattleParams layouts, SetMapVarsToTrainer,
+  GetRematchTrainerId) and jumps to EventScript_TryDoNormalTrainerBattle / Double / Rematch / NoIntro. New:
+  `gotobeatenscript`, `reveal_trainer` (no FRLG disguises), specials Script_HasTrainerBeenFought,
+  SetBattledTrainerFlag, GetTrainerBattleMode, SetUpTrainerMovement (NpcBrain.setMovementType),
+  ShowTrainerIntroSpeech, ShowTrainerCantBattleSpeech, HasEnoughMonsForDoubleBattle, ShouldTryRematchBattle,
+  IsTrainerReadyForRematch, StartRematchBattle. CB2_EndTrainerBattle is shared; a white-out now ends the script
+  (it used to continue, which would have handed out Brock's badge after a loss). `Assets.loadSprite` shares
+  in-flight loads.
+- Verified headless (`?start=after-rival` + a Lv70 Squirtle): Brock gives his intro, battles, then sets
+  FLAG_DEFEATED_BROCK / FLAG_BADGE01_GET / trainer flag / VAR_MAP_SCENE_PEWTER_CITY, pays ₽1400 and gives TM39;
+  talking again gives the post-battle line, no battle. Route 3 Ben: battle, ₽176, then ShouldTryRematchBattle →
+  rematch script → not ready → post-battle line. Losing to Camper Liam with the Lv6 starter ends the script with no
+  trainer flag. Oak's lab rival battle unchanged.
+
+### White-out (user request)
+- `setrespawn` (SetLastHealLocationWarp) stores `state.lastHealLocation`. The extractor numbers HEAL_LOCATION_* from
+  src/data/heal_locations.json (as the decomp's build does) and adds that table plus ComputeWhiteOutMoneyLoss's
+  arrays to scripts.json. The start preset now records the house's `setrespawn HEAL_LOCATION_PALLET_TOWN`.
+- A lost battle leaves the field black: the script engine either returns to the field
+  (CB2_ReturnToFieldContinueScriptPlayMapMusic, `TrainerBattleRun.returnToField`) or ends the script and calls
+  `host.whiteOut()`. OverworldScene.whiteOut is CB2_WhiteOut as an overlay: 120 black frames; DoWhiteOut
+  (EventScript_ResetEliteFourEnd, RemoveMoney(ComputeWhiteOutMoneyLoss), HealPlayerParty,
+  Overworld_ResetStateAfterWhitingOut, SetWhiteoutRespawnWarpAndHealerNpc incl. its special-cased coordinates and
+  VAR_LAST_TALKED = healer, warp facing north); then Task_RushInjuredPokemonToCenter: "scurried to a POKéMON
+  CENTER" / "back home" in white on black (`ui/WhiteOutText.ts`, sWindowTemplate_WhiteoutText, 1 char/frame, no
+  speed-up), fade in, EventScript_AfterWhiteOutHeal / EventScript_AfterWhiteOutMomHeal.
+- Verified headless, losing to Camper Liam with the preset's Lv6 starter: with the house as respawn point → "scurried
+  back home", house 1F (8,5) facing north, Mom's script, party healed, ₽48 lost (Lv6 × 4 × 2); after entering
+  Pewter's Pokémon Center → "scurried to a POKéMON CENTER", Pewter PC 1F (7,4), VAR_LAST_TALKED = the nurse, her
+  heal script. Winning against Brock still fades back to the field and continues his script.
