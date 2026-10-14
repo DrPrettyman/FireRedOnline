@@ -135,6 +135,8 @@ Places where we choose to differ from the GBA on purpose (not placeholders). Kee
     don't run until you enter it. On entry, any of its objects whose reloaded template disagrees (position,
     graphics, movement type, hidden) is marked stale and respawned once it's off screen, so nobody visibly teleports.
     A stale one that's on screen keeps its old place until it isn't, as a live object would on the GBA.
+  - Exception: a neighbour's objects with dynamic graphics (OBJ_EVENT_GFX_VAR_*) aren't spawned until it's current,
+    because VAR_OBJ_GFX_ID_* hold the current map's choices, not the neighbour's.
   - Future: trainer sight / any per-object logic should check that an object belongs to the current map where the
     GBA would only have current-map objects alive.
 
@@ -412,3 +414,16 @@ State as of the last log entry:
   follows that.
 - Verified headless on Route 1's ledge at (4,5): camera scrollY now rises linearly (-8 → 23) through the jump; before,
   it stalled and then caught up with the arc.
+
+### Invisible Viridian old man (user report)
+- Report: after the depth fix, the tutorial old man north of the Viridian sign was still invisible (but blocking).
+- Cause: his template uses `OBJ_EVENT_GFX_VAR_0`, which ViridianCity_OnTransition points at OLD_MAN_LYING_DOWN /
+  OLD_MAN_1 through `VAR_OBJ_GFX_ID_0`. Nothing resolved dynamic graphics ids, so there was no sprite sheet and
+  `spawnNpc` silently returned nothing (the blocking is the map's coord event, not the object).
+- Fix: `resolveGraphicsId` ports SetObjectEventDynamicGraphicsId / GetObjectEventGraphicsInfo (VAR_OBJ_GFX_ID_n,
+  out-of-range → LITTLE_BOY). Sprites are preloaded again after ON_TRANSITION/ON_LOAD with the resolved ids; an
+  object is marked stale if its resolved graphics changed; spawn failures now `console.warn` once per id.
+  A neighbour map's var-graphics objects aren't spawned until that map is current, since its ON_TRANSITION hasn't
+  set the vars yet (see "Deliberate QOL changes": neighbour spawning).
+- Verified headless: walking north from Route 1 (10,3) up x=22, the old man is drawn lying at (21,11) and the
+  coord trigger starts beside him; Pallet's Oak trigger unchanged.

@@ -43,6 +43,8 @@ interface Npc {
   chunk: MapChunk;
   /** The template as it was at spawn, to notice when a map reload changes where it belongs. */
   spawnedAs: ObjectEventData;
+  /** Its graphics id with any OBJ_EVENT_GFX_VAR_* resolved, as it was at spawn. */
+  graphicsId: string;
   /** Set when its map was re-entered and its template no longer matches; respawned once off screen. */
   stale: boolean;
   brain: NpcBrain;
@@ -71,6 +73,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
    * only last until the map is left; a neighbour keeps the ones it had while it was current.
    */
   private templates = new Map<string, ObjectEventData[]>();
+  /** OBJ_EVENT_GFX_* name by number, for resolving the values of VAR_OBJ_GFX_ID_*. */
+  private graphicsIdNames = new Map<number, string>();
+  /** Graphics ids already warned about as unloadable, so the per-step spawn check doesn't spam. */
+  private missingSprites = new Set<string>();
   /** What objects see of the field: tile elevations and the sprite camera offset. */
   private readonly field: ObjectEventField = {
     elevationAt: (x, y) => this.world.tileAt(x, y).elevation,
@@ -92,6 +98,9 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     this.assets = this.registry.get('assets');
     this.behaviors = new Behaviors(this.assets.behaviorIds);
     this.defines = new Defines(this.assets.scripts.defines);
+    for (const [name, n] of Object.entries(this.assets.scripts.defines)) {
+      if (name.startsWith('OBJ_EVENT_GFX_') && this.assets.sprites[name] && !this.graphicsIdNames.has(n)) this.graphicsIdNames.set(n, name);
+    }
     this.charmap = new Charmap(this.assets.charmap);
     const a = this.assets;
     const pokemon = new PokemonData(readPokemonConstants(this.defines), a.species, a.moves, a.items, a.pokemonTables, this.charmap);
@@ -430,6 +439,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     if (transition) this.scripts.runImmediately(transition);
     const load = this.scripts.mapScript(name, 'MAP_SCRIPT_ON_LOAD');
     if (load) this.scripts.runImmediately(load);
+    await this.preloadMapSprites(); // again, now the map scripts have set any VAR_OBJ_GFX_ID_*
     if (warped) this.clearNpcs(); // ResetObjectEvents
     this.syncNpcsWithLoadedMaps();
     if (warped) {
@@ -454,8 +464,21 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
    * ones, so that `addobject` can spawn synchronously mid-script (as on the GBA).
    */
   private async preloadMapSprites(): Promise<void> {
-    const ids = new Set(this.world.loaded.flatMap((c) => c.data.objectEvents.map((e) => e.graphics_id)));
+    const ids = new Set(this.world.loaded.flatMap((c) => c.data.objectEvents.map((e) => this.resolveGraphicsId(e.graphics_id))));
     await Promise.all([...ids].map((id) => this.assets.loadSprite(this, id)));
+  }
+
+  /** OBJ_EVENT_GFX_VAR_0..F: the graphics id is whatever a map script put in VAR_OBJ_GFX_ID_0..F. */
+  private isDynamicGraphicsId(id: string): boolean {
+    return (this.defines.get(id) ?? 0) >= this.defines.require('OBJ_EVENT_GFX_VARS');
+  }
+
+  /** SetObjectEventDynamicGraphicsId / GetObjectEventGraphicsInfo (out-of-range ids become LITTLE_BOY). */
+  private resolveGraphicsId(id: string): string {
+    if (!this.isDynamicGraphicsId(id)) return id;
+    const n = this.defines.require(id) - this.defines.require('OBJ_EVENT_GFX_VARS');
+    const gfx = this.state.getVar(this.defines.require('VAR_OBJ_GFX_ID_0') + n); // VarGetObjectEventGraphicsId
+    return this.graphicsIdNames.get(gfx) ?? 'OBJ_EVENT_GFX_LITTLE_BOY';
   }
 
   private clearNpcs(): void {
@@ -491,7 +514,9 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     for (const n of this.npcs) {
       if (n.chunk !== cur) continue;
       const t = templates[n.localId - 1];
-      if (!t || this.isHidden(t) || !sameSpawn(n.spawnedAs, t)) n.stale = true;
+      if (!t || this.isHidden(t) || !sameSpawn(n.spawnedAs, t) || this.resolveGraphicsId(t.graphics_id) !== n.graphicsId) {
+        n.stale = true;
+      }
     }
     this.updateObjectsForCamera();
   }
@@ -526,12 +551,20 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   private spawnNpc(e: ObjectEventData, localId: number, chunk = this.world.current): Npc | undefined {
     if (e.type !== 'object' || e.movement_type === 'MOVEMENT_TYPE_INVISIBLE') return undefined;
     if (this.isHidden(e)) return undefined;
-    const info = this.assets.sprites[e.graphics_id];
-    if (!info || !this.textures.exists(spriteTextureKey(info))) return undefined;
+    // A neighbour's VAR_OBJ_GFX_ID_* are only set by its own ON_TRANSITION, so its dynamic-graphics
+    // objects wait until it becomes the current map (as on the GBA, where neighbours never spawn).
+    if (chunk !== this.world.current && this.isDynamicGraphicsId(e.graphics_id)) return undefined;
+    const graphicsId = this.resolveGraphicsId(e.graphics_id);
+    const info = this.assets.sprites[graphicsId];
+    if (!info || !this.textures.exists(spriteTextureKey(info))) {
+      if (!this.missingSprites.has(graphicsId)) console.warn(`[overworld] no sprite loaded for ${graphicsId} (${e.graphics_id})`);
+      this.missingSprites.add(graphicsId);
+      return undefined;
+    }
     const obj = new ObjectEvent(this, info, chunk.originX + e.x, chunk.originY + e.y, this.field, e.elevation);
     obj.updateElevationAndPriority(); // DoGroundEffects_OnSpawn
     const data = { ...e };
-    return { localId, chunk, spawnedAs: data, stale: false, brain: new NpcBrain(obj, data, (o, d) => this.canMove(o, d)) };
+    return { localId, chunk, spawnedAs: data, graphicsId, stale: false, brain: new NpcBrain(obj, data, (o, d) => this.canMove(o, d)) };
   }
 
   // ------------------------------------------------------------------ UI
