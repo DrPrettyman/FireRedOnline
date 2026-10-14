@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { spriteTextureKey, type Assets } from '../data/assets';
 import type { ObjectEventData, WarpEventData } from '../data/types';
 import { NpcBrain } from '../entities/NpcBrain';
-import { ObjectEvent } from '../entities/ObjectEvent';
+import { ObjectEvent, type ObjectEventField } from '../entities/ObjectEvent';
 import { Input } from '../input/Input';
 import { PokemonData, readPokemonConstants } from '../pokemon/Pokemon';
 import { Defines } from '../script/Defines';
@@ -27,6 +27,8 @@ const FRAME_MS = 1000 / 60;
 const TURN_FRAMES = 8;
 const FADE_MS = 200;
 const PLAYER_GFX = 'OBJ_EVENT_GFX_RED_NORMAL';
+/** The camera centres on the middle of the player's tile, 8 px above its feet (ignoring jump lift). */
+const CAMERA_FOLLOW_OFFSET_Y = TILE / 2;
 
 export interface OverworldStart {
   map: string;
@@ -69,6 +71,11 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
    * only last until the map is left; a neighbour keeps the ones it had while it was current.
    */
   private templates = new Map<string, ObjectEventData[]>();
+  /** What objects see of the field: tile elevations and the sprite camera offset. */
+  private readonly field: ObjectEventField = {
+    elevationAt: (x, y) => this.world.tileAt(x, y).elevation,
+    cameraTop: 0,
+  };
   private buttons!: Input;
   private accumulator = 0;
   private busy = true;
@@ -125,8 +132,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     this.world = new World(this, this.assets);
     const playerInfo = await this.assets.loadSprite(this, PLAYER_GFX);
     if (!playerInfo) throw new Error(`Missing player sprite ${PLAYER_GFX}`);
-    this.player = new ObjectEvent(this, playerInfo, 0, 0);
-    this.cameras.main.startFollow(this.player.sprite, true, 1, 1, 0, TILE / 2);
+    this.player = new ObjectEvent(this, playerInfo, 0, 0, this.field);
+    this.cameras.main.startFollow(this.player.anchor, true, 1, 1, 0, CAMERA_FOLLOW_OFFSET_Y);
 
     await this.enterMap(start.map, start.x, start.y, start.facing ?? 'down', true);
     this.busy = false;
@@ -172,6 +179,21 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       if (!this.tryOnFrameScript()) this.handleInput();
     }
     this.wasMoving = this.player.isMoving;
+
+    // AnimateSprites runs every object's ObjectEventUpdateSubpriority against last frame's camera;
+    // only then do CameraUpdate and UpdateCameraPanning move it.
+    for (const n of this.npcs) n.brain.obj.updateSubpriority();
+    this.player.updateSubpriority();
+    this.updateFieldCamera();
+  }
+
+  /**
+   * gSpriteCoordOffsetY: the camera follows the player, whose feet sit at screen y 88 as on the GBA
+   * (SetSpritePosToOffsetMapCoords puts them 7 tiles + 16 px down; UpdateCameraPanning subtracts the
+   * 32 px vertical pan and 8). The Phaser camera is framed the same way by CAMERA_FOLLOW_OFFSET_Y.
+   */
+  private updateFieldCamera(): void {
+    this.field.cameraTop = this.player.feetY - CAMERA_FOLLOW_OFFSET_Y - this.cameras.main.height / 2;
   }
 
   private handleInput(): void {
@@ -236,7 +258,6 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
 
   private onPlayerArrived(): void {
     const { tileX: x, tileY: y } = this.player;
-    this.updateElevation(this.player);
 
     if (this.pendingWarp) {
       const w = this.pendingWarp;
@@ -341,15 +362,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   private canOccupy(obj: ObjectEvent, x: number, y: number): boolean {
     const t = this.world.tileAt(x, y);
     if (t.collision !== 0) return false;
-    if (obj.elevation !== 0 && t.elevation !== 0 && t.elevation !== 15 && t.elevation !== obj.elevation) return false;
+    const e = obj.currentElevation;
+    if (e !== 0 && t.elevation !== 0 && t.elevation !== 15 && t.elevation !== e) return false; // IsElevationMismatchAt
     if (obj !== this.player && this.player.tileX === x && this.player.tileY === y) return false;
     return !this.npcs.some((n) => n.brain.obj !== obj && n.brain.obj.tileX === x && n.brain.obj.tileY === y);
-  }
-
-  /** ObjectEventUpdateElevation: elevation 15 (bridges etc.) preserves whatever we had. */
-  private updateElevation(obj: ObjectEvent): void {
-    const e = this.world.tileAt(obj.tileX, obj.tileY).elevation;
-    if (e !== 15) obj.elevation = e;
   }
 
   private npcAt(x: number, y: number): Npc | undefined {
@@ -394,9 +410,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   private async enterMap(name: string, x: number, y: number, facing: Direction, warped: boolean): Promise<void> {
     await this.world.load(name);
     this.player.setVisible(true); // the GBA recreates the player object on every warp
-    this.player.setPosition(x, y);
+    this.player.setPosition(x, y); // also updates elevation and priority, as on spawn
+    this.updateFieldCamera(); // the warp resets the camera onto the player
+    this.player.updateSubpriority();
     this.player.face(facing);
-    this.updateElevation(this.player);
     await this.onMapLoaded(warped);
   }
 
@@ -511,7 +528,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     if (this.isHidden(e)) return undefined;
     const info = this.assets.sprites[e.graphics_id];
     if (!info || !this.textures.exists(spriteTextureKey(info))) return undefined;
-    const obj = new ObjectEvent(this, info, chunk.originX + e.x, chunk.originY + e.y, e.elevation);
+    const obj = new ObjectEvent(this, info, chunk.originX + e.x, chunk.originY + e.y, this.field, e.elevation);
+    obj.updateElevationAndPriority(); // DoGroundEffects_OnSpawn
     const data = { ...e };
     return { localId, chunk, spawnedAs: data, stale: false, brain: new NpcBrain(obj, data, (o, d) => this.canMove(o, d)) };
   }
@@ -779,7 +797,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     const t = this.world.tileAt(this.player.tileX, this.player.tileY);
     this.hud.setText(
       `${cur.name} (${this.player.tileX - cur.originX},${this.player.tileY - cur.originY})\n` +
-        `mt ${t.metatile} beh 0x${t.behavior.toString(16)} col ${t.collision} elev ${t.elevation}/${this.player.elevation}`,
+        `mt ${t.metatile} beh 0x${t.behavior.toString(16)} col ${t.collision} elev ${t.elevation}/${this.player.currentElevation} pri ${this.player.priority}`,
     );
   }
 }

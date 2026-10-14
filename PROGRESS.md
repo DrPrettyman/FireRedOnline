@@ -36,6 +36,7 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] Map rendering (below/above layers), connections, border
 - [x] Grid movement: walk, run, tap-to-turn, ledges
 - [x] Collision: collision bits, elevation rules, directional impassable, objects
+- [x] Sprite priority from elevation (UpdateObjectEventElevationAndPriority): priority-1 objects draw over the top map layer
 - [x] Warps: doors (+ walk out), arrow/stair warps, step warps
 - [x] NPC movement types (wander, look around, face, pace)
 - [x] Hidden objects via flags
@@ -111,6 +112,10 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - The RNG (`random.c` formula) is seeded from `Math.random`; the trainer id is rolled when the game state is created instead of in Oak's intro.
   - A mon's met location is the MAPSEC_* name, not the numeric id.
   - Warps fade with Phaser's camera fade (200 ms), not the field warp fade.
+  - Sprite order: `fixedPriority` (surf/fly field effects, the `set_fixed_priority` movement action and
+    `setobjectsubpriority`, none of which FRLG scripts use) isn't ported, and neither are OAM priorities 0 and 3,
+    which no map elevation produces. Sprites tied on priority, subpriority and screen top keep creation order rather
+    than the previous frame's gSpriteOrder.
   - BIOS ObjAffineSet uses a computed sine table; mosaic isn't emulated by the PPU.
 - **Data:** Castform has no front pic (its `front.png` isn't in the decomp; it's built from per-form images).
 
@@ -360,3 +365,50 @@ State as of the last log entry:
   North's and adds Viridian's, and the sign lady stays at (12,2) all the way up Route 1 and back. Re-entering Pallet
   after setting FLAG_OPENED_START_MENU: she's marked stale and stays put while on screen, and is respawned at (3,10)
   wandering once off screen; warping in gives (3,10) straight away and VAR_MAP_SCENE_PALLET_TOWN_SIGN_LADY = 2.
+
+### Invisible sprites north of the Viridian sign (user report)
+- Report: walking north from Pallet into Viridian, the player vanished past the sign at (20,16) and the old man was
+  invisible (but still blocked the path); walking back south past the sign the player reappeared.
+- Cause: world origins are never rebased, so after walking up from Pallet, Viridian sits at y = -80 tiles. Object depth
+  was `1000 + pixel y`, which went negative from world tile y -64 (the sign's row) and sorted under the `below`
+  tile layer at depth 0.
+- Fix: depth bands in `MapChunk.ts` are now symmetric around 0 (border/below at -1e6, objects at pixel y,
+  above at +1e6), which leaves ±62,500 tiles of room either way.
+- Verified headless by reloading Viridian at origin (0,-80) and walking up x=22 past the sign: the player and the
+  Viridian NPCs are drawn (they weren't before the fix). `?map=` always loads at origin 0, so it can't reproduce
+  bugs that depend on world position; for those, `await s.world.load(name, ox, oy)` then `s.player.setPosition(...)`
+  and `await s.onMapLoaded(false)`.
+
+### Sprite priority from elevation (user request)
+- Ported sElevationToPriority / UpdateObjectEventElevationAndPriority / ObjectEventUpdateElevation. `ObjectEvent`
+  now has `currentElevation` (collision; IsElevationMismatchAt), `previousElevation` (last non-zero; picks the
+  priority), `priority` and previousCoords. Update points follow the ground-effect hooks: spawn and
+  `setobjectxy`/warp (MoveObjectEventToMapCoords), step begin (a jump's halfway point), and step end; walking in
+  place has none. The update is skipped while either coord is on elevation 15. NPC elevations used to stay fixed at
+  their template values; now they're updated like the player's.
+- Depth bands (`objectDepth` in MapChunk.ts): `below` (BG3+BG2) < priority-2 objects < `above` (BG1) < priority-1
+  objects < UI. Only elevations 0, 1, 3, 4 and 5 occur in map data, and 4 is the only raised one (Victory Road,
+  Cerulean Cave, Seafoam, Kindle Road, a corner of each Pokémon Center).
+- Verified headless on Victory Road 1F: (10,10) elev 3 → stairs (10,9) elev 0 (priority stays 2) → platform (10,8)
+  elev 4 (priority 1, depth 1.5M + y) and back down to priority 2; the Cooltrainer at elevation 4 spawns at
+  priority 1. Pallet's Oak trigger and the Viridian sign walk are unchanged (priority 2).
+
+### GBA sprite subpriority (user request)
+- Replaced the exact pixel-y sort with SetObjectSubpriorityByElevation: `subpriority = sElevationToSubpriority[prevElev]
+  + ((16 - (((screenBottom + 8) & 0xFF) >> 4)) << 1) + 1`, i.e. 16 px screen rows, lower rows in front. Ties
+  go to the sprite whose top is lower on screen, as in SortSprites (oam.y compare). `objectDepth(priority,
+  subpriority, screenTop)` packs this; depth no longer depends on world position at all.
+- Like AnimateSprites → CameraUpdate, every object recomputes its subpriority each frame against last frame's
+  camera (`field.cameraTop`, gSpriteCoordOffsetY), then the camera is updated. The player's feet are at screen y 88
+  (derived from SetSpritePosToOffsetMapCoords + UpdateCameraPanning), matching our camera framing.
+- Verified headless: at rest the player's subpriority is 136 (115 + 20 + 1), 104 on Victory Road's raised
+  platform (base 83); NPCs n rows above get 2n more. While walking, the player's screen bottom reads 89 (one
+  frame of camera lag, as on the GBA). Pallet's Oak trigger and the Viridian sign walk are unchanged.
+
+### Camera ignores jump lift
+- The camera followed the player sprite including the jump arc, so the whole screen bobbed on ledge jumps. On the
+  GBA the camera object copies the player sprite's x/y but not y2 (CameraObject_1), and jumps animate y2, so the
+  screen scrolls steadily while the player arcs. `ObjectEvent.anchor` is now the lift-free position, and the camera
+  follows that.
+- Verified headless on Route 1's ledge at (4,5): camera scrollY now rises linearly (-8 → 23) through the jump; before,
+  it stalled and then caught up with the arc.

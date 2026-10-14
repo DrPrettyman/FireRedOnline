@@ -9,10 +9,26 @@ export const MAPGRID_COLLISION_MASK = 0x0c00;
 export const MAPGRID_COLLISION_SHIFT = 10;
 export const MAPGRID_ELEVATION_SHIFT = 12;
 
-export const DEPTH_BORDER = -10;
-export const DEPTH_BELOW = 0;
-export const DEPTH_OBJECTS = 1000; // + pixel y for y-sorting
-export const DEPTH_ABOVE = 1_000_000;
+// Depth bands mirror the field's BG/OAM priorities: `below` holds BG3+BG2 and `above` holds BG1.
+// Within a band objects sort like SortSprites: by subpriority, then by screen top.
+export const DEPTH_BORDER = -2;
+export const DEPTH_BELOW = -1;
+const DEPTH_OBJECTS_PRIORITY_2 = 0;
+export const DEPTH_ABOVE = 300_000;
+const DEPTH_OBJECTS_PRIORITY_1 = 400_000;
+
+/**
+ * Depth of an object sprite (higher draws in front). SortSprites orders OAM by
+ * `oam.priority << 8 | subpriority`, and on a tie puts the sprite whose top (oam.y) is lower on screen
+ * first, i.e. in front. Priority 2 draws over BG2 and under BG1; priority 1 also draws over BG1.
+ * (Priority 0 would also draw over the text window on BG0 and 3 under BG2; no map elevation gives
+ * either, so they share 1's and 2's bands.) Any remaining tie keeps creation order.
+ */
+export function objectDepth(priority: number, subpriority: number, screenTop: number): number {
+  const base = priority <= 1 ? DEPTH_OBJECTS_PRIORITY_1 : DEPTH_OBJECTS_PRIORITY_2;
+  const top = Math.max(-512, Math.min(511, screenTop)) + 512; // only on-screen sprites can tie
+  return base + (255 - subpriority) * 1024 + top;
+}
 
 /**
  * One map placed in world tile space at (originX, originY), drawn as two tilemaps:
