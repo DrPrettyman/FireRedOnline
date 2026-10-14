@@ -690,7 +690,7 @@ export function FreeTrainerFrontPicPaletteAndTile(frontPicId: number): void {
 }
 
 /** BattleLoadAllHealthBoxesGfx (singles and doubles; safari uses its own box) */
-function BattleLoadAllHealthBoxesGfx(state: number): boolean {
+export function BattleLoadAllHealthBoxesGfx(state: number): boolean {
   if (!state) return false;
   const sheet = (sym: string, size: number, tag: number) => LoadCompressedSpriteSheet({ data: gfx(sym), size, tag });
   const healthbar = (position: number) =>
@@ -864,7 +864,7 @@ const GFXTAG_SHADOW = 55129;
 const PALTAG_SHADOW = 55039;
 
 /** LoadAndCreateEnemyShadowSprites */
-function LoadAndCreateEnemyShadowSprites(): void {
+export function LoadAndCreateEnemyShadowSprites(): void {
   LoadCompressedSpriteSheet({ data: gfx('gEnemyMonShadow_Gfx'), size: 0x80, tag: GFXTAG_SHADOW });
   const template: SpriteTemplate = {
     tileTag: GFXTAG_SHADOW,

@@ -17,6 +17,12 @@ export class GameState {
   /** gSaveBlock2Ptr->optionsBattleSceneOff / optionsBattleStyle (OPTIONS_BATTLE_STYLE_SET) */
   battleSceneOff = false;
   battleStyleSet = false;
+  /** gSaveBlock2Ptr->optionsButtonMode (OPTIONS_BUTTON_MODE_HELP = 0, the new-game default) */
+  optionsButtonMode = 0;
+  /** gSaveBlock2Ptr->optionsWindowFrameType (frame 1 = 0) */
+  optionsWindowFrameType = 0;
+  /** gSaveBlock1Ptr->registeredItem (ITEM_NONE = 0) */
+  registeredItem = 0;
 
   private flags = new Set<number>();
   private vars = new Map<number, number>();

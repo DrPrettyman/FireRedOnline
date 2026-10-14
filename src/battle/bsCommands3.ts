@@ -457,7 +457,7 @@ function isMonGettingExpSentOut(): boolean {
 }
 
 /** GetMonLevelUpWindowStats (pokemon_special_anim.c) */
-function GetMonLevelUpWindowStats(mon: Pokemon): number[] {
+export function GetMonLevelUpWindowStats(mon: Pokemon): number[] {
   return [mon.maxHP, mon.stats.attack, mon.stats.defense, mon.stats.speed, mon.stats.spAttack, mon.stats.spDefense];
 }
 
@@ -465,7 +465,7 @@ function GetMonLevelUpWindowStats(mon: Pokemon): number[] {
 const sLevelUpWindowStatNames = ['gText_LevelUp_MaxHP', 'gText_LevelUp_Attack', 'gText_LevelUp_Defense', 'gText_LevelUp_SpAtk', 'gText_LevelUp_SpDef', 'gText_LevelUp_Speed'];
 
 /** DrawLevelUpWindowPg1 (pokemon_special_anim_scene.c) */
-function DrawLevelUpWindowPg1(windowId: number, beforeStats: ArrayLike<number>, afterStats: ArrayLike<number>, bgColor: number, fgColor: number, shadowColor: number): void {
+export function DrawLevelUpWindowPg1(windowId: number, beforeStats: ArrayLike<number>, afterStats: ArrayLike<number>, bgColor: number, fgColor: number, shadowColor: number): void {
   FillWindowPixelBuffer(windowId, PIXEL_FILL(bgColor));
   const s16 = (v: number) => (v << 16) >> 16;
   const diffStats = [
@@ -487,7 +487,7 @@ function DrawLevelUpWindowPg1(windowId: number, beforeStats: ArrayLike<number>, 
 }
 
 /** DrawLevelUpWindowPg2 (pokemon_special_anim_scene.c) */
-function DrawLevelUpWindowPg2(windowId: number, currStats: ArrayLike<number>, bgColor: number, fgColor: number, shadowColor: number): void {
+export function DrawLevelUpWindowPg2(windowId: number, currStats: ArrayLike<number>, bgColor: number, fgColor: number, shadowColor: number): void {
   FillWindowPixelBuffer(windowId, PIXEL_FILL(bgColor));
   const statsRearrange = [currStats[0], currStats[1], currStats[2], currStats[4], currStats[5], currStats[3]];
   const textColor = [bgColor, fgColor, shadowColor];

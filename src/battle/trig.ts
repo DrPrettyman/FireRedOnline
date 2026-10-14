@@ -4,6 +4,11 @@ import { bdata } from './env';
 
 const table = (name: 'gSineTable' | 'gSineDegreeTable') => (bdata.tables.mech as Record<string, number[]>)[name];
 
+/** gSineTable[index] */
+export function gSineTable(index: number): number {
+  return table('gSineTable')[index];
+}
+
 /** Sin(index, amplitude) */
 export function Sin(index: number, amplitude: number): number {
   return ((amplitude * table('gSineTable')[index]) >> 8) << 16 >> 16;

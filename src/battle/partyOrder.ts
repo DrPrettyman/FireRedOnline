@@ -49,7 +49,8 @@ export function bufferBattlePartyCurrentOrderBySide(battlerId: number, flankId: 
   for (let i = 0; i < 3; i++) order[i] = (partyIndexes[i * 2] << 4) | partyIndexes[1 + i * 2];
 }
 
-function getPartyIdFromBattleSlot(slot: number): number {
+/** GetPartyIdFromBattleSlot */
+export function getPartyIdFromBattleSlot(slot: number): number {
   const o = g.battlePartyCurrentOrder[slot >> 1];
   return slot & 1 ? o & 0xf : o >> 4;
 }

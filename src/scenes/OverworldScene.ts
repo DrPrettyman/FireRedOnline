@@ -463,14 +463,56 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
 
   // ------------------------------------------------------------------ UI
 
-  private openStartMenu(): void {
+  /**
+   * The start menu. `fadingIn`: reopened by FieldCB_ReturnToFieldOpenStartMenu, so input waits for
+   * the fade from black (FadeTransition_FadeInOnReturnToStartMenu).
+   */
+  private openStartMenu(fadingIn = false): void {
     const menu = new StartMenu(this, this.fonts, this.buttons, this.charmap, this.assets.strings, this.state);
     this.overlay = {
       tick: () => {
+        if (fadingIn && this.screenFade.active) return false;
         const r = menu.tick();
         if (r === undefined) return false;
-        if (r !== 'close') this.showNotice(`${r} isn't implemented yet.`);
+        if (r === 'POKEMON') this.openFieldMenu('party');
+        else if (r === 'BAG') this.openFieldMenu('bag');
+        else if (r !== 'close') this.showNotice(`${r} isn't implemented yet.`);
         return true;
+      },
+    };
+  }
+
+  /**
+   * StartMenu_FadeScreenIfLeavingOverworld + StartMenuPokemonCallback / StartMenuBagCallback: fade to
+   * black, then hand over to the party menu or bag (FieldMenuScene). They come back through
+   * CB2_ReturnToFieldWithOpenMenu (start menu reopened while the field fades in) or CB2_ReturnToField.
+   */
+  private openFieldMenu(menu: 'party' | 'bag'): void {
+    const d = this.defines;
+    this.screenFade.begin(d.require('FADE_TO_BLACK'));
+    let launched = false;
+    this.overlay = {
+      tick: () => {
+        if (launched || this.screenFade.active) return false;
+        launched = true;
+        this.scene.launch('FieldMenu', {
+          menu,
+          state: this.state,
+          pokemon: this.state.pokemon,
+          charmap: this.charmap,
+          onExit: (openStartMenu: boolean) => {
+            this.scene.stop('FieldMenu');
+            this.scene.wake('Overworld');
+            this.screenFade.begin(d.require('FADE_FROM_BLACK'));
+            if (openStartMenu) {
+              this.openStartMenu(true);
+            } else {
+              this.overlay = { tick: () => !this.screenFade.active };
+            }
+          },
+        });
+        this.scene.sleep();
+        return false;
       },
     };
   }

@@ -10,7 +10,12 @@ import { PALETTES_ALL, RGB_BLACK } from '../gba/hw';
 import { BeginFastPaletteFade, BeginNormalPaletteFade, gPaletteFade, gPlttBufferUnfaded, LoadPalette, OBJ_PLTT_ID, PLTT_SIZE_4BPP } from '../gba/palette';
 import { AllocSpritePalette, CreateSprite, DestroySprite, FreeOamMatrix, FreeSpriteOamMatrix, FreeSpritePaletteByTag, FreeSpriteTilesByTag, gSprites, IndexOfSpritePaletteTag, SpriteCallbackDummy, StartSpriteAnim, StoreSpriteCallbackInData6 } from '../gba/sprite';
 import { CreateTask, DestroyTask, gTasks } from '../gba/task';
-import { IsTextPrinterActive } from '../gba/window';
+import { FreeAllWindowBuffers, IsTextPrinterActive } from '../gba/window';
+import { gMain } from '../gba/main';
+import { CB2_BagMenuFromBattle, InitOldManBag } from '../menus/itemMenu';
+import { SpecialVar } from '../menus/itemMenuState';
+import { gPartyMenuUseExitCallback, gSelectedMonPartyId, OpenPartyMenuInTutorialBattle } from '../menus/partyMenu';
+import { BattleMainCB2 } from './battleCallbacks';
 import { DISPLAY_HEIGHT, DISPLAY_WIDTH } from '../gba/hw';
 import { CreatePartyStatusSummarySprites, SetBattleBarStruct, SetHealthboxSpriteInvisible, SetHealthboxSpriteVisible, Task_HidePartyStatusSummary, UpdateHealthboxAttribute, UpdateHpTextInHealthbox } from './battleInterface';
 import { HandleIntroSlide } from './battleIntro';
@@ -22,7 +27,6 @@ import { OpponentBufferExecCompleted } from './controllerOpponent';
 import {
   ActionSelectionCreateCursorAt,
   ActionSelectionDestroyCursorAt,
-  autoChooseMon,
   BattleControllerDummy,
   drawActionMenu,
   handleChoosePokemon,
@@ -150,12 +154,17 @@ export function OakOldManHandleInputChooseMove(): void {
 
 function OpenPartyMenuToChooseMon(): void {
   if (!gPaletteFade.active) {
+    g.battlerControllerFuncs[ab()] = WaitForMonSelection;
     const caseId = gTasks[g.battleControllerData[ab()]].data[0];
     DestroyTask(g.battleControllerData[ab()]);
-    // OpenPartyMenuInTutorialBattle + WaitForMonSelection
-    const chosen = autoChooseMon(caseId);
-    BeginNormalPaletteFade(PALETTES_ALL, 0, 16, 0, RGB_BLACK);
-    if (chosen !== K.PARTY_SIZE) emitChosenMonReturnValue(K.BUFFER_B, chosen, g.battlePartyCurrentOrder);
+    FreeAllWindowBuffers();
+    OpenPartyMenuInTutorialBattle(caseId);
+  }
+}
+
+function WaitForMonSelection(): void {
+  if (gMain.callback2 === BattleMainCB2 && !gPaletteFade.active) {
+    if (gPartyMenuUseExitCallback === true) emitChosenMonReturnValue(K.BUFFER_B, gSelectedMonPartyId, g.battlePartyCurrentOrder);
     else emitChosenMonReturnValue(K.BUFFER_B, K.PARTY_SIZE, [0, 0, 0]);
     OakOldManBufferExecCompleted();
   }
@@ -163,15 +172,21 @@ function OpenPartyMenuToChooseMon(): void {
 
 function OpenBagAndChooseItem(): void {
   if (!gPaletteFade.active) {
-    // CB2_BagMenuFromBattle / InitOldManBag, then CompleteWhenChoseItem
-    console.warn('[battle] bag not implemented; no item chosen');
-    BeginNormalPaletteFade(PALETTES_ALL, 0, 16, 0, RGB_BLACK);
-    const itemId = 0; // gSpecialVar_ItemId
-    if (!btlCtrlOakOldManTestState2Flag(K.FIRST_BATTLE_MSG_FLAG_HP_RESTORE) && itemId === K.ITEM_POTION && isFirstBattle()) {
+    g.battlerControllerFuncs[ab()] = CompleteWhenChoseItem;
+    // ReshowBattleScreenDummy
+    FreeAllWindowBuffers();
+    if (isFirstBattle()) CB2_BagMenuFromBattle();
+    else InitOldManBag();
+  }
+}
+
+function CompleteWhenChoseItem(): void {
+  if (gMain.callback2 === BattleMainCB2 && !gPaletteFade.active) {
+    if (!btlCtrlOakOldManTestState2Flag(K.FIRST_BATTLE_MSG_FLAG_HP_RESTORE) && SpecialVar.ItemId === K.ITEM_POTION && isFirstBattle()) {
       BtlCtrl_OakOldMan_SetState2Flag(K.FIRST_BATTLE_MSG_FLAG_HP_RESTORE);
       g.battlerControllerFuncs[ab()] = PrintOakText_KeepAnEyeOnHP;
     } else {
-      emitOneReturnValue(K.BUFFER_B, itemId);
+      emitOneReturnValue(K.BUFFER_B, SpecialVar.ItemId);
       OakOldManBufferExecCompleted();
     }
   }
@@ -421,7 +436,7 @@ function PrintOakText_KeepAnEyeOnHP(): void {
     case 6:
       if (!gPaletteFade.active) {
         BtlCtrl_RemoveVoiceoverMessageFrame();
-        emitOneReturnValue(K.BUFFER_B, K.ITEM_POTION); // gSpecialVar_ItemId
+        emitOneReturnValue(K.BUFFER_B, SpecialVar.ItemId);
         OakOldManBufferExecCompleted();
         s[0] = 0;
       }

@@ -34,6 +34,11 @@ export async function loadGfx(symbols: Iterable<string>): Promise<void> {
   );
 }
 
+/** Whether loadGfx() has fetched `symbol`. */
+export function isGfxLoaded(symbol: string): boolean {
+  return cache.has(symbol);
+}
+
 /** The bytes of a preloaded symbol. */
 export function gfx(symbol: string): Uint8Array {
   const d = cache.get(symbol);

@@ -1,8 +1,5 @@
 // battle_controller_player.c: the human player's controller (action/move/target selection,
-// sprites and healthbox updates for the player's side).
-//
-// The bag and party screens don't exist yet: CHOOSEITEM returns no item, and CHOOSEPOKEMON picks
-// the first usable party mon when a switch is forced (and cancels otherwise).
+// sprites and healthbox updates for the player's side, handing off to the bag and party menu).
 
 import { CopyBgTilemapBufferToVram, CopyToBgTilemapBufferRect_ChangePalette, IsDma3ManagerBusyWithBgCopy } from '../gba/bg';
 import { gfx16 } from '../gba/gfx';
@@ -23,7 +20,12 @@ import {
   type Sprite,
 } from '../gba/sprite';
 import { CreateTask, DestroyTask, gTasks, TaskDummy } from '../gba/task';
-import { IsTextPrinterActive } from '../gba/window';
+import { FreeAllWindowBuffers, IsTextPrinterActive } from '../gba/window';
+import { gMain } from '../gba/main';
+import { CB2_BagMenuFromBattle } from '../menus/itemMenu';
+import { SpecialVar } from '../menus/itemMenuState';
+import { gPartyMenuUseExitCallback, gSelectedMonPartyId, OpenPartyMenuInTutorialBattle } from '../menus/partyMenu';
+import { BattleMainCB2 } from './battleCallbacks';
 import { DISPLAY_HEIGHT, DISPLAY_WIDTH } from '../gba/hw';
 import { CreatePartyStatusSummarySprites, SetBattleBarStruct, SetHealthboxSpriteInvisible, SetHealthboxSpriteVisible, SwapHpBarsWithHpText, Task_HidePartyStatusSummary, UpdateHealthboxAttribute, UpdateHpTextInHealthbox } from './battleInterface';
 import { HandleIntroSlide } from './battleIntro';
@@ -619,36 +621,37 @@ function FreeMonSpriteAfterSwitchOutAnim(): void {
   }
 }
 
-/** Auto-answers for the missing party screen (see file header). */
-export function autoChooseMon(caseId: number): number {
-  if (caseId === K.PARTY_ACTION_SEND_OUT) {
-    const active = [g.battlerPartyIndexes[0], g.battlerPartyIndexes[2]];
-    for (let i = 0; i < K.PARTY_SIZE; i++) {
-      const m = g.playerParty[i];
-      if (m && m.hp > 0 && !m.isEgg && !(g.battleTypeFlags & K.BATTLE_TYPE_DOUBLE && active.includes(i)) && i !== g.battlerPartyIndexes[ab()]) return i;
-    }
-  }
-  console.warn('[battle] party screen not implemented; cancelling');
-  return K.PARTY_SIZE;
-}
-
 function OpenPartyMenuToChooseMon(): void {
   if (!gPaletteFade.active) {
+    g.battlerControllerFuncs[ab()] = WaitForMonSelection;
     const caseId = gTasks[g.battleControllerData[ab()]].data[0];
     DestroyTask(g.battleControllerData[ab()]);
-    const chosen = autoChooseMon(caseId);
-    BeginNormalPaletteFade(PALETTES_ALL, 0, 16, 0, RGB_BLACK);
-    if (chosen !== K.PARTY_SIZE) emitChosenMonReturnValue(K.BUFFER_B, chosen, g.battlePartyCurrentOrder);
+    FreeAllWindowBuffers();
+    OpenPartyMenuInTutorialBattle(caseId);
+  }
+}
+
+function WaitForMonSelection(): void {
+  if (gMain.callback2 === BattleMainCB2 && !gPaletteFade.active) {
+    if (gPartyMenuUseExitCallback === true) emitChosenMonReturnValue(K.BUFFER_B, gSelectedMonPartyId, g.battlePartyCurrentOrder);
     else emitChosenMonReturnValue(K.BUFFER_B, K.PARTY_SIZE, [0, 0, 0]);
+    // PrintLinkStandbyMsg: link battles only
     PlayerBufferExecCompleted();
   }
 }
 
 function OpenBagAndChooseItem(): void {
   if (!gPaletteFade.active) {
-    console.warn('[battle] bag not implemented; no item chosen');
-    BeginNormalPaletteFade(PALETTES_ALL, 0, 16, 0, RGB_BLACK);
-    emitOneReturnValue(K.BUFFER_B, 0);
+    g.battlerControllerFuncs[ab()] = CompleteWhenChoseItem;
+    // ReshowBattleScreenDummy
+    FreeAllWindowBuffers();
+    CB2_BagMenuFromBattle();
+  }
+}
+
+function CompleteWhenChoseItem(): void {
+  if (gMain.callback2 === BattleMainCB2 && !gPaletteFade.active) {
+    emitOneReturnValue(K.BUFFER_B, SpecialVar.ItemId);
     PlayerBufferExecCompleted();
   }
 }

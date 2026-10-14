@@ -244,6 +244,29 @@ export function SetWindowAttribute(windowId: number, attr: 'tilemapLeft' | 'tile
   gWindows[windowId].window[attr] = value;
 }
 
+/** CallWindowFunction: func(bg, tilemapLeft, tilemapTop, width, height, paletteNum) */
+export function CallWindowFunction(windowId: number, func: (bg: number, left: number, top: number, width: number, height: number, paletteNum: number) => void): void {
+  const w = gWindows[windowId].window;
+  func(w.bg, w.tilemapLeft, w.tilemapTop, w.width, w.height, w.paletteNum);
+}
+
+/** ScrollWindow: direction 0 moves the pixels up by `distance` rows, 1 moves them down. */
+export function ScrollWindow(windowId: number, direction: number, distance: number, fillValue: number): void {
+  const bmp = windowBitmap(windowId);
+  const mulY = (bmp.width + (bmp.width & 7)) >> 3;
+  const fill = fillValue & 0xf;
+  const get = (x: number, y: number) => (bmp.pixels[pixelOffset(x, y, mulY)] >> ((x & 1) << 2)) & 0xf;
+  const put = (x: number, y: number, v: number) => {
+    const i = pixelOffset(x, y, mulY);
+    bmp.pixels[i] = x & 1 ? (bmp.pixels[i] & 0xf) | (v << 4) : (bmp.pixels[i] & 0xf0) | v;
+  };
+  if (direction === 0) {
+    for (let y = 0; y < bmp.height; y++) for (let x = 0; x < bmp.width; x++) put(x, y, y + distance < bmp.height ? get(x, y + distance) : fill);
+  } else {
+    for (let y = bmp.height - 1; y >= 0; y--) for (let x = 0; x < bmp.width; x++) put(x, y, y - distance >= 0 ? get(x, y - distance) : fill);
+  }
+}
+
 // ------------------------------------------------------------------ text (text.c)
 
 /** gTextFlags */
@@ -276,6 +299,8 @@ class WindowSurface implements TextSurface {
         const px = x + gx;
         if (px < 0 || px >= bmp.width) continue;
         const v = map[font.pixel(code, gx, gy)] & 0xf;
+        // GLYPH_COPY: colour 0 (TEXT_COLOR_TRANSPARENT) leaves the window's pixel alone
+        if (v === 0) continue;
         const i = pixelOffset(px, py, mulY);
         bmp.pixels[i] = px & 1 ? (bmp.pixels[i] & 0xf) | (v << 4) : (bmp.pixels[i] & 0xf0) | v;
       }
@@ -411,22 +436,132 @@ export function IsTextPrinterActive(windowId: number): boolean {
   return sTextPrinters[windowId] !== undefined;
 }
 
+/** DeactivateAllTextPrinters */
+export function DeactivateAllTextPrinters(): void {
+  sTextPrinters.fill(undefined);
+}
+
+// FONTATTR_* (include/text.h)
+export const FONTATTR_MAX_LETTER_WIDTH = 0;
+export const FONTATTR_MAX_LETTER_HEIGHT = 1;
+export const FONTATTR_LETTER_SPACING = 2;
+export const FONTATTR_LINE_SPACING = 3;
+export const FONTATTR_UNKNOWN = 4;
+export const FONTATTR_COLOR_FOREGROUND = 5;
+export const FONTATTR_COLOR_BACKGROUND = 6;
+export const FONTATTR_COLOR_SHADOW = 7;
+
+/** GetFontAttribute: gFontInfos[fontId] (text/fonts.json). */
+export function GetFontAttribute(fontId: number, attributeId: number): number {
+  const f = textFonts.get(fontId).info;
+  switch (attributeId) {
+    case FONTATTR_MAX_LETTER_WIDTH:
+      return f.maxLetterWidth;
+    case FONTATTR_MAX_LETTER_HEIGHT:
+      return f.maxLetterHeight;
+    case FONTATTR_LETTER_SPACING:
+      return f.letterSpacing;
+    case FONTATTR_LINE_SPACING:
+      return f.lineSpacing;
+    case FONTATTR_COLOR_FOREGROUND:
+      return f.fgColor;
+    case FONTATTR_COLOR_BACKGROUND:
+      return f.bgColor;
+    case FONTATTR_COLOR_SHADOW:
+      return f.shadowColor;
+  }
+  return 0;
+}
+
+/** gStringVar1..3 for {STR_VAR_n} placeholders in GetStringWidth (set by whoever owns them). */
+let stringVarLookup: (n: number) => number[] = () => [];
+export function setStringVarLookup(f: (n: number) => number[]): void {
+  stringVarLookup = f;
+}
+
+/**
+ * GetStringWidth (text.c). Latin glyphs don't add letter spacing (only Japanese text does), so
+ * `letterSpacing` only matters after an {JPN} code.
+ */
 export function GetStringWidth(fontId: number, str: number[], letterSpacing: number): number {
-  const font = textFonts.get(fontId);
-  let w = 0;
-  let best = 0;
+  let font = textFonts.get(fontId);
+  let spacing = letterSpacing === -1 ? font.info.letterSpacing : letterSpacing;
+  let isJapanese = false;
+  let minGlyphWidth = 0;
+  let width = 0;
+  let lineWidth = 0;
+  const glyph = (c: number) => {
+    let w = font.width(c);
+    if (minGlyphWidth > 0) w = Math.max(w, minGlyphWidth);
+    else if (isJapanese) w += spacing;
+    lineWidth += w;
+  };
   for (let i = 0; i < str.length && str[i] !== 0xff; i++) {
     const c = str[i];
-    if (c === 0xfe) {
-      best = Math.max(best, w);
-      w = 0;
-      continue;
+    switch (c) {
+      case 0xfe: // CHAR_NEWLINE
+        if (lineWidth > width) width = lineWidth;
+        lineWidth = 0;
+        break;
+      case 0xfd: {
+        // PLACEHOLDER_BEGIN: STR_VAR_1..3 (ids 2..4)
+        const id = str[++i];
+        if (id < 2 || id > 4) return 0;
+        for (const b of stringVarLookup(id - 2)) {
+          if (b === 0xff) break;
+          glyph(b);
+        }
+        break;
+      }
+      case 0xfa: // CHAR_PROMPT_SCROLL
+      case 0xfb: // CHAR_PROMPT_CLEAR
+        break;
+      case 0xfc: // EXT_CTRL_CODE_BEGIN
+        switch (str[++i]) {
+          case 0x04: // COLOR_HIGHLIGHT_SHADOW
+            i += 3;
+            break;
+          case 0x0b: // PLAY_BGM
+          case 0x10: // PLAY_SE
+            i += 2;
+            break;
+          case 0x01: // COLOR
+          case 0x02: // HIGHLIGHT
+          case 0x03: // SHADOW
+          case 0x05: // PALETTE
+          case 0x08: // PAUSE
+          case 0x0c: // ESCAPE
+          case 0x0d: // SHIFT_RIGHT
+          case 0x0e: // SHIFT_DOWN
+            i++;
+            break;
+          case 0x06: // FONT
+            font = textFonts.get(str[++i]);
+            if (letterSpacing === -1) spacing = font.info.letterSpacing;
+            break;
+          case 0x11: // CLEAR
+            lineWidth += str[++i];
+            break;
+          case 0x12: // SKIP
+            lineWidth = str[++i];
+            break;
+          case 0x13: // CLEAR_TO
+            if (str[++i] > lineWidth) lineWidth = str[i];
+            break;
+          case 0x14: // MIN_LETTER_SPACING
+            minGlyphWidth = str[++i];
+            break;
+          case 0x15: // JPN
+            isJapanese = true;
+            break;
+          case 0x16: // ENG
+            isJapanese = false;
+            break;
+        }
+        break;
+      default:
+        glyph(c);
     }
-    if (c === 0xfc) {
-      i++; // control codes carry arguments; widths of those aren't needed by battle code
-      continue;
-    }
-    w += font.width(c) + letterSpacing;
   }
-  return Math.max(best, w);
+  return lineWidth > width ? lineWidth : width;
 }
