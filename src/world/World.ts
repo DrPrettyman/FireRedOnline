@@ -59,6 +59,11 @@ export class World {
     await this.loadConnections();
   }
 
+  /** The current map and its connected neighbours. */
+  get loaded(): readonly MapChunk[] {
+    return this.chunks;
+  }
+
   chunkAt(wx: number, wy: number): MapChunk | undefined {
     if (this.current?.contains(wx, wy)) return this.current;
     return this.chunks.find((c) => c.contains(wx, wy));

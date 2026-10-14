@@ -13,7 +13,7 @@ import { Fonts } from '../text/Font';
 import { MessageBox } from '../text/MessageBox';
 import { Behaviors } from '../world/behaviors';
 import { DELTA, type Direction } from '../world/direction';
-import { MAPGRID_COLLISION_MASK, TILE } from '../world/MapChunk';
+import { MAPGRID_COLLISION_MASK, TILE, type MapChunk } from '../world/MapChunk';
 import { World } from '../world/World';
 import { StartMenu } from '../ui/StartMenu';
 import { YesNoMenu } from '../ui/YesNoMenu';
@@ -37,6 +37,12 @@ export interface OverworldStart {
 
 interface Npc {
   localId: number;
+  /** The loaded map whose template spawned it; it lives while that map is current or adjacent. */
+  chunk: MapChunk;
+  /** The template as it was at spawn, to notice when a map reload changes where it belongs. */
+  spawnedAs: ObjectEventData;
+  /** Set when its map was re-entered and its template no longer matches; respawned once off screen. */
+  stale: boolean;
   brain: NpcBrain;
 }
 
@@ -57,7 +63,11 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   player!: ObjectEvent;
   selectedObject?: ObjectEvent;
   private npcs: Npc[] = [];
-  /** Object templates per map, editable by setobjectxyperm/setobjectmovementtype. */
+  /**
+   * Object templates per loaded map, editable by setobjectxyperm/setobjectmovementtype. The current
+   * map's are reloaded from the header on entry (LoadObjEventTemplatesFromHeader), so script edits
+   * only last until the map is left; a neighbour keeps the ones it had while it was current.
+   */
   private templates = new Map<string, ObjectEventData[]>();
   private buttons!: Input;
   private accumulator = 0;
@@ -153,7 +163,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       n.brain.tick();
     }
     const arrived = this.player.tick();
-    if (arrived) this.trySpawnObjectsInView(); // the camera moved a tile, scripted or not
+    if (arrived) this.updateObjectsForCamera(); // the camera moved a tile, scripted or not
     if (arrived && !scripted) this.onPlayerArrived();
     // Re-check after arrival: a coord trigger or warp started this frame must also block movement
     // (on the GBA, TryStartCoordEventScript makes ProcessPlayerFieldInput return before moving).
@@ -390,10 +400,12 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     await this.onMapLoaded(warped);
   }
 
-  /** Map entry sequence: temps cleared, ON_TRANSITION, ON_LOAD, objects spawned, ON_WARP_INTO. */
+  /** Map entry sequence: templates reloaded, temps cleared, ON_TRANSITION, ON_LOAD, objects spawned, ON_WARP_INTO. */
   private async onMapLoaded(warped: boolean): Promise<void> {
-    const name = this.world.current.name;
+    const cur = this.world.current;
+    const name = cur.name;
     await this.preloadMapSprites();
+    this.templates.set(name, cur.data.objectEvents.map((e) => ({ ...e }))); // LoadObjEventTemplatesFromHeader
     this.state.currentMap = name;
     this.state.currentMapSection = this.mapSection();
     this.state.clearTemps();
@@ -401,7 +413,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     if (transition) this.scripts.runImmediately(transition);
     const load = this.scripts.mapScript(name, 'MAP_SCRIPT_ON_LOAD');
     if (load) this.scripts.runImmediately(load);
-    this.spawnNpcs();
+    if (warped) this.clearNpcs(); // ResetObjectEvents
+    this.syncNpcsWithLoadedMaps();
     if (warped) {
       const table = this.scripts.mapScript(name, 'MAP_SCRIPT_ON_WARP_INTO_MAP_TABLE');
       const script = table && this.scripts.mapScriptTable(table);
@@ -409,58 +422,98 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     }
   }
 
-  private templatesFor(name: string): ObjectEventData[] {
-    let t = this.templates.get(name);
+  /** A loaded map's templates; a neighbour that was never current starts from its header. */
+  private templatesFor(chunk: MapChunk): ObjectEventData[] {
+    let t = this.templates.get(chunk.name);
     if (!t) {
-      const chunk = this.world.current;
       t = chunk.data.objectEvents.map((e) => ({ ...e }));
-      this.templates.set(name, t);
+      this.templates.set(chunk.name, t);
     }
     return t;
   }
 
   /**
-   * Load the sprite sheet of every object the map might show, including currently hidden ones,
-   * so that `addobject` can spawn synchronously mid-script (as on the GBA).
+   * Load the sprite sheet of every object the loaded maps might show, including currently hidden
+   * ones, so that `addobject` can spawn synchronously mid-script (as on the GBA).
    */
   private async preloadMapSprites(): Promise<void> {
-    const templates = this.templatesFor(this.world.current.name);
-    await Promise.all(templates.map((e) => this.assets.loadSprite(this, e.graphics_id)));
+    const ids = new Set(this.world.loaded.flatMap((c) => c.data.objectEvents.map((e) => e.graphics_id)));
+    await Promise.all([...ids].map((id) => this.assets.loadSprite(this, id)));
   }
 
-  private spawnNpcs(): void {
+  private clearNpcs(): void {
     for (const n of this.npcs) n.brain.obj.destroy();
     this.npcs = [];
-    this.templatesFor(this.world.current.name).forEach((e, i) => {
-      const n = this.spawnNpc(e, i + 1);
-      if (n) this.npcs.push(n);
-    });
+  }
+
+  /** Objects are addressed by local id within the current map (GetObjectEventIdByLocalIdAndMap). */
+  private npcByLocalId(localId: number, chunk = this.world.current): Npc | undefined {
+    return this.npcs.find((n) => n.localId === localId && n.chunk === chunk);
   }
 
   /**
-   * TrySpawnObjectEvents: each time the camera moves a tile, spawn any not-yet-spawned object
-   * whose hide flag is clear and which lies in the view window. This is how scripts bring an
-   * object back after `removeobject` + `clearflag` without an explicit `addobject`.
+   * QOL (not the GBA): objects of the current map *and its connected neighbours* are spawned, so
+   * what's on screen across a seam is populated. The GBA only spawns the current map's objects in
+   * the view window (TrySpawnObjectEvents) and leaves the old map's until they scroll off
+   * (RemoveObjectEventsOutsideView), so neighbours' objects pop in at the crossing.
+   * Run after every map load: drops objects (and templates) of maps no longer loaded, marks the
+   * current map's objects stale where the reloaded templates disagree, then spawns what's missing.
    */
-  private trySpawnObjectsInView(): void {
-    const { x: px, y: py } = this.playerLocal();
-    this.templatesFor(this.world.current.name).forEach((t, i) => {
-      const localId = i + 1;
-      if (t.x < px - 9 || t.x > px + 10 || t.y < py - 7 || t.y > py + 9) return;
-      if (this.npcs.some((n) => n.localId === localId)) return;
-      const n = this.spawnNpc(t, localId);
-      if (n) this.npcs.push(n);
+  private syncNpcsWithLoadedMaps(): void {
+    const loaded = this.world.loaded;
+    for (const name of this.templates.keys()) {
+      if (!loaded.some((c) => c.name === name)) this.templates.delete(name);
+    }
+    const cur = this.world.current;
+    this.npcs = this.npcs.filter((n) => {
+      if (loaded.includes(n.chunk)) return true;
+      n.brain.obj.destroy();
+      return false;
     });
+    const templates = this.templatesFor(cur);
+    for (const n of this.npcs) {
+      if (n.chunk !== cur) continue;
+      const t = templates[n.localId - 1];
+      if (!t || this.isHidden(t) || !sameSpawn(n.spawnedAs, t)) n.stale = true;
+    }
+    this.updateObjectsForCamera();
   }
 
-  private spawnNpc(e: ObjectEventData, localId: number): Npc | undefined {
+  /**
+   * Each camera step: respawn stale objects once they're off screen (so a template change made by
+   * the map's ON_TRANSITION never visibly teleports anyone), then spawn any loaded map's object
+   * that isn't out yet and whose hide flag is clear. The latter is TrySpawnObjectEvents minus the
+   * view check; it's how scripts bring an object back after `removeobject` + `clearflag`.
+   */
+  private updateObjectsForCamera(): void {
+    const { tileX: px, tileY: py } = this.player;
+    this.npcs = this.npcs.filter((n) => {
+      if (!n.stale || onScreen(n.brain.obj.tileX, n.brain.obj.tileY, px, py)) return true;
+      n.brain.obj.destroy();
+      return false;
+    });
+    for (const chunk of this.world.loaded) {
+      this.templatesFor(chunk).forEach((t, i) => {
+        const localId = i + 1;
+        if (this.npcByLocalId(localId, chunk)) return;
+        const n = this.spawnNpc(t, localId, chunk);
+        if (n) this.npcs.push(n);
+      });
+    }
+  }
+
+  private isHidden(e: ObjectEventData): boolean {
+    return !!e.flag && e.flag !== '0' && this.state.getFlag(e.flag);
+  }
+
+  private spawnNpc(e: ObjectEventData, localId: number, chunk = this.world.current): Npc | undefined {
     if (e.type !== 'object' || e.movement_type === 'MOVEMENT_TYPE_INVISIBLE') return undefined;
-    if (e.flag && e.flag !== '0' && this.state.getFlag(e.flag)) return undefined;
+    if (this.isHidden(e)) return undefined;
     const info = this.assets.sprites[e.graphics_id];
     if (!info || !this.textures.exists(spriteTextureKey(info))) return undefined;
-    const chunk = this.world.current;
     const obj = new ObjectEvent(this, info, chunk.originX + e.x, chunk.originY + e.y, e.elevation);
-    return { localId, brain: new NpcBrain(obj, e, (o, d) => this.canMove(o, d)) };
+    const data = { ...e };
+    return { localId, chunk, spawnedAs: data, stale: false, brain: new NpcBrain(obj, data, (o, d) => this.canMove(o, d)) };
   }
 
   // ------------------------------------------------------------------ UI
@@ -651,35 +704,35 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   }
 
   resolveLocalId(name: string): number | undefined {
-    const i = this.templatesFor(this.world.current.name).findIndex((t) => t.local_id === name);
+    const i = this.templatesFor(this.world.current).findIndex((t) => t.local_id === name);
     return i < 0 ? undefined : i + 1;
   }
 
   objectByLocalId(localId: number): ObjectEvent | undefined {
     if (localId === this.defines.require('LOCALID_PLAYER')) return this.player;
-    return this.npcs.find((n) => n.localId === localId)?.brain.obj;
+    return this.npcByLocalId(localId)?.brain.obj;
   }
 
   removeObject(localId: number): void {
-    const t = this.templatesFor(this.world.current.name)[localId - 1];
+    const t = this.templatesFor(this.world.current)[localId - 1];
     if (t?.flag && t.flag !== '0') this.state.setFlag(t.flag, true);
-    const i = this.npcs.findIndex((n) => n.localId === localId);
-    if (i >= 0) {
-      this.npcs[i].brain.obj.destroy();
-      this.npcs.splice(i, 1);
+    const n = this.npcByLocalId(localId);
+    if (n) {
+      n.brain.obj.destroy();
+      this.npcs.splice(this.npcs.indexOf(n), 1);
     }
   }
 
   addObject(localId: number): void {
-    if (this.npcs.some((n) => n.localId === localId)) return;
-    const t = this.templatesFor(this.world.current.name)[localId - 1];
+    if (this.npcByLocalId(localId)) return;
+    const t = this.templatesFor(this.world.current)[localId - 1];
     if (!t) return;
     const n = this.spawnNpc({ ...t, flag: '0' }, localId);
     if (n) this.npcs.push(n);
   }
 
   setObjectTemplate(localId: number, patch: { x?: number; y?: number; movementType?: string }): void {
-    const t = this.templatesFor(this.world.current.name)[localId - 1];
+    const t = this.templatesFor(this.world.current)[localId - 1];
     if (!t) return;
     if (patch.x !== undefined) t.x = patch.x;
     if (patch.y !== undefined) t.y = patch.y;
@@ -729,6 +782,16 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
         `mt ${t.metatile} beh 0x${t.behavior.toString(16)} col ${t.collision} elev ${t.elevation}/${this.player.elevation}`,
     );
   }
+}
+
+/** Whether a tile can be on the 15x10 screen around the player (with a tile's slack for scrolling). */
+function onScreen(x: number, y: number, px: number, py: number): boolean {
+  return Math.abs(x - px) <= 8 && y >= py - 6 && y <= py + 6;
+}
+
+/** Whether an object spawned from `a` is where and how template `b` would spawn it. */
+function sameSpawn(a: ObjectEventData, b: ObjectEventData): boolean {
+  return a.x === b.x && a.y === b.y && a.graphics_id === b.graphics_id && a.movement_type === b.movement_type;
 }
 
 /** bg event player_facing_dir: BG_EVENT_PLAYER_FACING_ANY / _NORTH / _SOUTH / _EAST / _WEST. */

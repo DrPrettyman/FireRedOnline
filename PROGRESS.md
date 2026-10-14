@@ -40,7 +40,7 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] NPC movement types (wander, look around, face, pace)
 - [x] Hidden objects via flags
 - [x] Object spawning: all of a map's sprites preloaded on entry, synchronous `addobject`, in-view spawning as the camera moves (TrySpawnObjectEvents)
-- [ ] Despawning objects that leave the view (RemoveObjectEventsOutsideView)
+- [x] Object lifetime across connections: replaced by the neighbour-map QOL change (see "Deliberate QOL changes"); templates reloaded from the header on every map entry (LoadObjEventTemplatesFromHeader)
 - [x] `LOCALID_*` names resolved per map from map.json `local_id`
 - [x] Input module with all GBA buttons (A, B, Start, Select, L, R), sampled per logic tick
 - [x] Text engine: port of RenderText (speed + A/B speed-up, all FC control codes, \n \l \p, placeholders)
@@ -113,6 +113,25 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - Warps fade with Phaser's camera fade (200 ms), not the field warp fade.
   - BIOS ObjAffineSet uses a computed sine table; mosaic isn't emulated by the PPU.
 - **Data:** Castform has no front pic (its `front.png` isn't in the decomp; it's built from per-form images).
+
+## Deliberate QOL changes
+
+Places where we choose to differ from the GBA on purpose (not placeholders). Keep this list current.
+
+- **NPCs on neighbouring maps are spawned** (`OverworldScene.syncNpcsWithLoadedMaps`). The GBA already draws the
+  connected maps' tiles but only spawns the current map's objects in the view window (TrySpawnObjectEvents), so
+  NPCs pop in when you cross a border. We spawn every object of the current map and its connected neighbours and
+  drop them when their map stops being adjacent. Consequences:
+  - Clone objects (OBJ_KIND_CLONE, 9 in the game, e.g. Route 21 North's copy of Pallet's fat man) are not needed
+    and stay unsupported.
+  - Objects aren't despawned/respawned by the view window (RemoveObjectEventsOutsideView), so wandering NPCs don't
+    snap home when you come back.
+  - A neighbour's templates are its header ones (or the ones it had while it was last current); its map scripts
+    don't run until you enter it. On entry, any of its objects whose reloaded template disagrees (position,
+    graphics, movement type, hidden) is marked stale and respawned once it's off screen, so nobody visibly teleports.
+    A stale one that's on screen keeps its old place until it isn't, as a live object would on the GBA.
+  - Future: trainer sight / any per-object logic should check that an object belongs to the current map where the
+    GBA would only have current-map objects alive.
 
 ## Where to resume
 
@@ -312,3 +331,32 @@ State as of the last log entry:
   Growl → Metal Claw with 35 PP).
 - Not verified: the TM forget path (TMs can't be used until the TM Case exists). Eggs show their species name
   because nothing creates eggs yet (CreateEgg would set the "EGG" nickname).
+
+### NPCs across map connections (user report)
+- Report: leaving Pallet Town north, the sign lady (standing at the Route 1 entrance once
+  FLAG_PALLET_LADY_NOT_BLOCKING_SIGN is set) vanished on the crossing while still on screen, and popped back on return.
+- Cause: every map load destroyed all objects. On the GBA, LoadMapFromCameraTransition leaves gObjectEvents alone;
+  the old map's objects keep their mapNum/mapGroup and are only removed by RemoveObjectEventsOutsideView once
+  both their current and initial coords leave the view window.
+- Fix: `Npc` records its `map` and spawn coords; each camera step runs UpdateObjectEventsForCameraUpdate
+  (TrySpawnObjectEvents + RemoveObjectEventsOutsideView). Warps still ResetObjectEvents, and now spawn only in view
+  like InitObjectEventsLocal. Local-id lookups (`objectByLocalId`, `removeObject`, `addObject`, spawn dedup) are
+  scoped to the current map (GetObjectEventIdByLocalIdAndMap); collision and talking still see every object.
+- Verified headless: with the lady at (12,2), walking north she stays on screen on Route 1, is removed at 10 rows
+  away, and walking back she is the same object (no duplicate).
+- As on the GBA, a neighbouring map's objects aren't spawned until you cross into it, so an object that was
+  already removed pops in at the crossing.
+
+### Neighbour-map NPCs (QOL) + template reload fix (user request)
+- Template bug: `templates` cached each map's object templates for the whole session, so `setobjectxyperm` /
+  `setobjectmovementtype` edits never reverted. The GBA reloads them from the header on every map entry
+  (LoadObjEventTemplatesFromHeader in LoadMapFromWarp / LoadMapFromCameraTransition), so they only last while you're
+  on the map. Now `onMapLoaded` reloads the current map's templates before ON_TRANSITION. Effect: after the start
+  menu has been opened, the Pallet sign lady goes back to (3,10) and wanders instead of staying at the Route 1 entrance.
+- QOL: replaced the view-window spawn/despawn from the previous entry with spawning all objects of the loaded
+  (current + connected) maps; see "Deliberate QOL changes". `World.loaded` exposes the loaded chunks; `Npc` keeps its
+  chunk, the template it spawned as, and a `stale` flag.
+- Verified headless: in Pallet, Route 1's and Route 21 North's NPCs are out; stepping onto Route 1 drops Route 21
+  North's and adds Viridian's, and the sign lady stays at (12,2) all the way up Route 1 and back. Re-entering Pallet
+  after setting FLAG_OPENED_START_MENU: she's marked stale and stays put while on screen, and is respawned at (3,10)
+  wandering once off screen; warping in gives (3,10) straight away and VAR_MAP_SCENE_PALLET_TOWN_SIGN_LADY = 2.
