@@ -150,6 +150,15 @@ State as of the last log entry:
   battle_main.c, battle_script_commands.c, battle_util.c, the controllers, battle_interface.c, battle_gfx_sfx_util.c,
   pokeball.c etc. on top of it. `BattleScene` runs CB2_InitBattle → CB2_HandleStartBattle → BattleMainCB1/CB2 +
   VBlankCB_Battle at 60 Hz and draws with the software PPU. `OverworldScene.startTrainerBattle` builds `BattleStart`.
+- **Overworld sprites:** draw order follows the GBA. Each object's OAM priority comes from its elevation
+  (`ObjectEvent.updateElevationAndPriority`), and the 16 px screen-row subpriority (`updateSubpriority`) is
+  recomputed every frame against last frame's camera (`field.cameraTop`). `objectDepth` in MapChunk.ts packs
+  them into Phaser depths between the `below`/`above` layers, or above `above` for priority 1. The camera follows
+  `ObjectEvent.anchor`, which leaves out the jump lift. `OBJ_EVENT_GFX_VAR_*` graphics are resolved from
+  `VAR_OBJ_GFX_ID_*` at spawn (`resolveGraphicsId`).
+- **Open overworld follow-ups:** dynamic-graphics objects have only been checked on Viridian's old man; other maps
+  that use them (e.g. rival appearances) are untested. A script that sets `VAR_OBJ_GFX_ID_*` and then `addobject`s
+  in the same run only works if that sprite was already preloaded; otherwise it logs `[overworld] no sprite loaded`.
 - **Next blockers on the main path:** Viridian City Mart parcel scene (`pokemart`, multichoice), Route 22 trainers
   (`trainerbattle_single`, trainer sight), Oak's parcel → Pokédex scene; in battle: move animations
   (battle_anim scripts), wild battles, evolution scene.
@@ -166,6 +175,9 @@ State as of the last log entry:
   battle globals (`g`).
 - **How to find what a script needs:** unimplemented script commands and specials log once to the browser console
   as `[script] unimplemented command ...`.
+- **Bugs that depend on world position:** `?map=` always loads at origin 0, so maps that are far from the origin in
+  a real playthrough (e.g. Viridian at y = -80 after walking up from Pallet) need either a real walk or
+  `await s.world.load(name, ox, oy)`, then `s.player.setPosition(...)` and `await s.onMapLoaded(false)`.
 - **Testing long scenes:** `tools/browser-test.mjs` has `mash:<js>` (press A until a condition holds), e.g.
   `mash:game.scene.getScene("Overworld").state.getVar("VAR_MAP_SCENE_PALLET_TOWN_PROFESSOR_OAKS_LAB")===2`.
   Build step lists as a bash array (`args+=(...)`) so JS with spaces survives word splitting.
@@ -375,7 +387,9 @@ State as of the last log entry:
   was `1000 + pixel y`, which went negative from world tile y -64 (the sign's row) and sorted under the `below`
   tile layer at depth 0.
 - Fix: depth bands in `MapChunk.ts` are now symmetric around 0 (border/below at -1e6, objects at pixel y,
-  above at +1e6), which leaves ±62,500 tiles of room either way.
+  above at +1e6), which leaves ±62,500 tiles of room either way. (Superseded by "GBA sprite subpriority" below:
+  depth no longer depends on world position. The old man had a second, separate cause; see "Invisible Viridian
+  old man".)
 - Verified headless by reloading Viridian at origin (0,-80) and walking up x=22 past the sign: the player and the
   Viridian NPCs are drawn (they weren't before the fix). `?map=` always loads at origin 0, so it can't reproduce
   bugs that depend on world position; for those, `await s.world.load(name, ox, oy)` then `s.player.setPosition(...)`
