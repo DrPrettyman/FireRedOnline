@@ -67,12 +67,13 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [ ] Map name popup
 - [ ] Save/load
 - [x] Party menu (party_menu.c) and bag (item_menu.c, bag.c, item_use.c) on the GBA layer, from the field and in battle; list menus, scroll arrows, mon/item icons, std/dialog frames, YES/NO, money box
-- [ ] Summary screen, Pokédex, options, TM case, berry pouch
+- [x] Summary screen (pokemon_summary_screen.c): INFO / SKILLS / KNOWN MOVES pages, move details, switching moves, choosing a move to forget (field and battle)
+- [ ] Pokédex, options, TM case, berry pouch
 - [ ] Wild encounters, trainer sight
 - [x] Battle engine core: script interpreter, turn flow, damage/effects, messages, AI (battle_ai_script_commands.c + switch/items), player/opponent/Oak-Old Man controllers
 - [x] GBA video layer (src/gba: VRAM/palette/regs, bg.c, window.c, sprite.c, task.c, palette fades, scanline effects, software PPU) and the battle presentation on it (BattleScene)
 - [x] Battle: bag and party menu (choose item, use medicine/PP items/X items/balls, switch/send out) with reshow_battle_screen.c
-- [ ] Battle: move/status animations, summary screen from battle, evolution scene, battle transitions, wild battles, white-out
+- [ ] Battle: move/status animations, evolution scene, battle transitions, wild battles, white-out
 - [ ] Audio playback
 - [ ] Title screen / intro / Oak's speech / naming (ChangePokemonNickname keeps the name for now)
 
@@ -85,9 +86,10 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - White-out (`CB2_WhiteOut`) after a lost battle: logs a warning and continues the script.
   - Battles: no move/status/special battle animation scripts (InitAndLaunchSpecialAnimation etc. finish at once;
     only the Poké Ball open burst is drawn); no shiny sparkle; no audio (PlaySE/cries/BGM are no-ops).
-  - Battles: the move-forget summary screen keeps the old moves; evolutions are skipped.
-  - Party menu: SUMMARY goes straight back to the party menu (no summary screen); learning a 5th move from a TM/
-    Rare Candy can't pick a move to forget (it asks "Stop learning?"); field moves always say they can't be used
+  - Battles: evolutions are skipped.
+  - Summary screen: no box mons (PC), trade-screen view or multi-battle party order; the struct Pokemon fields the
+    port doesn't store read as defaults (markings 0, met game FireRed, no fateful-encounter flag, English).
+  - Party menu: field moves always say they can't be used
     here (badge checks are real); mail, Softboiled/Milk Drink, the move relearner, Union Room, minigames,
     Pokédude/Teachy TV demos are not ported. Evolution (Rare Candy, stones) doesn't happen; a stone is still used up.
   - Item use: the item-use animation (pokemon_special_anim.c) is skipped. Bag uses that need overworld systems
@@ -124,11 +126,13 @@ State as of the last log entry:
   VBlankCB_Battle at 60 Hz and draws with the software PPU. `OverworldScene.startTrainerBattle` builds `BattleStart`.
 - **Next blockers on the main path:** Viridian City Mart parcel scene (`pokemart`, multichoice), Route 22 trainers
   (`trainerbattle_single`, trainer sight), Oak's parcel → Pokédex scene; in battle: move animations
-  (battle_anim scripts), wild battles; the summary screen (party menu SUMMARY, move forgetting), evolution scene.
+  (battle_anim scripts), wild battles, evolution scene.
 - **GBA screens:** `src/gba/main.ts` is gMain (callbacks, ReadKeys with key repeat). `GbaHostScene` runs the
   main loop; `BattleScene` and `FieldMenuScene` extend it. Screens hand over with SetMainCallback2 like the C
   (battle → CB2_BagMenuFromBattle → ... → ReshowBattleScreenAfterMenu → BattleMainCB2). Graphics are fetched
-  asynchronously, so `prepareMenus()` (src/menus/host.ts) preloads everything the bag/party can draw.
+  asynchronously, so `prepareMenus()` (src/menus/host.ts) preloads everything the bag/party/summary can draw
+  (incl. each party mon's front pic and palettes). The summary is `ShowPokemonSummaryScreen` /
+  `ShowSelectMovePokemonSummaryScreen` + `GetMoveSlotToReplace` (src/menus/summaryScreen.ts).
 - **Bag tests:** `battleTest.launch({..., bag: [["ITEM_POTION", 3]]})` stocks the bag for a battle.
 - **Quick battle test:** `npm run dev:battle` opens `battle-test.html`: pick both parties (species, level, moves,
   held item), trainer or wild, single/double, IVs, terrain, then Start. Scripted: `battleTest.launch({...config})`
@@ -278,3 +282,33 @@ State as of the last log entry:
   rebuilt, party SHIFT → "Go! PIDGEY!"; a trainer battle still runs to B_OUTCOME_WON.
 - Not verified: Oak's first-battle narration in the party menu (needs the lab rival battle), the Old Man bag.
 
+### Summary screen
+- Ported pokemon_summary_screen.c (all four pages, page flips with the BG slide and HP/EXP bar sprites, switching
+  mons with UP/DOWN, the move details page with move switching, select-a-move-to-forget mode), plus the pieces it
+  reaches for: trainer_pokemon_sprites.c (mon pic sprites), mon_markings.c (marking combo sprite),
+  dynamic_placeholder_text_util.c, BlitMenuInfoIcon / ListMenuLoadStdPalAt (list_menu.c), SafeFreeMonIconPalette,
+  StringCompareWithoutExtCtrlCodes, GetMapName, and text.c's keypad icons (DrawKeypadIcon, their widths in
+  GetStringWidth).
+- Wired like the C: party menu SUMMARY → ShowPokemonSummaryScreen → back with GetLastViewedMonIndex; learning a 5th
+  move from the party menu (TM/Rare Candy/tutor) and in battle (Cmd_yesnoboxlearnmove → ReshowBattleScreenAfterMenu,
+  waiting for BattleMainCB2) use ShowSelectMovePokemonSummaryScreen + GetMoveSlotToReplace. The BattleUi
+  `selectMoveToForget` stub is gone. The TM path's forget animation is skipped like the other item-use animations.
+- Extractor: graphics/summary_screen/ and graphics/misc/ prefixes; anim tables for pokemon_summary_screen.c and
+  mon_markings.c; menus.json gains natureNames, abilityDescriptions, moveDescriptions, mapsecNames, menuInfoIcons;
+  defines gain pokemon_summary_screen.h, mon_markings.h, data.h and the MAPSEC_* enum (rendered from the
+  region_map_sections.json template). fonts.json gains sKeypadIcons.
+- Fixes found on the way: the decomp now names glyph sheets `.hwlatfont`/`.fwlatfont` and latin_small.png is a plain
+  8x16-cell sheet, so the font extractor had been producing no fonts; it now matches both and records `halfWidth`.
+  `state.currentMapSection` was never updated (caught/given mons were met at MAPSEC_NONE); the overworld now sets it
+  and `state.currentMap` on every map load.
+- Verified headless: field party menu → SUMMARY on Charmander (INFO with type icon, OT/ID, nature + "Met in PALLET
+  TOWN" memo; SKILLS with yellow HP bar, EXP bar, ability; KNOWN MOVES; move details), DOWN to a poisoned Pidgey
+  holding an Oran Berry (PSN icon, two type icons), switching Tackle/Sand-Attack (party data swapped), B back to the
+  party menu with Pidgey selected. In battle: Pidgey Lv8 → 9 learns GUST, "delete a move?" YES opens the
+  select-move summary (GUST as the 5th row, "PICK" only), choosing SAND-ATTACK → "1, 2, and… Poof!".
+- Also verified with an injected party: a shiny Charmander (shiny border palette, star, shiny pic), a Pidgey with
+  cured Pokérus (the dot by the ball), an egg (egg pic, "almost ready to hatch", Day-Care memo, CANCEL-only
+  controls), and Rare Candy on a Lv12 Charmander with four moves (Lv13, the forget summary lists METAL CLAW,
+  Growl → Metal Claw with 35 PP).
+- Not verified: the TM forget path (TMs can't be used until the TM Case exists). Eggs show their species name
+  because nothing creates eggs yet (CreateEgg would set the "EGG" nickname).
