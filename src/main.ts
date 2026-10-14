@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { BootScene } from './scenes/BootScene';
 import { OverworldScene } from './scenes/OverworldScene';
 import { BattleScene } from './scenes/BattleScene';
+import { FieldMenuScene } from './scenes/FieldMenuScene';
 
 // GBA native resolution; scaled up with nearest-neighbour filtering.
 const game = new Phaser.Game({
@@ -16,7 +17,7 @@ const game = new Phaser.Game({
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [BootScene, OverworldScene, BattleScene],
+  scene: [BootScene, OverworldScene, BattleScene, FieldMenuScene],
 });
 
 // Handy for poking at state from the devtools console during development.

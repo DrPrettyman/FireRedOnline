@@ -28,6 +28,8 @@ interface TestConfig {
   textSpeed: TextSpeed;
   player: MonConfig[];
   enemy: MonConfig[];
+  /** Scripted runs only: bag contents as [ITEM_* name, quantity]. */
+  bag?: [string, number][];
 }
 
 const STORAGE_KEY = 'battleTest.config';
@@ -277,6 +279,7 @@ class Harness {
     const d = this.defines;
     const state = new GameState(d, this.assets.constants.newGameFlags, this.pokemon);
     state.textSpeed = config.textSpeed;
+    for (const [item, n] of config.bag ?? []) state.bag.add(d.require(item), n);
     let enemyParty: Pokemon[];
     try {
       state.party = config.player.map((m) => this.buildMon(state, m));
