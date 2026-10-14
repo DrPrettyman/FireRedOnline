@@ -8,7 +8,8 @@ import { PALETTES_ALL, RGB_BLACK } from '../gba/hw';
 import { IsDma3ManagerBusyWithBgCopy, SetBgAttribute, ShowBg, BG_ATTR_PRIORITY } from '../gba/bg';
 import { gfx, gfx16 } from '../gba/gfx';
 import { AddTextPrinter, AddTextPrinterParameterized3, ClearWindowTilemap, COPYWIN_FULL, COPYWIN_GFX, COPYWIN_MAP, CopyToWindowPixelBuffer, CopyWindowToVram, FillWindowPixelBuffer, PIXEL_FILL, PutWindowTilemap, TEXT_SKIP_DRAW } from '../gba/window';
-import { ConvertIntToDecimalStringN, STR_CONV_MODE_LEFT_ALIGN } from './stringUtil';
+import { ConvertIntToDecimalStringN, STR_CONV_MODE_LEFT_ALIGN, strBody } from './stringUtil';
+import type { Pokemon } from '../pokemon/Pokemon';
 import { ui } from './battleUi';
 import { BattleCreateYesNoCursorAt, BattleDestroyYesNoCursorAt, BattlePutTextOnWindow, HandleBattleWindow } from './battleWindow';
 import { adv, b, h, typeAtk, typeDef, typeMul, w } from './bsCommands1';
@@ -29,7 +30,7 @@ import {
   u16,
   u32,
 } from './controllers';
-import { bdata, g, gBattleMoves, gSpeciesInfo, itemHoldEffect, mem, state } from './env';
+import { bdata, g, gBattleMoves, gSpeciesInfo, itemHoldEffect, mem, pokemon, state } from './env';
 import { bit } from './globals';
 import { pokemonUseItemEffects } from './items';
 import { isRunningFromBattleImpossible, tryRunFromBattle } from './main';
@@ -545,9 +546,9 @@ function WriteColorChangeControlCode(dest: number[], at: number, colorType: numb
 function DrawLevelUpBannerText(): void {
   const mon = g.playerParty[g.battleStruct.expGetterMonId]!;
   const monLevel = mon.level;
-  const monGender = getMonGender(mon);
+  const monGender = pokemon.gender(mon);
   const printerTemplate = {
-    currentChar: [...strBody(mon.nicknameBytes()), K.EOS],
+    currentChar: [...strBody(mon.nickname), K.EOS], // GetMonNickname
     windowId: K.B_WIN_LEVEL_UP_BANNER,
     fontId: K.FONT_SMALL,
     x: 32,

@@ -381,6 +381,12 @@ export function AddTextPrinterParameterized4(
   );
 }
 
+/** AddTextPrinterParameterized3: color = [bg, fg, shadow]; spacing from the font's attributes. */
+export function AddTextPrinterParameterized3(windowId: number, fontId: number, x: number, y: number, color: number[], speed: number, str: number[]): boolean {
+  const f = textFonts.get(fontId).info;
+  return AddTextPrinterParameterized4(windowId, fontId, x, y, f.letterSpacing, f.lineSpacing, color, speed, str);
+}
+
 /** AddTextPrinterParameterized (menu.c / text.c) */
 export function AddTextPrinterParameterized(windowId: number, fontId: number, str: number[], x: number, y: number, speed: number): boolean {
   const f = textFonts.get(fontId).info;

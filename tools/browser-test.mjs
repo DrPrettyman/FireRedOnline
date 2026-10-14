@@ -26,7 +26,7 @@ for (let i = 0; i < 50 && !ws; i++) {
 }
 const sock = new WebSocket(ws); await new Promise((r) => (sock.onopen = r));
 let id = 0; const pending = new Map();
-sock.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pending.has(d.id)) { pending.get(d.id)(d.result); pending.delete(d.id); } if (d.method === 'Runtime.consoleAPICalled') console.log('[console]', d.params.type, d.params.args.map((a) => a.value ?? a.description).join(' ')); if (d.method === 'Runtime.exceptionThrown') console.log('[exception]', JSON.stringify(d.params.exceptionDetails).slice(0, 400)); };
+sock.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pending.has(d.id)) { pending.get(d.id)(d.result); pending.delete(d.id); } if (d.method === 'Runtime.consoleAPICalled') console.log('[console]', d.params.type, d.params.args.map((a) => a.value ?? a.description).join(' ')); if (d.method === 'Runtime.exceptionThrown') console.log('[exception]', (d.params.exceptionDetails.exception?.description ?? JSON.stringify(d.params.exceptionDetails)).slice(0, 1200)); };
 const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); sock.send(JSON.stringify({ id: i, method, params })); });
 await send('Runtime.enable'); await send('Page.enable');
 await send('Page.navigate', { url });

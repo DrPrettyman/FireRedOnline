@@ -19,6 +19,7 @@ import { StartMenu } from '../ui/StartMenu';
 import { YesNoMenu } from '../ui/YesNoMenu';
 import { MonPicBox } from '../ui/MonPicBox';
 import { ScreenFade } from '../ui/ScreenFade';
+import type { BattleStart } from './BattleScene';
 
 /** GBA runs at ~59.73Hz; we tick game logic at a fixed 60Hz regardless of display refresh. */
 const FRAME_MS = 1000 / 60;
@@ -515,21 +516,90 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     return () => !this.screenFade.active;
   }
 
-  /** Placeholder (not from the decomp) until the battle engine exists: say so, and count the battle as won. */
+  /**
+   * StartTrainerBattle + DoTrainerBattle (battle_setup.c): fade out (the battle transitions aren't
+   * implemented), run the battle scene, and come back with CB2_ReturnToFieldContinueScript's fade in.
+   */
   startTrainerBattle(battle: TrainerBattle): { done: Wait; playerWon(): boolean } {
-    console.warn('[battle] not implemented; counting trainer', battle.trainer, 'as defeated');
-    this.messageBox.show(this.charmap.encode("Battles aren't implemented yet.\\nLet's say you won!$"));
-    let closed = false;
+    const d = this.defines;
+    let battleTypeFlags = d.require('BATTLE_TYPE_TRAINER');
+    if (battle.mode === d.require('TRAINER_BATTLE_EARLY_RIVAL') && battle.localIdOrFlags & d.require('RIVAL_BATTLE_TUTORIAL')) {
+      battleTypeFlags |= d.require('BATTLE_TYPE_FIRST_BATTLE');
+    }
+    const speech = (label?: string) => (label && this.assets.strings[label] !== undefined ? this.charmap.encode(this.assets.strings[label]) : undefined);
+    const color = this.scripts.contextTextColor();
+    const map = this.world.current.data;
+    let phase: 'fadeOut' | 'battle' | 'fadeIn' | 'done' = 'fadeOut';
+    let outcome = 0;
+    this.screenFade.begin(d.require('FADE_TO_BLACK'));
+    const start: BattleStart = {
+      battleTypeFlags,
+      trainerBattleOpponent_A: battle.trainer,
+      trainerBattleMode: battle.mode,
+      rivalBattleFlags: battle.mode === d.require('TRAINER_BATTLE_EARLY_RIVAL') ? battle.localIdOrFlags : 0,
+      defeatSpeech: speech(battle.defeatText),
+      victorySpeech: speech(battle.victoryText),
+      npcTextColor: d.require(color === 'male' ? 'NPC_TEXT_COLOR_MALE' : color === 'female' ? 'NPC_TEXT_COLOR_FEMALE' : 'NPC_TEXT_COLOR_NEUTRAL'),
+      terrain: this.battleTerrainId(),
+      mapBattleScene: d.get(map.battleScene ?? '') ?? d.require('MAP_BATTLE_SCENE_NORMAL'),
+      mapType: d.get(map.mapType ?? '') ?? 0,
+      overworldWeather: d.get(map.weather ?? '') ?? 0,
+      state: this.state,
+      pokemon: this.state.pokemon,
+      charmap: this.charmap,
+      onEnd: (o) => {
+        outcome = o;
+        this.scene.stop('Battle');
+        this.scene.wake('Overworld');
+        this.screenFade.begin(d.require('FADE_FROM_BLACK'));
+        phase = 'fadeIn';
+      },
+    };
     return {
       done: () => {
-        if (closed) return true;
-        if (this.messageBox.isPrinting || !this.buttons.pressedAorB()) return false;
-        this.messageBox.hide();
-        closed = true;
-        return true;
+        if (phase === 'fadeOut' && !this.screenFade.active) {
+          phase = 'battle';
+          this.scene.launch('Battle', start);
+          this.scene.sleep();
+        }
+        if (phase === 'fadeIn' && !this.screenFade.active) phase = 'done';
+        return phase === 'done';
       },
-      playerWon: () => true,
+      // IsPlayerDefeated: B_OUTCOME_LOST or B_OUTCOME_DREW
+      playerWon: () => outcome !== d.require('B_OUTCOME_LOST') && outcome !== d.require('B_OUTCOME_DREW'),
     };
+  }
+
+  /** BattleSetup_GetTerrainId (no surfing yet, so the PLAYER_AVATAR_FLAG_SURFING checks are skipped) */
+  private battleTerrainId(): number {
+    const d = this.defines;
+    const b = this.behaviors;
+    const behavior = this.world.tileAt(this.player.tileX, this.player.tileY).behavior;
+    if (b.isTallGrass(behavior)) return d.require('BATTLE_TERRAIN_GRASS');
+    // MetatileBehavior_IsLongGrass is always FALSE in FRLG
+    if (b.isSandOrShallowFlowingWater(behavior)) return d.require('BATTLE_TERRAIN_SAND');
+    switch (this.world.current.data.mapType) {
+      case 'MAP_TYPE_TOWN':
+      case 'MAP_TYPE_CITY':
+      case 'MAP_TYPE_ROUTE':
+        break;
+      case 'MAP_TYPE_UNDERGROUND':
+        if (b.isIndoorEncounter(behavior)) return d.require('BATTLE_TERRAIN_BUILDING');
+        if (b.isSurfable(behavior)) return d.require('BATTLE_TERRAIN_POND');
+        return d.require('BATTLE_TERRAIN_CAVE');
+      case 'MAP_TYPE_INDOOR':
+      case 'MAP_TYPE_SECRET_BASE':
+        return d.require('BATTLE_TERRAIN_BUILDING');
+      case 'MAP_TYPE_UNDERWATER':
+        return d.require('BATTLE_TERRAIN_UNDERWATER');
+      case 'MAP_TYPE_OCEAN_ROUTE':
+        if (b.isSurfable(behavior)) return d.require('BATTLE_TERRAIN_WATER');
+        return d.require('BATTLE_TERRAIN_PLAIN');
+    }
+    if (b.isDeepWaterTerrain(behavior)) return d.require('BATTLE_TERRAIN_WATER');
+    if (b.isSurfable(behavior)) return d.require('BATTLE_TERRAIN_POND');
+    if (b.isMountain(behavior)) return d.require('BATTLE_TERRAIN_MOUNTAIN');
+    return d.require('BATTLE_TERRAIN_PLAIN');
   }
 
   mapSection(): string {

@@ -60,6 +60,16 @@ export class Font {
 
   /** Glyph pixel value at (x, y) within the glyph for charmap byte `code`. */
   pixel(code: number, x: number, y: number): number {
+    if (this.id === FONT_SMALL) {
+      // DecompressGlyph_Small: glyphs are two 8x8 tiles, 0x10 u16s apart, so each 16x16 latfont
+      // cell holds two: the even glyph is the cell's top tiles (top-left above top-right), the odd
+      // glyph its bottom tiles.
+      const cell = code >> 1;
+      const cx = (cell % 16) * CELL + (y >= 8 ? 8 : 0);
+      const cy = Math.floor(cell / 16) * CELL + (code & 1) * 8 + (y & 7);
+      if (x >= 8 || y >= 16) return 0;
+      return this.pixels[cy * this.sheetWidth + cx + x];
+    }
     const cx = (code % 16) * CELL;
     const cy = Math.floor(code / 16) * CELL;
     return this.pixels[(cy + y) * this.sheetWidth + cx + x];

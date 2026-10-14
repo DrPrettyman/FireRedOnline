@@ -15,6 +15,42 @@ export class Behaviors {
     return names.some((n) => this.ids[`MB_${n}`] === behavior);
   }
 
+  private id(name: string): number | undefined {
+    return this.ids[`MB_${name}`];
+  }
+
+  /** MetatileBehavior_IsTallGrass */
+  isTallGrass(behavior: number): boolean {
+    return this.is(behavior, 'TALL_GRASS', 'CYCLING_ROAD_PULL_DOWN_GRASS');
+  }
+
+  /** MetatileBehavior_IsSandOrShallowFlowingWater */
+  isSandOrShallowFlowingWater(behavior: number): boolean {
+    return this.is(behavior, 'SAND', 'SHALLOW_WATER');
+  }
+
+  /** MetatileBehavior_IsIndoorEncounter */
+  isIndoorEncounter(behavior: number): boolean {
+    return this.is(behavior, 'INDOOR_ENCOUNTER');
+  }
+
+  /** MetatileBehavior_IsSurfable (sBehaviorSurfable) */
+  isSurfable(behavior: number): boolean {
+    return this.is(behavior, 'POND_WATER', 'FAST_WATER', 'DEEP_WATER', 'WATERFALL', 'OCEAN_WATER', 'UNUSED_WATER', 'CYCLING_ROAD_WATER', 'EASTWARD_CURRENT', 'WESTWARD_CURRENT', 'NORTHWARD_CURRENT', 'SOUTHWARD_CURRENT');
+  }
+
+  /** MetatileBehavior_IsDeepWaterTerrain */
+  isDeepWaterTerrain(behavior: number): boolean {
+    const fast = this.id('FAST_WATER');
+    const deep = this.id('DEEP_WATER');
+    return (fast !== undefined && deep !== undefined && behavior >= fast && behavior <= deep) || this.is(behavior, 'OCEAN_WATER');
+  }
+
+  /** MetatileBehavior_IsMountain */
+  isMountain(behavior: number): boolean {
+    return this.is(behavior, 'MOUNTAIN_TOP');
+  }
+
   /** Ledge that can be jumped when moving in `dir`. */
   isJump(behavior: number, dir: Direction): boolean {
     return this.is(behavior, `JUMP_${COMPASS[dir]}`);

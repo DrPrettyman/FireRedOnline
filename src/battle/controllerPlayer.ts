@@ -621,7 +621,7 @@ function FreeMonSpriteAfterSwitchOutAnim(): void {
 
 /** Auto-answers for the missing party screen (see file header). */
 export function autoChooseMon(caseId: number): number {
-  if (caseId === K.PARTY_ACTION_SEND_OUT || caseId === K.PARTY_ACTION_SEND_MON_TO_BOX) {
+  if (caseId === K.PARTY_ACTION_SEND_OUT) {
     const active = [g.battlerPartyIndexes[0], g.battlerPartyIndexes[2]];
     for (let i = 0; i < K.PARTY_SIZE; i++) {
       const m = g.playerParty[i];

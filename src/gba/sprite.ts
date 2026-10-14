@@ -878,6 +878,11 @@ function AllocSpriteTileRange(tag: number, start: number, count: number): void {
   sSpriteTileRanges[freeIndex * 2 + 1] = count;
 }
 
+/** gReservedSpritePaletteCount = n */
+export function SetReservedSpritePaletteCount(n: number): void {
+  gReservedSpritePaletteCount = n;
+}
+
 export function FreeAllSpritePalettes(): void {
   gReservedSpritePaletteCount = 0;
   sSpritePaletteTags.fill(TAG_NONE);

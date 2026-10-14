@@ -316,7 +316,7 @@ export class ScriptEngine {
   }
 
   /** ContextNpcGetTextColor */
-  private contextTextColor(): TextColor {
+  contextTextColor(): TextColor {
     const c = this.state.getVar('VAR_TEXT_COLOR');
     if (c !== this.defines.require('NPC_TEXT_COLOR_DEFAULT')) return textColorFromId(c, this.defines);
     return this.host.selectedObject ? this.npcTextColor : 'neutral';
