@@ -60,6 +60,11 @@ export const SPECIALS: Record<string, Special> = {
     initRoamer(state);
   },
 
+  /** EndTrainerApproach (trainer_see.c): the script's waitstate ends once the trainer has walked up. */
+  EndTrainerApproach(env) {
+    env.setWaitState(env.host.endTrainerApproach());
+  },
+
   /** GetBattleOutcome (battle_setup.c): gBattleOutcome */
   GetBattleOutcome({ state }) {
     return state.battleOutcome;

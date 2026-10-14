@@ -77,6 +77,8 @@ export interface ScriptHost {
   startScriptedBattle(battleTypeFlags: number, enemyParty: Pokemon[]): TrainerBattleRun;
   /** FieldEffectStart for an effect over `obj` (the emote icons); false if it isn't ported. */
   startFieldEffect(fldEff: string, obj: ObjectEvent): boolean;
+  /** EndTrainerApproach: start the approach of the trainer that saw the player; the wait ends with it. */
+  endTrainerApproach(): Wait;
   /** CB2_WhiteOut: from the black screen after a lost battle to the last heal location. */
   whiteOut(): void;
   /** ComputeWhiteOutMoneyLoss */
@@ -571,8 +573,17 @@ export class ScriptEngine {
     },
 
     // ------------------------------------------------ objects
-    lock() {},
-    lockall() {},
+    /**
+     * ScrCmd_lock: FreezeObjects_WaitForPlayerAndSelected. Other objects already hold still while a
+     * script runs, so this only waits for the player and the selected object to finish their steps.
+     */
+    lock(this: ScriptEngine, ctx: ScriptContext) {
+      ctx.wait = () => !this.host.player.isMoving && !this.host.selectedObject?.isMoving;
+    },
+    /** ScrCmd_lockall: FreezeObjects_WaitForPlayer */
+    lockall(this: ScriptEngine, ctx: ScriptContext) {
+      ctx.wait = () => !this.host.player.isMoving;
+    },
     /** ScrCmd_release / ScrCmd_releaseall: both hide the field message box. */
     release(this: ScriptEngine) {
       this.messageBox.hide();
@@ -777,46 +788,7 @@ export class ScriptEngine {
      * continues after `trainerbattle` (sTrainerBattleEndScript) once the battle is over or skipped.
      */
     trainerbattle(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
-      const d = this.defines;
-      const mode = d.get(a[0]) ?? 0;
-      const is = (...names: string[]) => names.some((n) => mode === d.get(n));
-      const battle: TrainerBattle = {
-        mode,
-        trainer: d.get(a[1]) ?? 0,
-        localIdOrFlags: d.get(a[2]) ?? this.host.resolveLocalId(a[2]) ?? 0,
-        returnPc: ctx.pc,
-      };
-      let script: string;
-      let setMapVars = true;
-      if (is('TRAINER_BATTLE_SINGLE_NO_INTRO_TEXT')) {
-        [battle.defeatText] = a.slice(3); // sOrdinaryNoIntroBattleParams
-        script = 'EventScript_DoNoIntroTrainerBattle';
-        setMapVars = false;
-      } else if (is('TRAINER_BATTLE_EARLY_RIVAL')) {
-        [battle.defeatText, battle.victoryText] = a.slice(3); // sEarlyRivalBattleParams (local id = RIVAL_BATTLE_* flags)
-        script = 'EventScript_DoNoIntroTrainerBattle';
-        setMapVars = false;
-      } else if (is('TRAINER_BATTLE_CONTINUE_SCRIPT', 'TRAINER_BATTLE_CONTINUE_SCRIPT_NO_MUSIC')) {
-        [battle.introText, battle.defeatText, battle.beatenScript] = a.slice(3); // sContinueScriptBattleParams
-        script = 'EventScript_TryDoNormalTrainerBattle';
-      } else if (is('TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE', 'TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE_NO_MUSIC')) {
-        [battle.introText, battle.defeatText, battle.cannotBattleText, battle.beatenScript] = a.slice(3); // sContinueScriptDoubleBattleParams
-        script = 'EventScript_TryDoDoubleTrainerBattle';
-      } else if (is('TRAINER_BATTLE_DOUBLE', 'TRAINER_BATTLE_REMATCH_DOUBLE')) {
-        [battle.introText, battle.defeatText, battle.cannotBattleText] = a.slice(3); // sDoubleBattleParams
-        script = is('TRAINER_BATTLE_DOUBLE') ? 'EventScript_TryDoDoubleTrainerBattle' : 'EventScript_TryDoDoubleRematchBattle';
-      } else {
-        [battle.introText, battle.defeatText] = a.slice(3); // sOrdinaryBattleParams (SINGLE, REMATCH, anything else)
-        script = is('TRAINER_BATTLE_REMATCH') ? 'EventScript_TryDoRematchBattle' : 'EventScript_TryDoNormalTrainerBattle';
-      }
-      this.battle = battle;
-      // SetMapVarsToTrainer
-      if (setMapVars && battle.localIdOrFlags !== d.require('LOCALID_NONE')) {
-        this.state.setVar('VAR_LAST_TALKED', battle.localIdOrFlags);
-        this.host.selectObject(battle.localIdOrFlags);
-      }
-      if (is('TRAINER_BATTLE_REMATCH', 'TRAINER_BATTLE_REMATCH_DOUBLE')) battle.trainer = this.getRematchTrainerId(battle.trainer);
-      this.jump(ctx, script);
+      this.jump(ctx, this.configureTrainerBattle(a, ctx.pc));
     },
     /** ScrCmd_dotrainerbattle: BattleSetup_StartTrainerBattle, then CB2_EndTrainerBattle. */
     dotrainerbattle(this: ScriptEngine, ctx: ScriptContext) {
@@ -879,6 +851,84 @@ export class ScriptEngine {
   }
 
   /**
+   * BattleSetup_ConfigureTrainerBattle for a `trainerbattle` with arguments `a` whose next
+   * instruction is `returnPc` (sTrainerBattleEndScript). Returns the event script that runs the battle.
+   */
+  private configureTrainerBattle(a: string[], returnPc: number): string {
+    const d = this.defines;
+    const mode = d.get(a[0]) ?? 0;
+    const is = (...names: string[]) => names.some((n) => mode === d.get(n));
+    const battle: TrainerBattle = {
+      mode,
+      trainer: d.get(a[1]) ?? 0,
+      localIdOrFlags: d.get(a[2]) ?? this.host.resolveLocalId(a[2]) ?? 0,
+      returnPc,
+    };
+    let script: string;
+    let setMapVars = true;
+    if (is('TRAINER_BATTLE_SINGLE_NO_INTRO_TEXT')) {
+      [battle.defeatText] = a.slice(3); // sOrdinaryNoIntroBattleParams
+      script = 'EventScript_DoNoIntroTrainerBattle';
+      setMapVars = false;
+    } else if (is('TRAINER_BATTLE_EARLY_RIVAL')) {
+      [battle.defeatText, battle.victoryText] = a.slice(3); // sEarlyRivalBattleParams (local id = RIVAL_BATTLE_* flags)
+      script = 'EventScript_DoNoIntroTrainerBattle';
+      setMapVars = false;
+    } else if (is('TRAINER_BATTLE_CONTINUE_SCRIPT', 'TRAINER_BATTLE_CONTINUE_SCRIPT_NO_MUSIC')) {
+      [battle.introText, battle.defeatText, battle.beatenScript] = a.slice(3); // sContinueScriptBattleParams
+      script = 'EventScript_TryDoNormalTrainerBattle';
+    } else if (is('TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE', 'TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE_NO_MUSIC')) {
+      [battle.introText, battle.defeatText, battle.cannotBattleText, battle.beatenScript] = a.slice(3); // sContinueScriptDoubleBattleParams
+      script = 'EventScript_TryDoDoubleTrainerBattle';
+    } else if (is('TRAINER_BATTLE_DOUBLE', 'TRAINER_BATTLE_REMATCH_DOUBLE')) {
+      [battle.introText, battle.defeatText, battle.cannotBattleText] = a.slice(3); // sDoubleBattleParams
+      script = is('TRAINER_BATTLE_DOUBLE') ? 'EventScript_TryDoDoubleTrainerBattle' : 'EventScript_TryDoDoubleRematchBattle';
+    } else {
+      [battle.introText, battle.defeatText] = a.slice(3); // sOrdinaryBattleParams (SINGLE, REMATCH, anything else)
+      script = is('TRAINER_BATTLE_REMATCH') ? 'EventScript_TryDoRematchBattle' : 'EventScript_TryDoNormalTrainerBattle';
+    }
+    this.battle = battle;
+    // SetMapVarsToTrainer
+    if (setMapVars && battle.localIdOrFlags !== d.require('LOCALID_NONE')) {
+      this.state.setVar('VAR_LAST_TALKED', battle.localIdOrFlags);
+      this.host.selectObject(battle.localIdOrFlags);
+    }
+    if (is('TRAINER_BATTLE_REMATCH', 'TRAINER_BATTLE_REMATCH_DOUBLE')) battle.trainer = this.getRematchTrainerId(battle.trainer);
+    return script;
+  }
+
+  /** The `trainerbattle` a script starts with, if it does (what trainer_see.c reads from the script pointer). */
+  private leadingTrainerBattle(label: string): { a: string[]; pc: number } | undefined {
+    const pc = this.data.labels[label];
+    const ins = pc === undefined ? undefined : this.data.code[pc];
+    if (ins?.[0] !== 'trainerbattle') return undefined;
+    return { a: ins.slice(1), pc };
+  }
+
+  /**
+   * For CheckTrainer: the trainer a script's leading `trainerbattle` fights and whether its mode is
+   * TRAINER_BATTLE_DOUBLE (script[1]); undefined if it doesn't start with one.
+   */
+  trainerScriptBattle(label: string): { trainer: number; double: boolean } | undefined {
+    const t = this.leadingTrainerBattle(label);
+    if (!t) return undefined;
+    return { trainer: this.defines.get(t.a[1]) ?? 0, double: this.defines.get(t.a[0]) === this.defines.require('TRAINER_BATTLE_DOUBLE') };
+  }
+
+  /**
+   * ConfigureAndSetUpOneTrainerBattle: the trainer that saw the player becomes gSelectedObjectEvent
+   * and VAR_LAST_TALKED, its script's battle is configured (the script it would jump to is unused),
+   * and EventScript_DoTrainerBattleFromApproach starts.
+   */
+  setUpTrainerBattleFromApproach(localId: number, label: string): void {
+    const t = this.leadingTrainerBattle(label);
+    if (!t) return;
+    this.state.setVar('VAR_LAST_TALKED', localId);
+    this.configureTrainerBattle(t.a, t.pc + 1);
+    this.start('EventScript_DoTrainerBattleFromApproach');
+  }
+
+  /**
    * DoTrainerBattle, then CB2_EndTrainerBattle: either back to the field to continue the script, or a
    * white-out, which ends the script (ScriptContext_Init) and never comes back to it.
    */
@@ -924,7 +974,6 @@ export class ScriptEngine {
    */
   private trainerSpecial(name: string): number | void {
     const battle = this.battle;
-    const d = this.defines;
     switch (name) {
       case 'Script_HasTrainerBeenFought':
         return battle && this.trainerFlag(battle.trainer) ? 1 : 0;
@@ -945,14 +994,9 @@ export class ScriptEngine {
       case 'ShowTrainerCantBattleSpeech':
         this.showFieldMessage(battle?.cannotBattleText);
         return;
-      case 'HasEnoughMonsForDoubleBattle': {
-        // GetMonsStateToDoubles
-        const party = this.state.party;
-        const alive = party.filter((m) => m.hp !== 0 && m.species !== 0 && !m.isEgg).length;
-        const result = party.length === 1 ? 'PLAYER_HAS_ONE_MON' : alive > 1 ? 'PLAYER_HAS_TWO_USABLE_MONS' : 'PLAYER_HAS_ONE_USABLE_MON';
-        this.state.setVar('VAR_RESULT', d.require(result));
+      case 'HasEnoughMonsForDoubleBattle':
+        this.state.setVar('VAR_RESULT', this.monsStateToDoubles());
         return;
-      }
       case 'ShouldTryRematchBattle': {
         if (!battle) return 0;
         const i = this.data.rematches.findIndex((r) => r[0] === battle.trainer); // GetRematchIdx
@@ -970,6 +1014,14 @@ export class ScriptEngine {
         return;
       }
     }
+  }
+
+  /** GetMonsStateToDoubles: PLAYER_HAS_TWO_USABLE_MONS, PLAYER_HAS_ONE_MON or PLAYER_HAS_ONE_USABLE_MON. */
+  monsStateToDoubles(): number {
+    const party = this.state.party;
+    const alive = party.filter((m) => m.hp !== 0 && m.species !== 0 && !m.isEgg).length;
+    const result = party.length === 1 ? 'PLAYER_HAS_ONE_MON' : alive > 1 ? 'PLAYER_HAS_TWO_USABLE_MONS' : 'PLAYER_HAS_ONE_USABLE_MON';
+    return this.defines.require(result);
   }
 
   /** IsThisTrainerRematchable(gSpecialVar_LastTalked) */
@@ -1010,7 +1062,8 @@ export class ScriptEngine {
     this.messageBox.show(raw ? this.charmap.encode(raw) : this.charmap.encode('$'), this.contextTextColor());
   }
 
-  private trainerFlag(trainer: number): boolean {
+  /** FlagGet(TRAINER_FLAGS_START + trainer) */
+  trainerFlag(trainer: number): boolean {
     const start = this.defines.get('TRAINER_FLAGS_START');
     return start !== undefined && this.state.getFlag(start + trainer);
   }

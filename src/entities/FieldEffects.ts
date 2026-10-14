@@ -26,6 +26,7 @@ class EmoteIcon {
 
   constructor(
     scene: Phaser.Scene,
+    readonly fldEff: string,
     private readonly obj: ObjectEvent,
     private readonly anim: [number, number][],
     private readonly subpriority: number,
@@ -84,8 +85,13 @@ export class FieldEffects {
     const icon = ICONS[fldEff];
     if (!icon) return false;
     // Created at the end of the sprite list, so its callback first runs this same frame (in `tick`).
-    this.icons.push(new EmoteIcon(this.scene, obj, this.emoticons.anims[icon.anim], icon.subpriority, this.field));
+    this.icons.push(new EmoteIcon(this.scene, fldEff, obj, this.emoticons.anims[icon.anim], icon.subpriority, this.field));
     return true;
+  }
+
+  /** FieldEffectActiveListContains */
+  isActive(fldEff: string): boolean {
+    return this.icons.some((e) => e.fldEff === fldEff && !e.done);
   }
 
   tick(): void {

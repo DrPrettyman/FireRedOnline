@@ -139,6 +139,11 @@ export class ObjectEvent {
     return this.movement !== undefined;
   }
 
+  /** previousCoords (DoesObjectCollideWithObjectAt checks it as well as the current tile). */
+  get previous(): { x: number; y: number } {
+    return { x: this.previousX, y: this.previousY };
+  }
+
   /** Tile this object will occupy once its current move finishes. */
   get destination(): { x: number; y: number } {
     return { x: this.tileX, y: this.tileY };

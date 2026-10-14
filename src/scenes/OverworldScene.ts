@@ -29,6 +29,14 @@ import { MoneyBox } from '../ui/MoneyBox';
 import { ScreenFade } from '../ui/ScreenFade';
 import { setBgMosaic } from '../world/BgMosaic';
 import { initRoamerTables, roamerMove, roamerMoveToOtherLocationSet, updateLocationHistoryForRoamer } from '../world/roamer';
+import {
+  checkForTrainersWantingBattle,
+  COLLISION_FLAG_ELEVATION_MISMATCH,
+  COLLISION_FLAG_IMPASSABLE,
+  COLLISION_FLAG_OBJECT,
+  type TrainerApproach,
+  type TrainerSeeHost,
+} from '../world/trainerSee';
 import { mapResetTrainerRematches, shouldEggHatch, updateHappinessStepCounter, updatePoisonStepCounter, updateVsSeekerStepCounter } from '../world/stepCounters';
 import { sharedBattleData, type BattleStart } from './BattleScene';
 
@@ -84,6 +92,11 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   private warpDestination?: { mapId: string; warpId: number; x: number; y: number };
   /** FldEffPoison's task while it runs. */
   private poisonEffect?: FieldPoisonEffect;
+  /** The approach task of the trainer that last saw the player (trainer_see.c), until it ends. */
+  private trainerApproach?: TrainerApproach;
+  /** LOCALID_CAMERA: the invisible object the camera follows while it pans up to a trainer. */
+  private cameraObject?: ObjectEvent;
+  private trainerSee!: TrainerSeeHost;
   player!: ObjectEvent;
   selectedObject?: ObjectEvent;
   private npcs: Npc[] = [];
@@ -141,6 +154,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     initBattleEnv(await sharedBattleData(), this.assets.scripts.defines, this.state.pokemon, this.state, this.charmap);
     await this.assets.loadFieldEffectTextures(this);
     this.fieldEffects = new FieldEffects(this, this.assets.emoticons, this.field);
+    this.trainerSee = this.createTrainerSeeHost();
     const charmap = this.charmap;
     const d = this.defines;
     this.screenFade = new ScreenFade(this, {
@@ -195,6 +209,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     // Like the GBA, field input is only considered if no script was running at the start of the
     // frame, so the A press that dismisses a message can't also start a new interaction.
     const scriptAtFrameStart = this.scripts.running;
+    this.trainerApproach?.tick();
+    if (this.trainerApproach?.done) this.trainerApproach = undefined;
     this.scripts.tick();
     this.messageBox.tick();
     this.screenFade.tick();
@@ -209,13 +225,17 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       n.brain.tick();
     }
     const arrived = this.player.tick();
+    this.cameraObject?.tick();
     if (arrived) this.updateObjectsForCamera(); // the camera moved a tile, scripted or not
     if (arrived && !scripted) this.onPlayerArrived();
     // Re-check after arrival: a coord trigger or warp started this frame must also block movement
     // (on the GBA, TryStartCoordEventScript makes ProcessPlayerFieldInput return before moving).
     const blocked = this.scripts.running || this.overlay !== undefined;
-    if (!this.busy && !scriptAtFrameStart && !blocked && !this.player.isMoving) {
-      if (!this.tryOnFrameScript()) this.handleInput();
+    if (!this.busy && !scriptAtFrameStart && !blocked) {
+      // ProcessPlayerFieldInput checks for trainers first, on every frame the controls are free (mid-step too).
+      const approach = checkForTrainersWantingBattle(this.trainerSee);
+      if (approach) this.trainerApproach = approach;
+      else if (!this.player.isMoving && !this.tryOnFrameScript()) this.handleInput();
     }
     this.wasMoving = this.player.isMoving;
 
@@ -235,7 +255,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
    * 32 px vertical pan and 8). The Phaser camera is framed the same way by CAMERA_FOLLOW_OFFSET_Y.
    */
   private updateFieldCamera(): void {
-    this.field.cameraTop = this.player.feetY - CAMERA_FOLLOW_OFFSET_Y - this.cameras.main.height / 2;
+    this.field.cameraTop = (this.cameraObject ?? this.player).feetY - CAMERA_FOLLOW_OFFSET_Y - this.cameras.main.height / 2;
   }
 
   private handleInput(): void {
@@ -493,6 +513,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   /** Load a map fresh (origin at 0,0) and put the player at local (x, y). */
   private async enterMap(name: string, x: number, y: number, facing: Direction, warped: boolean): Promise<void> {
     this.fieldEffects.clear();
+    this.trainerApproach = undefined;
+    this.removeCameraObject();
     await this.world.load(name);
     this.player.setVisible(true); // the GBA recreates the player object on every warp
     this.player.setPosition(x, y); // also updates elevation and priority, as on spawn
@@ -1097,6 +1119,98 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     return d.require('BATTLE_TERRAIN_PLAIN');
   }
 
+  // ------------------------------------------------------------------ trainer sight
+
+  private createTrainerSeeHost(): TrainerSeeHost {
+    const scene = this;
+    return {
+      get player() {
+        return scene.player;
+      },
+      // QOL: only the current map's objects. The GBA has no others alive, except the previous map's
+      // until they scroll off screen; those can spot the player there.
+      sightCandidates: () =>
+        this.npcs
+          .filter((n) => n.chunk === this.world.current)
+          .map((n) => ({
+            obj: n.brain.obj,
+            localId: n.localId,
+            trainerType: n.brain.data.trainer_type,
+            range: this.state.value(n.brain.data.trainer_sight_or_berry_tree_id || '0'),
+            script: n.brain.data.script,
+          })),
+      collisionFlagsAt: (obj, x, y, dir) => this.collisionFlagsAt(obj, x, y, dir),
+      trainerScriptBattle: (script) => this.scripts.trainerScriptBattle(script),
+      trainerFlag: (trainer) => this.scripts.trainerFlag(trainer),
+      cannotDoubleBattle: () => this.scripts.monsStateToDoubles() !== this.defines.require('PLAYER_HAS_TWO_USABLE_MONS'),
+      configureAndSetUpOneTrainerBattle: (c) => {
+        this.selectedObject = c.obj; // gSelectedObjectEvent
+        this.scripts.npcTextColor = textColorFromId(c.obj.info.textColor, this.defines);
+        this.scripts.setUpTrainerBattleFromApproach(c.localId, c.script);
+      },
+      startFieldEffect: (fldEff, obj) => this.fieldEffects.start(fldEff, obj),
+      fieldEffectActive: (fldEff) => this.fieldEffects.isActive(fldEff),
+      isActive: (obj) => obj.sprite.active,
+      settleTrainer: (obj, movementType) => {
+        const n = this.npcs.find((o) => o.brain.obj === obj);
+        if (!n) return;
+        n.brain.setMovementType(movementType); // SetTrainerMovementType
+        if (n.chunk !== this.world.current) return;
+        // OverrideMovementTypeForObjectEvent + OverrideTemplateCoordsForObjectEvent
+        const cur = this.world.current;
+        this.setObjectTemplate(n.localId, { x: obj.tileX - cur.originX, y: obj.tileY - cur.originY, movementType });
+      },
+      spawnCameraObject: () => {
+        // OBJ_EVENT_GFX_YOUNGSTER in the C; it's invisible, so any loaded sprite will do.
+        const cam = new ObjectEvent(this, this.player.info, this.player.tileX, this.player.tileY, this.field, 3);
+        cam.setVisible(false);
+        this.cameraObject = cam;
+        this.cameras.main.startFollow(cam.anchor, true, 1, 1, 0, CAMERA_FOLLOW_OFFSET_Y);
+        return cam;
+      },
+      removeCameraObject: () => this.removeCameraObject(),
+    };
+  }
+
+  /** CameraObjectSetFollowedObjectId(player) + RemoveObjectEventByLocalIdAndMap(LOCALID_CAMERA) */
+  private removeCameraObject(): void {
+    if (!this.cameraObject) return;
+    this.cameraObject.destroy();
+    this.cameraObject = undefined;
+    this.cameras.main.startFollow(this.player.anchor, true, 1, 1, 0, CAMERA_FOLLOW_OFFSET_Y);
+  }
+
+  /**
+   * GetCollisionFlagsAtCoords without bit 0 (outside the movement range), which trainer sight masks
+   * out. Only `obj` that isn't the player is passed, so the camera check (trackedByCamera) never applies.
+   */
+  private collisionFlagsAt(obj: ObjectEvent, x: number, y: number, dir: Direction): number {
+    const t = this.world.tileAt(x, y);
+    const from = this.world.tileAt(obj.tileX, obj.tileY); // currentMetatileBehavior
+    let flags = 0;
+    // MapGridGetCollisionAt, GetMapBorderIdAt == CONNECTION_INVALID (tileAt makes the border impassable),
+    // IsMetatileDirectionallyImpassable
+    if (t.collision !== 0 || this.behaviors.blocksMove(from.behavior, t.behavior, dir)) flags |= COLLISION_FLAG_IMPASSABLE;
+    if (isElevationMismatchAt(obj.currentElevation, t.elevation)) flags |= COLLISION_FLAG_ELEVATION_MISMATCH;
+    if (this.objectCollidesAt(obj, x, y)) flags |= COLLISION_FLAG_OBJECT;
+    return flags;
+  }
+
+  /** DoesObjectCollideWithObjectAt: another object on (x, y) or just leaving it, at a compatible elevation. */
+  private objectCollidesAt(obj: ObjectEvent, x: number, y: number): boolean {
+    for (const o of [this.player, ...this.npcs.map((n) => n.brain.obj)]) {
+      if (o === obj) continue;
+      const p = o.previous;
+      if (!((o.tileX === x && o.tileY === y) || (p.x === x && p.y === y))) continue;
+      if (areElevationsCompatible(obj.currentElevation, o.currentElevation)) return true;
+    }
+    return false;
+  }
+
+  endTrainerApproach(): Wait {
+    return this.trainerApproach?.start() ?? (() => true);
+  }
+
   startFieldEffect(fldEff: string, obj: ObjectEvent): boolean {
     return this.fieldEffects.start(fldEff, obj);
   }
@@ -1229,4 +1343,17 @@ function fade(scene: Phaser.Scene, dir: 'in' | 'out'): Promise<void> {
     if (dir === 'out') cam.fadeOut(FADE_MS, 0, 0, 0);
     else cam.fadeIn(FADE_MS, 0, 0, 0);
   });
+}
+
+/** IsElevationMismatchAt */
+function isElevationMismatchAt(elevation: number, mapElevation: number): boolean {
+  if (elevation === 0) return false;
+  if (mapElevation === 0 || mapElevation === 15) return false;
+  return mapElevation !== elevation;
+}
+
+/** AreElevationsCompatible */
+function areElevationsCompatible(a: number, b: number): boolean {
+  if (a === 0 || b === 0) return true;
+  return a === b;
 }

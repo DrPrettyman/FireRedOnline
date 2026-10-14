@@ -59,7 +59,7 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] Buffer commands (species/lead mon/party nick/item/item plural/number/std string/string); `waitstate`
 - [x] givemon, getpartysize, showmonpic/hidemonpic (picture box), fadescreen (palette-fade timing)
 - [x] White-out (CB2_WhiteOut → DoWhiteOut → FieldCB_RushInjuredPokemonToCenter) and `setrespawn`
-- [x] trainerbattle: every mode (BattleSetup_ConfigureTrainerBattle + the trainer_battle.inc scripts and their specials, gotobeatenscript, rematch checks against vs_seeker.c sRematches). Talk-to only: trainer sight isn't implemented
+- [x] trainerbattle: every mode (BattleSetup_ConfigureTrainerBattle + the trainer_battle.inc scripts and their specials, gotobeatenscript, rematch checks against vs_seeker.c sRematches), started by talking or by trainer sight
 - [x] Text colour through VAR_TEXT_COLOR / VAR_PREV_TEXT_COLOR (ContextNpcGetTextColor), VAR_LAST_TALKED
 - [x] Movement emotes (`emote_*` → FLDEFF_*_ICON, `entities/FieldEffects.ts`); other field effects in movement scripts not yet
 - [ ] Interacting with metatiles (PCs, bookshelves, TVs via behavior scripts)
@@ -81,7 +81,9 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [~] Step counters (TryStartStepCountScript): happiness, field poison (incl. the BG mosaic flash and the faint/white-out
   script), VS Seeker charge counter, Safari steps; eggs only lose egg cycles (no daycare, no hatching scene)
 - [x] Return to field runs MAP_SCRIPT_ON_RESUME / ON_RETURN_TO_FIELD (after battles and the bag/party menu)
-- [ ] Trainer sight
+- [x] Trainer sight (trainer_see.c): sight lines + CheckPathBetweenTrainerAndPlayer, the "!" and walk-up, FRLG's
+  camera pan to trainers offscreen above, ConfigureAndSetUpOneTrainerBattle. Disguised/buried trainers aren't ported
+  (none in FRLG)
 - [x] Battle engine core: script interpreter, turn flow, damage/effects, messages, AI (battle_ai_script_commands.c + switch/items), player/opponent/Oak-Old Man controllers
 - [x] GBA video layer (src/gba: VRAM/palette/regs, bg.c, window.c, sprite.c, task.c, palette fades, scanline effects, software PPU) and the battle presentation on it (BattleScene)
 - [x] Battle: bag and party menu (choose item, use medicine/PP items/X items/balls, switch/send out) with reshow_battle_screen.c
@@ -134,6 +136,9 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - The RNG (`random.c` formula) is seeded from `Math.random`; the trainer id is rolled when the game state is created instead of in Oak's intro.
   - A mon's met location is the MAPSEC_* name, not the numeric id.
   - Warps fade with Phaser's camera fade (200 ms), not the field warp fade.
+  - `lock`/`lockall` only wait for the player (and the selected object) to finish their steps; other objects already
+    hold still while any script runs. Held movements (trainer approach, camera object) are ObjectEvent moves, so
+    their frame order relative to the script and tasks can be off by a frame.
   - Sprite order: `fixedPriority` (surf/fly field effects, the `set_fixed_priority` movement action and
     `setobjectsubpriority`, none of which FRLG scripts use) isn't ported, and neither are OAM priorities 0 and 3,
     which no map elevation produces. Sprites tied on priority, subpriority and screen top keep creation order rather
@@ -159,7 +164,9 @@ Places where we choose to differ from the GBA on purpose (not placeholders). Kee
     A stale one that's on screen keeps its old place until it isn't, as a live object would on the GBA.
   - Exception: a neighbour's objects with dynamic graphics (OBJ_EVENT_GFX_VAR_*) aren't spawned until it's current,
     because VAR_OBJ_GFX_ID_* hold the current map's choices, not the neighbour's.
-  - Future: trainer sight / any per-object logic should check that an object belongs to the current map where the
+  - Trainer sight only checks the current map's objects. On the GBA the previous map's objects linger until they
+    scroll off screen, and a trainer among them can still spot you; here a neighbour's trainers never do.
+  - Future: any other per-object logic should likewise check that an object belongs to the current map where the
     GBA would only have current-map objects alive.
 
 ## Where to resume
@@ -195,7 +202,12 @@ State as of the last log entry:
   overworld initialises the battle env at boot.
 - **Test driver:** `eval:` in `tools/browser-test.mjs` now awaits promises, so `eval:(async()=>{const r=await
   import('/src/world/roamer.ts'); ...})()` reaches module state.
-- **Next blockers on the main path:** trainer sight (trainers only battle when talked to; Viridian Forest, gym trainers), `pokemart`
+- **Trainer sight:** `world/trainerSee.ts` (checkForTrainersWantingBattle + the TrainerApproach task), run from
+  `OverworldScene.tick` on every frame the controls are free (mid-step too, against the step's destination).
+  ScriptEngine.setUpTrainerBattleFromApproach is ConfigureAndSetUpOneTrainerBattle; `special EndTrainerApproach`
+  starts the task. Test trainers: Viridian Forest Rick (`?start=after-rival&map=ViridianForest&x=41&y=45`, step
+  right), Route 20 Nora for the camera pan (teleport the player to 34,11).
+- **Next blockers on the main path:** `pokemart`
   (the clerk's shop; the parcel scene doesn't need it), multichoice; in battle: move animations (battle_anim
   scripts), evolution scene.
 - **GBA screens:** `src/gba/main.ts` is gMain (callbacks, ReadKeys with key repeat). `GbaHostScene` runs the
@@ -616,3 +628,23 @@ State as of the last log entry:
   misses → "out of SAFARI BALLS" → entrance walk-out; last ball catches → PA message → entrance; time up after
   the step count → PA → entrance; start menu RETIRE + stats window. A Route 3 trainer battle still runs through
   the script path to its end.
+
+### Trainer sight (main path: Viridian Forest, gym trainers)
+- `world/trainerSee.ts` ports trainer_see.c: CheckForTrainersWantingBattle (TRAINER_TYPE_NORMAL/BURIED only, as in
+  the C), CheckTrainer (trainer flag and DOUBLE check from the script's leading `trainerbattle`),
+  GetTrainerApproachDistance*, CheckPathBetweenTrainerAndPlayer, and Task_RunTrainerSeeFuncList's funcs: the "!",
+  the walk-up, FACE_PLAYER, PrepareToEngage (face-direction movement type + template override, so the trainer stays
+  where it walked to) and FRLG's offscreen-above camera pan (invisible LOCALID_CAMERA object walking fast up and back
+  while the camera follows it).
+- Overworld: GetCollisionFlagsAtCoords (`collisionFlagsAt`, incl. DoesObjectCollideWithObjectAt with previous
+  coords and elevation compatibility; ObjectEvent now exposes `previous`), the camera can follow another object,
+  `FieldEffects.isActive` (FieldEffectActiveListContains). Only current-map objects are candidates (see QOL list).
+- ScriptEngine: `trainerbattle` split into `configureTrainerBattle` (BattleSetup_ConfigureTrainerBattle) so
+  ConfigureAndSetUpOneTrainerBattle can configure a trainer's battle and start EventScript_DoTrainerBattleFromApproach;
+  new special EndTrainerApproach; `lock`/`lockall` now wait for the player (and selected object) to stop, which is
+  what holds the "!" until the player's step is done; GetMonsStateToDoubles shared as `monsStateToDoubles`.
+- Verified headless: stepping into Rick's line (Viridian Forest) → spotted one frame into the step, "!" once the
+  step ends, he walks 4 tiles, intro text in the male colour, battle, win → flag set, he stays at his new tile
+  facing left, talking gives the post-battle text, no re-trigger. Blocking a tile in the line stops it; clearing
+  it makes him spot the standing player. Route 20 Nora (range 4, facing down): camera pans 2 tiles up, "!", pans
+  back, she approaches, female text. Oak's Pallet Town trigger still runs into the lab.
