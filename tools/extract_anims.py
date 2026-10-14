@@ -35,6 +35,8 @@ ANIM_FILES = [
     "src/item_menu_icons.c",
     "src/pokemon_icon.c",
     "src/menu_indicators.c",
+    "src/pokemon_summary_screen.c",
+    "src/mon_markings.c",
 ]
 
 ARRAY = re.compile(r"(?:static\s+)?const\s+union\s+(AnimCmd|AffineAnimCmd)\s+(\w+)\s*\[\s*\]\s*=\s*\{(.*?)\};", re.S)

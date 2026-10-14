@@ -17,7 +17,7 @@ from PIL import Image
 from extract import read_jasc
 
 # Graphics the ported code loads (battle UI, terrain, Pokémon/trainer pics and icons, balls, battle
-# anims, party menu, bag and item icons).
+# anims, party menu, bag and item icons, summary screen and mon markings).
 GFX_PREFIXES = (
     "graphics/battle_interface/",
     "graphics/battle_terrain/",
@@ -32,6 +32,8 @@ GFX_PREFIXES = (
     "graphics/item_menu/",
     "graphics/items/",
     "graphics/help_system/",
+    "graphics/summary_screen/",
+    "graphics/misc/",
 )
 # Footprints are 1bpp and unused so far.
 SKIP_SUFFIXES = ("footprint.1bpp",)

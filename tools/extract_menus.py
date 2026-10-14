@@ -5,6 +5,10 @@
 - tmhmMoves: sTMHMMoves (data/party_menu.h); tutorMoves / tutorLearnsets (data/pokemon/tutor_learnsets.h)
 - tmhmLearnsets: sTMHMLearnsets (data/pokemon/tmhm_learnsets.h) as [low u32, high u32] per species
 - evolutions: gEvolutionTable (data/pokemon/evolution.h) as [[method, param, targetSpecies], ...] per species
+- natureNames: gNatureNamePointers (data/text/nature_names.h); abilityDescriptions: gAbilityDescriptionPointers
+  (data/text/abilities.h); moveDescriptions: gMoveDescriptionPointers (move_descriptions.c), indexed move - 1
+- mapsecNames: sMapNames (generated from data/region_map/region_map_sections.json), indexed mapsec - KANTO_MAPSEC_START
+- menuInfoIcons: sMenuInfoIcons (list_menu.c) as [width, height, tile offset]
 """
 
 import json
@@ -46,6 +50,23 @@ def by_index(entries, defines, convert):
     return table
 
 
+def string_pointer_table(text, name, defines):
+    """`[KEY] = sSym,` pointers to `const u8 sSym[] = _("...");` in the same file -> raw strings by index."""
+    literals = dict(re.findall(r'\b(\w+)\s*\[\s*\]\s*=\s*_\("(.*?)"\);', text))
+    return by_index(designated_entries(c_array_body(text, name)), defines, lambda v: literals[v] + "$")
+
+
+def mapsec_names(decomp, defines):
+    """sMapNames[mapsec - KANTO_MAPSEC_START]: every section with a name (clones repeat it)."""
+    sections = json.loads((decomp / "src/data/region_map/region_map_sections.json").read_text())["map_sections"]
+    start = defines["KANTO_MAPSEC_START"]
+    names = [None] * (defines["MAPSEC_NONE"] - start)
+    for m in sections:
+        if "name" in m:
+            names[defines[m["id"]] - start] = m["name"] + "$"
+    return names
+
+
 def extract_menus(decomp, out):
     defines = parse_defines(decomp)
     src = decomp / "src"
@@ -85,7 +106,18 @@ def extract_menus(decomp, out):
     evo_h = (src / "data/pokemon/evolution.h").read_text()
     evolutions = by_index(designated_entries(c_array_body(evo_h, "gEvolutionTable")), defines, evos)
 
+    nature_names = string_pointer_table((src / "data/text/nature_names.h").read_text(), "gNatureNamePointers", defines)
+    ability_descs = string_pointer_table((src / "data/text/abilities.h").read_text(), "gAbilityDescriptionPointers", defines)
+    move_descs = string_pointer_table((src / "move_descriptions.c").read_text(), "gMoveDescriptionPointers", defines)
+    flat = c_numeric_table((src / "list_menu.c").read_text(), "sMenuInfoIcons", defines)
+    menu_info_icons = [flat[i : i + 3] for i in range(0, len(flat), 3)]
+
     data = {
+        "natureNames": nature_names,
+        "abilityDescriptions": ability_descs,
+        "moveDescriptions": move_descs,
+        "mapsecNames": mapsec_names(decomp, defines),
+        "menuInfoIcons": menu_info_icons,
         "monIcons": mon_icons,
         "monIconPaletteIndices": mon_icon_pals,
         "itemIcons": item_icons,

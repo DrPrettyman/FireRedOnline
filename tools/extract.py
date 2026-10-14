@@ -418,7 +418,8 @@ def extract_text_assets(decomp, out):
     # Fonts: latin glyph sheets (16x16 cells, 16 per row, indexed by charmap byte). 2bpp values:
     # 1 = foreground, 2 = shadow, 0/3 = background (sFontHalfRowOffsets maps 3 like 0).
     text_c = (decomp / "src/text.c").read_text()
-    glyph_imgs = dict(re.findall(r"static const u16 sFont(\w+)LatinGlyphs\[\] = INCBIN_U16\(\"(.+?)\.latfont\"\)", text_c))
+    # .hwlatfont sheets hold 8x16 glyphs, 32 per row; .fwlatfont (and the older .latfont) 16x16, 16 per row.
+    glyph_imgs = {n: (p, ext) for n, p, ext in re.findall(r"static const u16 sFont(\w+)LatinGlyphs\[\] = INCBIN_U16\(\"(.+?)\.((?:hw|fw)?latfont)\"\)", text_c)}
     widths = {
         name: [int(v) for v in re.findall(r"\d+", body)]
         for name, body in re.findall(r"static const u8 sFont(\w+)LatinGlyphWidths\[\] =\s*\{(.*?)\};", text_c, re.S)
@@ -432,7 +433,7 @@ def extract_text_assets(decomp, out):
     id_to_const = {0: "FONT_SMALL", 1: "FONT_NORMAL_COPY_1", 2: "FONT_NORMAL", 3: "FONT_NORMAL_COPY_2", 4: "FONT_MALE", 5: "FONT_FEMALE"}
     fonts = {}
     written = set()
-    for name, path in glyph_imgs.items():
+    for name, (path, ext) in glyph_imgs.items():
         if name not in FONT_IDS or name not in widths:
             continue
         img_name = Path(path).name
@@ -448,7 +449,7 @@ def extract_text_assets(decomp, out):
             mask.save(td / f"{img_name}.png", optimize=True)
             written.add(img_name)
         fid = FONT_IDS[name]
-        fonts[fid] = {"name": name, "image": img_name, "widths": widths[name], **infos.get(id_to_const[fid], {})}
+        fonts[fid] = {"name": name, "image": img_name, "halfWidth": ext == "hwlatfont", "widths": widths[name], **infos.get(id_to_const[fid], {})}
 
     # Dialogue frame (menu_message) + down arrow, rendered with the text window palette (stdpal_0).
     pal = read_jasc(decomp / "graphics/text_window/stdpal_0.pal")
@@ -485,7 +486,16 @@ def extract_text_assets(decomp, out):
                     dp[x, y] = frame_pal[c] + (255,)
         dst.save(td / f"frame_type{n}.png", optimize=True)
     render_indexed(decomp / "graphics/fonts/down_arrows.png", "down_arrows.png")
-    (td / "fonts.json").write_text(json.dumps({"fonts": fonts, "windowPalette": pal}, separators=(",", ":")))
+    # sKeypadIcons (text.c): [tile offset into gKeypadIconTiles, width, height] by CHAR_*_BUTTON / CHAR_DPAD_* id.
+    defines = parse_defines(decomp)
+    keypad = []
+    body = text_c[text_c.index("sKeypadIcons[] =") :]
+    body = body[: body.index("};")]
+    for key, off, w, h in re.findall(r"\[(\w+)\]\s*=\s*\{\s*(\w+),\s*(\d+),\s*(\d+)\s*\}", body):
+        idx = defines[key]
+        keypad += [None] * (idx + 1 - len(keypad))
+        keypad[idx] = [int(off, 0), int(w), int(h)]
+    (td / "fonts.json").write_text(json.dumps({"fonts": fonts, "windowPalette": pal, "keypadIcons": keypad}, separators=(",", ":")))
     print(f"  {len(fonts)} fonts, charmap")
 
 
@@ -692,8 +702,20 @@ EXTRA_DEFINE_HEADERS = (
     "include/battle_main.h", "include/battle_script_commands.h", "include/gba/types.h", "include/gba/defines.h", "include/menu.h", "include/pokemon_icon.h", "include/pokedex.h", "include/berry.h",
     "include/item.h", "include/item_menu.h", "include/item_menu_icons.h", "include/list_menu.h", "include/menu_helpers.h",
     "include/menu_indicators.h", "include/money.h", "include/party_menu.h", "include/new_menu_helpers.h", "include/item_use.h",
-    "include/task.h",
+    "include/task.h", "include/pokemon_summary_screen.h", "include/mon_markings.h", "include/data.h",
 )
+
+
+def region_map_sections_header(decomp):
+    """include/constants/region_map_sections.h is generated at build time from
+    src/data/region_map/region_map_sections.json through a jinja template; render its one loop."""
+    tmpl = decomp / "src/data/region_map/region_map_sections.constants.json.txt"
+    data = decomp / "src/data/region_map/region_map_sections.json"
+    if not tmpl.exists() or not data.exists():
+        return ""
+    ids = [m["id"] for m in json.loads(data.read_text())["map_sections"]]
+    loop = re.compile(r"## for map_section in map_sections\n(.*?)## endfor\n", re.S)
+    return loop.sub(lambda m: "".join(m.group(1).replace("{{ map_section.id }}", i) for i in ids), tmpl.read_text())
 
 
 def parse_defines(decomp):
@@ -702,6 +724,7 @@ def parse_defines(decomp):
     defines = {}
     headers = sorted((decomp / "include/constants").glob("*.h")) + [decomp / h for h in EXTRA_DEFINE_HEADERS]
     texts = [re.sub(r"/\*.*?\*/", "", hdr.read_text(errors="ignore"), flags=re.S) for hdr in headers if hdr.exists()]
+    texts.append(region_map_sections_header(decomp))
     # `((u8) -1)` style values: the u8 they wrap around to.
     texts = [re.sub(r"\(\s*u8\s*\)\s*-\s*(\d+)", lambda m: str(256 - int(m.group(1))), t) for t in texts]
     for text in texts:
