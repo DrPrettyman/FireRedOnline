@@ -54,6 +54,9 @@ Debug: `?map=PalletTown&x=12&y=10` starts at any map and coordinate. In dev buil
 | `pokemon/tables.json` | `gExperienceTables` (EXP_* macros evaluated), `sNatureStatTable`, `gStdStringPtrs`, dex counts |
 | `pokemon/front/<species>.png` | front pics with the normal palette (`gMonFrontPicTable`, `gMonPaletteTable`) |
 | `constants.json` | metatile behavior ids, new-game hidden-object flags |
+| `gfx/<symbol>.bin`, `gfx/index.json` | every `INCBIN` graphic used by battle/interface code, by C symbol, as the ROM holds it once decompressed (`tools/extract_gfx.py`, `graphics_file_rules.mk` rules) |
+| `battle/scripts.json` | battle scripts + AI scripts assembled into a ROM image with labels and RAM symbols |
+| `battle/strings.json`, `tables.json`, `anims.json` | battle strings and text-window info, trainers/parties, type chart, mechanics tables, sprite anim command tables per C file, pic tables (`tools/extract_battle.py`, `extract_anims.py`) |
 
 Each metatile's two layers are split by layer type into a **below** atlas (under sprites) and an **above** atlas
 (over sprites), reproducing the GBA BG priorities. A map layer uses the primary atlas at gid 0 and the pair atlas at gid 640.
@@ -71,6 +74,8 @@ Each metatile's two layers are split by layer type into a **below** atlas (under
 | Scripts | `script/ScriptEngine.ts`, `MovementRunner.ts`, `Defines.ts`, `specials.ts` | interpreter for decomp scripts at macro level; movement scripts; constant resolution; `special` table |
 | Pokémon | `pokemon/Pokemon.ts`, `util/random.ts` | CreateMon, stats, movesets, gender/nature; the GBA RNG |
 | State | `state/GameState.ts`, `Bag.ts` | flags/vars by numeric id, names, text speed, party, bag, Pokédex (memory only) |
+| GBA video | `gba/hw.ts`, `bg.ts`, `window.ts`, `sprite.ts`, `palette.ts`, `task.ts`, `scanline.ts`, `ppu.ts` | VRAM/palette/IO registers, ports of bg.c, window.c, sprite.c, palette.c, task.c, scanline_effect.c; software PPU (text BGs, OBJ, windows, blending) |
+| Battle | `battle/*.ts`, `scenes/BattleScene.ts` | port of battle_main.c, battle scripts/commands, util, AI, controllers, interface/gfx code on the GBA layer; the scene runs the C main/VBlank callbacks |
 | UI | `ui/MenuWindow.ts`, `Menu.ts`, `YesNoMenu.ts`, `StartMenu.ts`, `MonPicBox.ts`, `ScreenFade.ts` | std-framed windows, cursor menus, `showmonpic` box, `fadescreen` |
 
 ### Testing

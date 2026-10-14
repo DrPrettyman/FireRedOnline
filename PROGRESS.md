@@ -23,8 +23,11 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [ ] Door animation graphics
 - [ ] Field effect graphics (grass, shadows, emotes, ...)
 - [x] Species (base stats, names, learnsets, national dex numbers), moves, items, experience tables, nature table, std strings
-- [ ] Trainers / trainer parties / wild encounters data
-- [~] Battle graphics: mon front pics (normal palette) only. Castform is skipped (its front.png isn't in the decomp)
+- [x] Trainers / trainer parties (battle/tables.json)
+- [ ] Wild encounters data
+- [x] Battle graphics by C INCBIN symbol as decompressed ROM bytes (`tools/extract_gfx.py` → gen/gfx/): interface, terrain, balls, trainer/mon front+back pics and palettes, fonts
+- [x] Battle scripts (assembled ROM image), battle strings, mechanics tables, anim command tables (`tools/extract_anims.py`)
+- [ ] Mon icons, move/status battle animation scripts
 - [x] Pure event macros (giveitem_msg, famechecker, trainerbattle_earlyrival, ...) expanded like the assembler would
 - [ ] Audio
 
@@ -53,7 +56,7 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [~] Items: additem/removeitem/checkitem/checkitemspace/checkitemtype, giveitem/giveitem_msg through the std scripts. Not yet: hidden items, item balls (finditem) untested
 - [x] Buffer commands (species/lead mon/party nick/item/item plural/number/std string/string); `waitstate`
 - [x] givemon, getpartysize, showmonpic/hidemonpic (picture box), fadescreen (palette-fade timing)
-- [~] trainerbattle: EARLY_RIVAL and SINGLE_NO_INTRO_TEXT configure + run EventScript_DoNoIntroTrainerBattle; the battle itself is a stub that counts as a win. Other trainer battle types log as unimplemented
+- [~] trainerbattle: EARLY_RIVAL and SINGLE_NO_INTRO_TEXT configure + run EventScript_DoNoIntroTrainerBattle and start the real battle. Other trainer battle types log as unimplemented
 - [x] Text colour through VAR_TEXT_COLOR / VAR_PREV_TEXT_COLOR (ContextNpcGetTextColor), VAR_LAST_TALKED
 - [ ] Movement emotes (exclamation mark etc.) and other field effects in movement scripts
 - [ ] Interacting with metatiles (PCs, bookshelves, TVs via behavior scripts)
@@ -64,7 +67,9 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [ ] Save/load
 - [ ] Bag, party, summary, Pokédex, options
 - [ ] Wild encounters, trainer sight
-- [ ] Battle engine (stubbed: a message, then counted as a win)
+- [x] Battle engine core: script interpreter, turn flow, damage/effects, messages, AI (battle_ai_script_commands.c + switch/items), player/opponent/Oak-Old Man controllers
+- [x] GBA video layer (src/gba: VRAM/palette/regs, bg.c, window.c, sprite.c, task.c, palette fades, scanline effects, software PPU) and the battle presentation on it (BattleScene)
+- [ ] Battle: move/status animations, party/bag/summary screens from battle, evolution scene, battle transitions, wild battles, white-out
 - [ ] Audio playback
 - [ ] Title screen / intro / Oak's speech / naming (ChangePokemonNickname keeps the name for now)
 
@@ -73,9 +78,15 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 Things that are placeholders or approximations, so they aren't mistaken for ports. Remove entries as they get done properly.
 
 - **Placeholders (not in the decomp):**
-  - Trainer battles: our own "Battles aren't implemented yet" message, always a win (`OverworldScene.startTrainerBattle`).
   - `ChangePokemonNickname`: keeps the name and fades back in instead of opening the naming screen.
-  - White-out (`CB2_WhiteOut`) after a lost battle: logs a warning and continues the script. Unreachable while battles always win.
+  - White-out (`CB2_WhiteOut`) after a lost battle: logs a warning and continues the script.
+  - Battles: no move/status/special battle animation scripts (InitAndLaunchSpecialAnimation etc. finish at once;
+    only the Poké Ball open burst is drawn); no shiny sparkle; no audio (PlaySE/cries/BGM are no-ops).
+  - Battles: the bag returns no item and the party screen auto-picks the first healthy mon when a switch is forced
+    (cancels otherwise); the move-forget summary screen keeps the old moves; evolutions are skipped.
+  - Battles: the level-up banner (exp to a mon that isn't sent out) has no mon icon; Spinda's spots aren't drawn;
+    HP-as-text (SwapHpBarsWithHpText) and link/multi battles aren't implemented.
+  - Battle transitions: a fade to black instead of the B_TRANSITION_* effects.
   - Full party: `givemon` returns MON_CANT_GIVE instead of sending the mon to the PC (`SendMonToPC`).
   - No-op specials (`NO_OP` in `script/specials.ts`): audio, quest log, help system, fame checker, GameCube link flags.
   - Player names are "PLAYER"/"RIVAL" until Oak's intro exists.
@@ -86,21 +97,25 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - The RNG (`random.c` formula) is seeded from `Math.random`; the trainer id is rolled when the game state is created instead of in Oak's intro.
   - A mon's met location is the MAPSEC_* name, not the numeric id.
   - Warps fade with Phaser's camera fade (200 ms), not the field warp fade.
+  - BIOS ObjAffineSet uses a computed sine table; mosaic isn't emulated by the PPU.
 - **Data:** Castform has no front pic (its `front.png` isn't in the decomp; it's built from per-form images).
 
 ## Where to resume
 
 State as of the last log entry:
 - **Playable:** new game in Player's House 2F → Pallet Town → Oak's trigger → lab intro → choose a starter
-  (picture box, YES/NO, nickname prompt) → rival picks → walk down into the rival battle (stubbed as a win) →
-  rival leaves. Mom heals the party (with screen fade). Route 1 clerk gives a Potion into the bag.
-- **Next blockers on the main path:** Viridian City Mart parcel scene (`pokemart`, multichoice), trainer battles
-  on Route 22 (`trainerbattle_single`, trainer sight), Oak's parcel → Pokédex scene (EnableNationalPokedex is in,
-  `setflag FLAG_SYS_POKEDEX_GET` works).
-- **Suggested next milestone:** the battle engine. Needs trainer + party extraction (`src/data/trainers.h`,
-  `trainer_parties.h`), back pics, battle backgrounds/interface graphics, then a port of battle_main.c's turn
-  flow starting with the early rival battle (RIVAL_BATTLE_TUTORIAL). Alternatively, smaller: start menu
-  POKéMON/BAG screens now that party and bag exist.
+  (picture box, YES/NO, nickname prompt) → rival picks → **the real rival battle** (Oak's tutorial narration,
+  FIGHT/move menus, AI opponent, exp + level-up box) → rival leaves. Mom heals the party. Route 1 clerk Potion.
+- **Battle architecture:** `src/gba` emulates the GBA video hardware; `src/battle` is a near line-for-line port of
+  battle_main.c, battle_script_commands.c, battle_util.c, the controllers, battle_interface.c, battle_gfx_sfx_util.c,
+  pokeball.c etc. on top of it. `BattleScene` runs CB2_InitBattle → CB2_HandleStartBattle → BattleMainCB1/CB2 +
+  VBlankCB_Battle at 60 Hz and draws with the software PPU. `OverworldScene.startTrainerBattle` builds `BattleStart`.
+- **Next blockers on the main path:** Viridian City Mart parcel scene (`pokemart`, multichoice), Route 22 trainers
+  (`trainerbattle_single`, trainer sight), Oak's parcel → Pokédex scene; in battle: the bag/party screens,
+  move animations (battle_anim scripts), wild battles.
+- **Quick battle test:** in dev, from the console (or a `browser-test.mjs` eval) give a mon and call
+  `game.scene.getScene("Overworld").startTrainerBattle({...})`, polling `done()`; `await import('/src/battle/env.ts')`
+  exposes the live battle globals (`g`) for `mash:` conditions.
 - **How to find what a script needs:** unimplemented script commands and specials log once to the browser console
   as `[script] unimplemented command ...`.
 - **Testing long scenes:** `tools/browser-test.mjs` has `mash:<js>` (press A until a condition holds), e.g.
@@ -195,3 +210,20 @@ State as of the last log entry:
   it's a white-out (not implemented, warns). GetPartyMonSpecies returns SPECIES_EGG for eggs (MON_DATA_SPECIES_OR_EGG).
 - Added "Known deviations from the decomp" above.
 
+
+### Battle engine: rival battle playable (controllers, BattleScene)
+- Controllers ported from battle_controller_player.c, battle_controller_opponent.c and
+  battle_controller_oak_old_man.c (incl. Oak's PrintOakText_* narration with the healthbox palette trick
+  DoLoadHealthboxPalsForLevelUp, BtlCtrl_Draw/RemoveVoiceoverMessageFrame, the Old Man's simulated input).
+- `Cmd_drawlvlupbox` now ported against the GBA layer (InitLevelUpBanner, Slide*LevelUpBanner, DrawLevelUpBannerText,
+  DrawLevelUpWindowPg1/Pg2); BattleUi shrank to input/audio/save-data hooks — windows, yes/no cursor and fades call
+  battleWindow.ts / palette.ts directly like the C.
+- `BattleScene`: CB2_InitBattle/CB2_InitBattleInternal video setup, CB2_HandleStartBattle (single-player states),
+  BattleMainCB2, VBlankCB_Battle, ReturnFromBattleToOverworld → `onEnd`. `OverworldScene.startTrainerBattle` replaces
+  the stub: StartTrainerBattle's type flags (FIRST_BATTLE for RIVAL_BATTLE_TUTORIAL), BattleSetup_GetTerrainId (new
+  metatile predicates in behaviors.ts), map battle scene/type/weather, trainer speeches, context text colour.
+- Fixes found by running it: `PIXEL_FILL(c)` in sTextOnWindowsInfo was extracted as `c` (striped text boxes);
+  small-font glyphs are packed two per latfont cell (DecompressGlyph_Small) — healthbox names/levels were blank;
+  pokedex.h/berry.h added to the define headers; `K` must be initialised before listing gfx symbols.
+- Verified headless: full Oak's Lab rival battle (Charmander vs Squirtle) to a win, Lv5→6 with both level-up pages,
+  back in the lab overworld. `browser-test.mjs` now prints exception messages.
