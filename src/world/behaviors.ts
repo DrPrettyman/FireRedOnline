@@ -60,6 +60,12 @@ export class Behaviors {
     return this.is(behavior, 'JUMP_EAST', 'JUMP_WEST', 'JUMP_NORTH', 'JUMP_SOUTH');
   }
 
+  /** MetatileBehavior_IsForcedMovementTile */
+  isForcedMovementTile(behavior: number): boolean {
+    const inRange = (lo: string, hi: string) => behavior >= (this.id(lo) ?? Infinity) && behavior <= (this.id(hi) ?? -Infinity);
+    return inRange('WALK_EAST', 'TRICK_HOUSE_PUZZLE_8_FLOOR') || inRange('EASTWARD_CURRENT', 'SOUTHWARD_CURRENT') || this.is(behavior, 'WATERFALL', 'ICE') || inRange('SPIN_RIGHT', 'SPIN_DOWN');
+  }
+
   /** IsMetatileDirectionallyImpassable: can't leave `from` across edge `dir`, or enter `to` across the opposite edge. */
   blocksMove(from: number, to: number, dir: Direction): boolean {
     return this.blocksEdge(from, dir) || this.blocksEdge(to, OPPOSITE[dir]);

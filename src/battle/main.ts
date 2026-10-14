@@ -4,6 +4,7 @@
 
 import type { Pokemon } from '../pokemon/Pokemon';
 import { random, random32 } from '../util/random';
+import { setRoamerInactive, updateRoamerHPStatus } from '../world/roamer';
 import { battleAI_HandleItemUseBeforeAISetup, recordAbilityBattle } from './ai';
 import { BeginFastPaletteFade, gPaletteFade } from '../gba/palette';
 import { ui } from './battleUi';
@@ -25,6 +26,7 @@ import {
 } from './controllers';
 import { setControllerToOakOrOldMan } from './controllerOakOldMan';
 import { setControllerToOpponent } from './controllerOpponent';
+import { SetControllerToSafari } from './controllerSafari';
 import { battleControllerDummy, setControllerToPlayer } from './controllerPlayer';
 import { bdata, g, gBattleMoves, gSpeciesInfo, itemHoldEffect, itemHoldEffectParam, mem, pokemon, state } from './env';
 import { bit } from './globals';
@@ -108,7 +110,8 @@ export function initBattleControllers(): void {
   const f = g.battleTypeFlags;
   g.battleMainFunc = beginBattleIntro;
   if (!(f & K.BATTLE_TYPE_DOUBLE)) {
-    if (f & (K.BATTLE_TYPE_OLD_MAN_TUTORIAL | K.BATTLE_TYPE_FIRST_BATTLE)) g.battlerControllerFuncs[0] = setControllerToOakOrOldMan;
+    if (f & K.BATTLE_TYPE_SAFARI) g.battlerControllerFuncs[0] = SetControllerToSafari;
+    else if (f & (K.BATTLE_TYPE_OLD_MAN_TUTORIAL | K.BATTLE_TYPE_FIRST_BATTLE)) g.battlerControllerFuncs[0] = setControllerToOakOrOldMan;
     else g.battlerControllerFuncs[0] = setControllerToPlayer;
     g.battlerPositions[0] = K.B_POSITION_PLAYER_LEFT;
     g.battlerControllerFuncs[1] = setControllerToOpponent;
@@ -202,13 +205,31 @@ export function initBattleInternal(): void {
   setUpBattleVars();
   if (!(g.battleTypeFlags & K.BATTLE_TYPE_LINK)) {
     createNPCTrainerParty(g.trainerBattleOpponent_A);
-    // SetWildMonHeldItem: wild encounters set the held item when they create the mon
+    setWildMonHeldItem();
   }
   for (let i = 0; i < K.PARTY_SIZE; i++) {
     const mon = g.playerParty[i];
     if (mon) adjustFriendship(mon, K.FRIENDSHIP_EVENT_LEAGUE_BATTLE);
   }
   g.battleCommunication[K.MULTIUSE_STATE] = 0;
+}
+
+/** SetWildMonHeldItem (pokemon.c): gEnemyParty[0] holds its species' common item 50%, rare item 5%. */
+function setWildMonHeldItem(): void {
+  if (g.battleTypeFlags & (K.BATTLE_TYPE_POKEDUDE | K.BATTLE_TYPE_LEGENDARY | K.BATTLE_TYPE_TRAINER)) return;
+  const mon = g.enemyParty[0];
+  if (!mon) return;
+  const rnd = random() % 100;
+  const info = gSpeciesInfo[mon.species];
+  if (info.itemCommon === info.itemRare) {
+    // Both held items are the same, 100% chance to hold item
+    mon.heldItem = info.itemCommon;
+    return;
+  }
+  if (rnd > 44) {
+    if (rnd <= 94) mon.heldItem = info.itemCommon;
+    else mon.heldItem = info.itemRare;
+  }
 }
 
 // ------------------------------------------------------------------ main loop
@@ -1311,6 +1332,12 @@ function tryEvolvePokemon(): void {
 function returnFromBattleToOverworld(): void {
   // RandomlyGivePartyPokerus / PartySpreadPokerus are stubbed in FRLG
   state.setVar('VAR_RESULT', g.battleOutcome);
+  if (g.battleTypeFlags & K.BATTLE_TYPE_ROAMER) {
+    updateRoamerHPStatus(state, g.enemyParty[0]!);
+    // REVISION 0's check: a roamer that Roars the player away (B_OUTCOME_PLAYER_TELEPORTED = 5) also
+    // matches `& B_OUTCOME_WON` and is gone for good (fixed in REVISION 0xA)
+    if (g.battleOutcome & K.B_OUTCOME_WON || g.battleOutcome === K.B_OUTCOME_CAUGHT) setRoamerInactive(state);
+  }
   g.battleMainFunc = () => {};
   g.onBattleEnd?.(g.battleOutcome);
 }

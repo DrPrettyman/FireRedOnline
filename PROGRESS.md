@@ -24,7 +24,7 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [~] Field effect graphics: emote icons (`field_effects/emoticons.*`); not yet grass, shadows, ripples, ...
 - [x] Species (base stats, names, learnsets, national dex numbers), moves, items, experience tables, nature table, std strings
 - [x] Trainers / trainer parties (battle/tables.json)
-- [ ] Wild encounters data
+- [x] Wild encounters data (`wild_encounters.json`: FireRed gWildMonHeaders, ENCOUNTER_CHANCE_* slot totals, sUnownLetterSlots)
 - [x] Battle graphics by C INCBIN symbol as decompressed ROM bytes (`tools/extract_gfx.py` → gen/gfx/): interface, terrain, balls, trainer/mon front+back pics and palettes, fonts
 - [x] Battle scripts (assembled ROM image), battle strings, mechanics tables, anim command tables (`tools/extract_anims.py`)
 - [x] Party menu / bag / item icon / mon icon / help-window graphics; `menus.json` (`tools/extract_menus.py`: mon and item icon tables, TM/HM + tutor learnsets, TM/HM + tutor moves, evolutions)
@@ -71,12 +71,22 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] Party menu (party_menu.c) and bag (item_menu.c, bag.c, item_use.c) on the GBA layer, from the field and in battle; list menus, scroll arrows, mon/item icons, std/dialog frames, YES/NO, money box
 - [x] Summary screen (pokemon_summary_screen.c): INFO / SKILLS / KNOWN MOVES pages, move details, switching moves, choosing a move to forget (field and battle)
 - [ ] Pokédex, options, TM case, berry pouch
-- [ ] Wild encounters, trainer sight
+- [~] Wild encounters: grass/water step encounters (wild_encounter.c: cooldown, rate buff, flutes, Cleanse Tag,
+  Stench/Illuminate, repel + EventScript_RepelWoreOff, Altering Cave, Tanoby/Unown), StartWildBattle (standard,
+  Pokémon Tower ghosts with the ghost pic, roamers, Safari Zone), CB2_EndWildBattle / CB2_EndSafariBattle.
+  Not yet: Rock Smash, fishing, Sweet Scent (they come with those field moves)
+- [x] Roamers (roamer.c): InitRoamer, location sets + history, encounters, HP/status kept between battles
+- [x] Safari Zone: safari_zone.c (Enter/ExitSafariMode, 600-step counter, retire, out-of-balls endings),
+  battle_controller_safari.c, the Safari healthbox text, start menu RETIRE + stats window, entrance money box
+- [~] Step counters (TryStartStepCountScript): happiness, field poison (incl. the BG mosaic flash and the faint/white-out
+  script), VS Seeker charge counter, Safari steps; eggs only lose egg cycles (no daycare, no hatching scene)
+- [x] Return to field runs MAP_SCRIPT_ON_RESUME / ON_RETURN_TO_FIELD (after battles and the bag/party menu)
+- [ ] Trainer sight
 - [x] Battle engine core: script interpreter, turn flow, damage/effects, messages, AI (battle_ai_script_commands.c + switch/items), player/opponent/Oak-Old Man controllers
 - [x] GBA video layer (src/gba: VRAM/palette/regs, bg.c, window.c, sprite.c, task.c, palette fades, scanline effects, software PPU) and the battle presentation on it (BattleScene)
 - [x] Battle: bag and party menu (choose item, use medicine/PP items/X items/balls, switch/send out) with reshow_battle_screen.c
 - [x] Old Man's catching tutorial (StartOldManTutorialBattle)
-- [ ] Battle: move/status animations, evolution scene, battle transitions, wild battles
+- [ ] Battle: move/status animations, evolution scene, battle transitions
 - [ ] Audio playback
 - [ ] Title screen / intro / Oak's speech / naming (ChangePokemonNickname keeps the name for now)
 
@@ -107,6 +117,13 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - Battles: the level-up banner (exp to a mon that isn't sent out) has no mon icon; Spinda's spots aren't drawn;
     HP-as-text (SwapHpBarsWithHpText) and link/multi battles aren't implemented.
   - Battle transitions: a fade to black instead of the B_TRANSITION_* effects.
+  - Wild encounters: no bike rate modifier (no bikes). GAME_STAT_* counters aren't kept.
+  - Field steps: TrySetUpWalkIntoSignpostScript isn't ported. Eggs count down egg cycles, but the daycare (breeding,
+    its mons' steps) and the hatching scene (`special EggHatch`) aren't ported. A finished VS Seeker charge would
+    start EventScript_VsSeekerChargingDone, whose specials aren't ported; only the (unported) VS Seeker starts one.
+  - Safari Zone: BAIT/ROCK throw animations are skipped like every battle animation. The Safari Zone's own field
+    effects (none) and the entrance's SE/fanfare are silent.
+  - The money box and Safari stats window are Phaser MenuWindows (the field isn't on the GBA layer).
   - Full party: `givemon` returns MON_CANT_GIVE instead of sending the mon to the PC (`SendMonToPC`).
   - No-op specials (`NO_OP` in `script/specials.ts`): audio, quest log, help system, fame checker, GameCube link flags.
   - Player names are "PLAYER"/"RIVAL" until Oak's intro exists.
@@ -166,8 +183,19 @@ State as of the last log entry:
   in the same run only works if that sprite was already preloaded; otherwise it logs `[overworld] no sprite loaded`.
 - **Story checked so far:** the Viridian Mart parcel scene, Oak's parcel → Pokédex scene and the Viridian old man's
   catching tutorial all run to completion headless.
-- **Next blockers on the main path:** wild encounters (no encounter data or grass checks yet; Route 1/22, Viridian
-  Forest), trainer sight (trainers only battle when talked to; Viridian Forest, gym trainers), `pokemart`
+- **Wild encounters:** `world/WildEncounters.ts` (wild_encounter.c) runs from `OverworldScene.processStep`
+  after every completed step, incl. the first tile after a map connection. `startWildBattle` is
+  StartWildBattle + CB2_EndWildBattle as a field overlay (white-out on a loss); `doSafariBattle` is
+  DoSafariBattle + CB2_EndSafariBattle. To skip the dice in tests:
+  `s.startWildBattle(s.state.pokemon.createMonWithNature(species, level, 32, nature, {...}))` on the Overworld scene.
+  `state.currentMapId` is the MAP_* id (`currentMap` is the folder name).
+- **Step counters:** `world/stepCounters.ts` (happiness, VS Seeker, field poison, egg cycles), called from
+  `OverworldScene.tryStartStepCountScript`; `world/roamer.ts` is roamer.c with its EWRAM statics as module state
+  (`roamerLocation()` for tests). Field code may call battle-engine pokemon.c functions (AdjustFriendship): the
+  overworld initialises the battle env at boot.
+- **Test driver:** `eval:` in `tools/browser-test.mjs` now awaits promises, so `eval:(async()=>{const r=await
+  import('/src/world/roamer.ts'); ...})()` reaches module state.
+- **Next blockers on the main path:** trainer sight (trainers only battle when talked to; Viridian Forest, gym trainers), `pokemart`
   (the clerk's shop; the parcel scene doesn't need it), multichoice; in battle: move animations (battle_anim
   scripts), evolution scene.
 - **GBA screens:** `src/gba/main.ts` is gMain (callbacks, ReadKeys with key repeat). `GbaHostScene` runs the
@@ -523,3 +551,68 @@ State as of the last log entry:
   (VAR_MAP_SCENE_VIRIDIAN_CITY_OLD_MAN = 1, walking onto the left trigger): his back pic, a male Weedle, the demo
   bag cycling pockets, the throw, "Gotcha! WEEDLE was caught!", back to the field, Teachy TV given, VAR 2; party,
   Pokédex and bag otherwise unchanged (the old man's Potion/Ball are removed again), no console warnings.
+
+### Wild encounters (user request)
+- Extractor: `extract_wild_encounters` writes `wild_encounters.json`: the FireRed headers of
+  src/data/wild_encounters.json in table order (Altering Cave's sets stay consecutive), the ENCOUNTER_CHANCE_*
+  running totals wild_encounters.json.txt generates, TILE_ENCOUNTER_*, NUM_ALTERING_CAVE_TABLES,
+  sUnownLetterSlots and the Tanoby chambers in map-number order. Tiles now report METATILE_ATTRIBUTE_ENCOUNTER_TYPE
+  (`TileInfo.encounterType`, `TilesetPair.encounterType`).
+- `world/WildEncounters.ts` ports TryStandardWildEncounter / HandleWildEncounterCooldown / StandardWildEncounter /
+  DoWildEncounterRateTest (own ISO_RANDOMIZE2 RNG seeded from Random()), the 60% dice on a behavior change,
+  the rate buff, flutes, Cleanse Tag, Stench/Illuminate, IsWildLevelAllowedByRepel, UpdateRepelCounter,
+  GetCurrentMapWildMonHeaderId (Altering Cave, Tanoby lock), ChooseWildMonIndex_*/Level and GenerateWildMon
+  (CreateMonWithNature, new in PokemonData; Unown letters by chamber/slot).
+- Overworld: `onPlayerArrived` → `processStep` (step warp, coord event, repel wear-off script, then the
+  encounter check), also run after crossing into a connected map, which previously skipped coord events on its
+  first tile. RestartWildEncounterImmunitySteps on every map load and battle start. `startWildBattle` freezes the
+  field with an overlay, picks DoGhostBattle (Pokémon Tower 1F–7F without the Silph Scope: BATTLE_TYPE_GHOST,
+  nickname gText_Ghost) or the standard battle, and ends like CB2_EndWildBattle (fade in, or CB2_WhiteOut).
+- Battle: SetWildMonHeldItem is now ported (the old comment claimed the field did it). For that, BattleScene
+  installs the field's gEnemyParty before CB2_InitBattle; battle-test.html's party override now only replaces
+  trainer parties, so its wild mons' held items get SetWildMonHeldItem's roll like on the GBA.
+- `GameState.currentMapId` (MAP_*) added; `currentMap`'s comment wrongly called it a MAP_* id (it's the folder name).
+- Verified headless (`?start=after-rival&map=Route1`): walking the grass starts wild Pidgey/Rattata Lv2–5 battles
+  on the grass terrain; winning gives exp and fades back with the field unfrozen; RUN → "Got away safely!" → field;
+  losing → white-out to the house. Repel at 4 steps wears off with "REPEL's effect wore off..." on the first tile of
+  Viridian City. Pokémon Tower 3F: "GHOST" + "Darn! The GHOST can't be ID'd!". battle-test.html wild and trainer
+  modes still run to B_OUTCOME_WON.
+
+### Wild encounter follow-ups: map scripts on resume, step counters, ghost pic, roamers, Safari Zone (user request)
+- Return to field: `OverworldScene.resumeMap` runs MAP_SCRIPT_ON_RESUME then ON_RETURN_TO_FIELD (ResumeMap +
+  ReloadObjectsAndRunReturnToFieldMapScript) after every battle and on coming back from the bag/party menu, like
+  CB2_ReturnToField. New specials: GetBattleOutcome (`state.battleOutcome`), InitUnionRoom (no-op: wireless only,
+  every Pokémon Center's CableClub_OnResume calls it).
+- Step counters (TryStartStepCountScript, `world/stepCounters.ts`): UpdateHappinessStepCounter (AdjustFriendship
+  FRIENDSHIP_EVENT_WALKING every 128 steps; the overworld now initialises the battle env so it can use the battle's
+  AdjustFriendship), UpdateVsSeekerStepCounter + MapResetTrainerRematches on map load, UpdatePoisonStepCounter /
+  DoPoisonFieldEffect (1 HP every 5 steps), ShouldEggHatch's egg-cycle countdown, SafariZoneTakeStep.
+- Field poison: FldEffPoison's BG mosaic pulse (REVISION 0: 2→6→1 px over 11 frames) as a WebGL post pipeline on
+  the map tilemap layers only (`world/BgMosaic.ts`, GBA-style top-left sampling; sprites and text unaffected);
+  Task_BattleStart waits for it and clears VAR_POISON_STEP_COUNTER. EventScript_FieldPoison works through
+  TryFieldPoisonWhiteOut ("X fainted…", status cleared, friendship), OverworldWhiteOutGetMoneyLoss, SetCB2WhiteOut
+  (specials can now `showFieldMessage` and `endScript`). New script commands: checkmoney, addmoney, removemoney.
+- Ghost battles: DecompressGhostFrontPic / GetGhostSpriteDefault_Y in the opponent controller and
+  reshow_battle_screen.c; the battle preloads gGhostFrontPic/gGhostPalette. (After the bag, the reshow gives the ghost
+  its species' shadow, as the decomp does.)
+- Roamers (`world/roamer.ts`): sRoamerLocations and sStarterSpecies are extracted (wild_encounters.json);
+  InitRoamer special, UpdateLocationHistoryForRoamer + RoamerMove / RoamerMoveToOtherLocationSet on map load,
+  TryStartRoamerEncounter in StandardWildEncounter (repel check), StartRoamerBattle, and in
+  ReturnFromBattleToOverworld UpdateRoamerHPStatus + SetRoamerInactive with REVISION 0's `& B_OUTCOME_WON` check.
+  The saved roamer is `state.roamer`.
+- Safari Zone: battle_controller_safari.c (`battle/controllerSafari.ts`), UpdateSafariBallsTextOnHealthbox /
+  UpdateLeftNoOfBallsTextOnHealthbox, gNumSafariBalls kept in `state.numSafariBalls` across battles,
+  Enter/ExitSafariMode, IsThereRoomInAnyBoxForMorePokemon (always TRUE: no PC yet), DoSafariBattle +
+  CB2_EndSafariBattle (balls left → field; out mid-battle → OutOfBallsMidBattle + warp to the `setwarp`
+  destination from black; caught with the last ball → field, then SafariZone_EventScript_OutOfBalls), start menu
+  SetUpStartMenu_SafariZone + DrawSafariZoneStatsWindow + RETIRE. Script commands showmoneybox / updatemoneybox /
+  hidemoneybox (`ui/MoneyBox.ts`, LoadStdWindowGfx's frame now extracted as `text/frame_std.png`) and setwarp.
+  Warps now pick the destination like SetPlayerCoordsFromWarp (warp id only if the map has it, else x/y, else the
+  centre), which `warp MAP_SAFARI_ZONE_CENTER, 255, 26, 30` needs.
+- Verified headless: a poisoned 3-HP starter loses 1 HP every 5 steps with the mosaic flash, then "BULBASAUR
+  fainted…", "PLAYER is out of usable POKéMON! … panicked and lost ¥48", white-out home. Ghost battle shows the
+  ghost pic, also after the bag. Roamer (Bulbasaur starter → Entei Lv50) appears on its map, flees, keeps HP, moves
+  sets. Safari: pay ₽500 at the entrance (money box), enter with 30 balls / 600 steps; Safari battle UI; last ball
+  misses → "out of SAFARI BALLS" → entrance walk-out; last ball catches → PA message → entrance; time up after
+  the step count → PA → entrance; start menu RETIRE + stats window. A Route 3 trainer battle still runs through
+  the script path to its end.

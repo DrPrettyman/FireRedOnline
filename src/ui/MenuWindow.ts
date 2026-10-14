@@ -13,6 +13,9 @@ export function userFrameTexture(type: number): string {
   return `text_frame_type${type}`;
 }
 
+/** LoadStdWindowGfx's frame (gStdTextWindow_Gfx), which ignores the options setting. */
+export const STD_FRAME_TEXTURE = 'text_frame_std';
+
 export interface TileRect {
   left: number;
   top: number;
@@ -35,10 +38,10 @@ export class MenuWindow {
     readonly rect: TileRect,
     private fonts: Fonts,
     private input: Input,
-    frameType = 1,
+    frameType: number | 'std' = 1,
   ) {
     this.frameKey = `menu_frame_${MenuWindow.count++}`;
-    this.frame = drawStdFrame(scene, rect, userFrameTexture(frameType), this.frameKey);
+    this.frame = drawStdFrame(scene, rect, frameType === 'std' ? STD_FRAME_TEXTURE : userFrameTexture(frameType), this.frameKey);
     this.window = new TextWindow(scene, rect.left * 8, rect.top * 8, rect.width * 8, rect.height * 8, fonts.windowPalette);
     this.window.image.setDepth(DEPTH_UI + 11); // menus sit above the dialogue box
     this.window.fill(TEXT_COLOR_WHITE);

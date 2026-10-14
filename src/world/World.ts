@@ -22,6 +22,8 @@ export interface TileInfo {
   collision: number;
   elevation: number;
   behavior: number;
+  /** METATILE_ATTRIBUTE_ENCOUNTER_TYPE (TILE_ENCOUNTER_*) */
+  encounterType: number;
 }
 
 /**
@@ -64,6 +66,11 @@ export class World {
     return this.chunks;
   }
 
+  /** Every map tilemap layer on screen: the loaded maps' and the border's (the GBA's BG1-3). */
+  get mapLayers(): Phaser.Tilemaps.TilemapLayer[] {
+    return [...this.chunks.flatMap((c) => c.layers), ...this.borderMaps.flatMap((m) => m.layers.map((l) => l.tilemapLayer))];
+  }
+
   chunkAt(wx: number, wy: number): MapChunk | undefined {
     if (this.current?.contains(wx, wy)) return this.current;
     return this.chunks.find((c) => c.contains(wx, wy));
@@ -83,12 +90,14 @@ export class World {
 
   private describe(data: MapData, block: number, chunk?: MapChunk): TileInfo {
     const metatile = block & MAPGRID_METATILE_ID_MASK;
+    const pair = this.assets.tilesetPair(data.tilesetPair);
     return {
       chunk,
       metatile,
       collision: (block & MAPGRID_COLLISION_MASK) >> MAPGRID_COLLISION_SHIFT,
       elevation: block >> MAPGRID_ELEVATION_SHIFT,
-      behavior: this.assets.tilesetPair(data.tilesetPair).behavior(metatile),
+      behavior: pair.behavior(metatile),
+      encounterType: pair.encounterType(metatile),
     };
   }
 

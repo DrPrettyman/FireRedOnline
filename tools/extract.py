@@ -523,6 +523,9 @@ def extract_text_assets(decomp, out):
                     dp[x, y] = frame_pal[c] + (255,)
         dst.save(td / f"frame_type{n}.png", optimize=True)
     render_indexed(decomp / "graphics/fonts/down_arrows.png", "down_arrows.png")
+    # LoadStdWindowGfx's frame (gStdTextWindow_Gfx, text window palette 3): the money box and others.
+    pal = read_jasc(decomp / "graphics/text_window/stdpal_3.pal")
+    render_indexed(decomp / "graphics/text_window/std.png", "frame_std.png")
     # sKeypadIcons (text.c): [tile offset into gKeypadIconTiles, width, height] by CHAR_*_BUTTON / CHAR_DPAD_* id.
     defines = parse_defines(decomp)
     keypad = []
@@ -1122,6 +1125,86 @@ def extract_constants(decomp, out):
     print(f"  {len(flags)} new-game flags, {len(behaviors)} behaviors")
 
 
+def extract_wild_encounters(decomp, out):
+    """gWildMonHeaders as wild_encounters.json.txt generates it for FIRERED, plus its ENCOUNTER_CHANCE_* defines.
+
+    Headers keep the table's order: GetCurrentMapWildMonHeaderId offsets into consecutive Altering Cave entries.
+    Species stay SPECIES_* names (resolved through the defines at runtime).
+    """
+    group = json.loads((decomp / "src/data/wild_encounters.json").read_text())["wild_encounter_groups"][0]
+    fields = {}
+    for f in group["fields"]:
+        rates = f["encounter_rates"]
+        if "groups" in f:
+            # ENCOUNTER_CHANCE_<TYPE>_<ROD>_SLOT_<i>: running total over that rod's slots, as [slot, total] pairs
+            fields[f["type"]] = {}
+            for rod, slots in f["groups"].items():
+                total, cum = 0, []
+                for i in slots:
+                    total += rates[i]
+                    cum.append([i, total])
+                fields[f["type"]][rod] = cum
+        else:
+            total, cum = 0, []
+            for r in rates:
+                total += r
+                cum.append(total)
+            fields[f["type"]] = cum
+    headers = []
+    for e in group["encounters"]:
+        if "LeafGreen" in e["base_label"]:
+            continue
+        h = {"map": e["map"]}
+        for kind in ("land_mons", "water_mons", "rock_smash_mons", "fishing_mons"):
+            if kind in e:
+                h[kind] = {
+                    "encounterRate": e[kind]["encounter_rate"],
+                    "mons": [[m["min_level"], m["max_level"], m["species"]] for m in e[kind]["mons"]],
+                }
+        headers.append(h)
+    fieldmap_h = (decomp / "include/global.fieldmap.h").read_text()
+    m = re.search(r"enum\s*\{\s*(TILE_ENCOUNTER_NONE[^}]*)\}", fieldmap_h)
+    tile_encounter = {name.strip(): i for i, name in enumerate(n for n in m.group(1).split(",") if n.strip())}
+    altering = int(re.search(r"#define NUM_ALTERING_CAVE_TABLES\s+(\d+)", (decomp / "include/wild_encounter.h").read_text()).group(1))
+    # sUnownLetterSlots[chamber][slot]; chamber = mapNum - MAP_NUM(MAP_SEVEN_ISLAND_TANOBY_RUINS_MONEAN_CHAMBER)
+    src = (decomp / "src/wild_encounter.c").read_text()
+    body = re.search(r"sUnownLetterSlots\[\]\[LAND_WILD_COUNT\]\s*=\s*\{(.*?)\n\};", src, re.S).group(1)
+    body = re.sub(r"//[^\n]*", "", body)
+    unown_slots = [[int(n) for n in row.split(",") if n.strip()] for row in re.findall(r"\{([^}]*)\}", body)]
+    groups = json.loads((decomp / "data/maps/map_groups.json").read_text())
+    special = groups["gMapGroup_SpecialArea"]
+    first = special.index("SevenIsland_TanobyRuins_MoneanChamber")
+    chambers = []
+    for name in special[first:first + len(unown_slots)]:
+        chambers.append(json.loads((decomp / "data/maps" / name / "map.json").read_text())["id"])
+    # roamer.c sRoamerLocations (all in ROAMER_MAP_GROUP); each set's trailing MAP_UNDEFINED padding is dropped
+    # (RoamerMove rerolls those slots, so the set width is kept as roamerLocationsPerSet)
+    # and field_specials.c sStarterSpecies (GetRoamerSpecies picks by the starter)
+    roamer_src = (decomp / "src/roamer.c").read_text()
+    body = re.search(r"sRoamerLocations\[\]\[\d+\]\s*=\s*\{(.*?)\n\};", roamer_src, re.S).group(1)
+    roamer_sets = []
+    for row in re.findall(r"\{([^}]*)\}", body):
+        maps = re.findall(r"MAP_NUM\((MAP_\w+)\)", row)
+        if maps:
+            roamer_sets.append(maps)
+    per_set = int(re.search(r"sRoamerLocations\[\]\[(\d+)\]", roamer_src).group(1))
+    specials_src = (decomp / "src/field_specials.c").read_text()
+    starters = re.findall(r"SPECIES_\w+", re.search(r"sStarterSpecies\[\]\s*=\s*\{(.*?)\};", specials_src, re.S).group(1))
+    data = {
+        "roamerLocations": roamer_sets,
+        "roamerLocationsPerSet": per_set,
+        "starterSpecies": starters,
+        "chances": fields,
+        "headers": headers,
+        "tileEncounter": tile_encounter,
+        "numAlteringCaveTables": altering,
+        "unownLetterSlots": unown_slots,
+        "tanobyChambers": chambers,
+    }
+    (out / "wild_encounters.json").write_text(json.dumps(data, separators=(",", ":")))
+    print(f"  {len(headers)} wild encounter headers")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--decomp", default=DEFAULT_DECOMP)
@@ -1143,6 +1226,8 @@ def main():
     extract_field_effects(decomp, out)
     print("pokemon")
     extract_pokemon(decomp, out)
+    print("wild encounters")
+    extract_wild_encounters(decomp, out)
     print("battle")
     from extract_battle import extract_battle
 

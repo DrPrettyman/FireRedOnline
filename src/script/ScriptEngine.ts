@@ -57,6 +57,12 @@ export interface ScriptHost {
   playerLocal(): { x: number; y: number };
   /** DisplayYesNoMenuDefaultYes */
   openYesNo(): YesNoMenu;
+  /** DrawMoneyBox / ChangeAmountInMoneyBox / HideMoneyBox (money.c) */
+  showMoneyBox(x: number, y: number): void;
+  updateMoneyBox(): void;
+  hideMoneyBox(): void;
+  /** SetWarpDestination without warping (setwarp): used by the next WarpIntoMap. */
+  setWarpDestination(mapId: string, warpId: number, x: number, y: number): void;
   /** LOCALID_* names are generated per map from map.json `local_id` fields. */
   resolveLocalId(name: string): number | undefined;
   /** ScriptMenu_ShowPokemonPic */
@@ -73,6 +79,8 @@ export interface ScriptHost {
   startFieldEffect(fldEff: string, obj: ObjectEvent): boolean;
   /** CB2_WhiteOut: from the black screen after a lost battle to the last heal location. */
   whiteOut(): void;
+  /** ComputeWhiteOutMoneyLoss */
+  whiteOutMoneyLoss(): number;
   /** GetCurrentRegionMapSectionId, for a new mon's met location. */
   mapSection(): string;
 }
@@ -168,6 +176,13 @@ export class ScriptEngine {
       state,
       host,
       setWaitState: (w) => (this.waitState = w),
+      showFieldMessage: (label) => {
+        this.showFieldMessage(label);
+        return () => !this.messageBox.isPrinting;
+      },
+      endScript: () => {
+        if (this.ctx) this.ctx.done = true;
+      },
       warnOnce: (key, message) => {
         if (this.warned.has(key)) return;
         this.warned.add(key);
@@ -611,6 +626,10 @@ export class ScriptEngine {
     warp(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
       this.doWarp(ctx, a);
     },
+    setwarp(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      const { warpId, x, y } = this.warpArgs(a);
+      this.host.setWarpDestination(a[0], warpId, x, y);
+    },
     warpsilent(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
       this.doWarp(ctx, a);
     },
@@ -640,6 +659,27 @@ export class ScriptEngine {
     },
     fadescreen(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
       ctx.wait = this.host.fadeScreen(this.state.value(a[0]));
+    },
+
+    // ------------------------------------------------ money (a non-zero second argument disables the command)
+    addmoney(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      if (!this.state.value(a[1] ?? '0')) this.state.addMoney(this.state.value(a[0]));
+    },
+    removemoney(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      if (!this.state.value(a[1] ?? '0')) this.state.removeMoney(this.state.value(a[0]));
+    },
+    showmoneybox(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      if (!this.state.value(a[2] ?? '0')) this.host.showMoneyBox(this.state.value(a[0]), this.state.value(a[1]));
+    },
+    updatemoneybox(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      if (!this.state.value(a[0] ?? '0')) this.host.updateMoneyBox();
+    },
+    hidemoneybox(this: ScriptEngine) {
+      this.host.hideMoneyBox();
+    },
+    /** ScrCmd_checkmoney: VAR_RESULT = IsEnoughMoney */
+    checkmoney(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      if (!this.state.value(a[1] ?? '0')) this.state.setVar('VAR_RESULT', this.state.money >= this.state.value(a[0]) ? 1 : 0);
     },
 
     // ------------------------------------------------ items
@@ -825,12 +865,17 @@ export class ScriptEngine {
   };
 
   private doWarp(ctx: ScriptContext, a: string[]): void {
-    // warp MAP, warpId  |  warp MAP, x, y  |  warp MAP, warpId, x, y
+    const { warpId, x, y } = this.warpArgs(a);
+    this.host.warp(a[0], warpId, x, y);
+    ctx.done = true;
+  }
+
+  /** formatwarp: `MAP, warpId` | `MAP, x, y` | `MAP, warpId, x, y` */
+  private warpArgs(a: string[]): { warpId: number; x: number; y: number } {
     const warpId = a.length === 3 ? -1 : this.state.value(a[1] ?? '-1');
     const x = a.length === 3 ? this.state.value(a[1]) : this.state.value(a[2] ?? '-1');
     const y = a.length === 3 ? this.state.value(a[2]) : this.state.value(a[3] ?? '-1');
-    this.host.warp(a[0], warpId, x, y);
-    ctx.done = true;
+    return { warpId, x, y };
   }
 
   /**

@@ -85,6 +85,46 @@ export interface TilesetAttributes {
   encounters: number[];
 }
 
+/** struct WildPokemonInfo: encounter rate and per-slot [minLevel, maxLevel, SPECIES_*] */
+export interface WildPokemonInfo {
+  encounterRate: number;
+  mons: [number, number, string][];
+}
+
+/** struct WildPokemonHeader (gWildMonHeaders, FireRed entries in table order) */
+export interface WildPokemonHeader {
+  map: string;
+  land_mons?: WildPokemonInfo;
+  water_mons?: WildPokemonInfo;
+  rock_smash_mons?: WildPokemonInfo;
+  fishing_mons?: WildPokemonInfo;
+}
+
+/** wild_encounters.json */
+export interface WildEncounterData {
+  /** ENCOUNTER_CHANCE_<TYPE>_SLOT_<i> running totals; fishing: per rod, [slot, running total] pairs. */
+  chances: {
+    land_mons: number[];
+    water_mons: number[];
+    rock_smash_mons: number[];
+    fishing_mons: Record<'old_rod' | 'good_rod' | 'super_rod', [number, number][]>;
+  };
+  headers: WildPokemonHeader[];
+  /** TILE_ENCOUNTER_* */
+  tileEncounter: Record<string, number>;
+  numAlteringCaveTables: number;
+  /** roamer.c sRoamerLocations: MAP_* ids per location set, without the MAP_UNDEFINED padding */
+  roamerLocations: string[][];
+  /** The sets' width in C (NUM_LOCATIONS_PER_SET), padding included. */
+  roamerLocationsPerSet: number;
+  /** field_specials.c sStarterSpecies, by VAR_STARTER_MON */
+  starterSpecies: string[];
+  /** sUnownLetterSlots[chamber][land slot] */
+  unownLetterSlots: number[][];
+  /** The Tanoby Ruins chambers in map number order (chamber index = mapNum - MAP_NUM(MONEAN_CHAMBER)). */
+  tanobyChambers: string[];
+}
+
 export interface TilesetPairInfo {
   primary: string;
   secondary: string;

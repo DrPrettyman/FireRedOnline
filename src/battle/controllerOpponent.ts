@@ -20,6 +20,7 @@ import { bdata, g, gBattleMoves } from './env';
 import { bit } from './globals';
 import {
   BattleLoadOpponentMonSpriteGfx,
+  DecompressGhostFrontPic,
   ClearTemporarySpeciesSpriteData,
   CopyBattleSpriteInvisibility,
   CreateInvisibleSpriteWithCallback,
@@ -29,6 +30,7 @@ import {
   FreeTrainerFrontPicPaletteAndTile,
   GetBattlerSpriteCoord,
   GetBattlerSpriteDefault_Y,
+  GetGhostSpriteDefault_Y,
   GetBattlerSpriteSubpriority,
   gMultiuseSpriteTemplate,
   HideBattlerShadowSprite,
@@ -262,9 +264,16 @@ function OpponentHandleSetMonData(): void {
 function OpponentHandleLoadMonSprite(): void {
   const a = ab();
   const species = monOf(a).species;
-  if (g.battleTypeFlags & K.BATTLE_TYPE_GHOST) console.warn('[battle] ghost front pic not implemented');
-  BattleLoadOpponentMonSpriteGfx(monOf(a), a);
-  const y = GetBattlerSpriteDefault_Y(a);
+  let y: number;
+  if (g.battleTypeFlags & K.BATTLE_TYPE_GHOST) {
+    DecompressGhostFrontPic(monOf(a), a);
+    y = GetGhostSpriteDefault_Y(a);
+    sbd().healthBoxesData[a].triedShinyMonAnim = 1;
+    sbd().healthBoxesData[a].finishedShinyMonAnim = 1;
+  } else {
+    BattleLoadOpponentMonSpriteGfx(monOf(a), a);
+    y = GetBattlerSpriteDefault_Y(a);
+  }
   SetMultiuseSpriteTemplateToPokemon(species, getBattlerPosition(a));
   const id = (g.battlerSpriteIds[a] = CreateSprite(gMultiuseSpriteTemplate, GetBattlerSpriteCoord(a, K.BATTLER_COORD_X_2), y, GetBattlerSpriteSubpriority(a)));
   const s = gSprites[id];

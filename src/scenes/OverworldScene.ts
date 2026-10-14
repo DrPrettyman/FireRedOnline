@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
 import { spriteTextureKey, type Assets } from '../data/assets';
-import type { ObjectEventData, WarpEventData } from '../data/types';
+import type { MapData, ObjectEventData, WarpEventData } from '../data/types';
+import { initBattleEnv } from '../battle/env';
 import { FieldEffects } from '../entities/FieldEffects';
+import { FieldPoisonEffect } from '../entities/FieldPoisonEffect';
 import { NpcBrain } from '../entities/NpcBrain';
 import { applyStartPreset, type StartPreset } from '../dev/startPresets';
 import { ObjectEvent, type ObjectEventField } from '../entities/ObjectEvent';
@@ -18,12 +20,17 @@ import { MessageBox } from '../text/MessageBox';
 import { Behaviors } from '../world/behaviors';
 import { DELTA, type Direction } from '../world/direction';
 import { MAPGRID_COLLISION_MASK, TILE, type MapChunk } from '../world/MapChunk';
+import { WildEncounters } from '../world/WildEncounters';
 import { World } from '../world/World';
 import { StartMenu } from '../ui/StartMenu';
 import { YesNoMenu } from '../ui/YesNoMenu';
 import { MonPicBox } from '../ui/MonPicBox';
+import { MoneyBox } from '../ui/MoneyBox';
 import { ScreenFade } from '../ui/ScreenFade';
-import type { BattleStart } from './BattleScene';
+import { setBgMosaic } from '../world/BgMosaic';
+import { initRoamerTables, roamerMove, roamerMoveToOtherLocationSet, updateLocationHistoryForRoamer } from '../world/roamer';
+import { mapResetTrainerRematches, shouldEggHatch, updateHappinessStepCounter, updatePoisonStepCounter, updateVsSeekerStepCounter } from '../world/stepCounters';
+import { sharedBattleData, type BattleStart } from './BattleScene';
 
 /** GBA runs at ~59.73Hz; we tick game logic at a fixed 60Hz regardless of display refresh. */
 const FRAME_MS = 1000 / 60;
@@ -71,6 +78,12 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   private screenFade!: ScreenFade;
   private fieldEffects!: FieldEffects;
   private monPic?: MonPicBox;
+  private wild!: WildEncounters;
+  private moneyBox?: MoneyBox;
+  /** sWarpDestination as set by `setwarp` (only Safari Zone's out-of-balls exit reads it so far). */
+  private warpDestination?: { mapId: string; warpId: number; x: number; y: number };
+  /** FldEffPoison's task while it runs. */
+  private poisonEffect?: FieldPoisonEffect;
   player!: ObjectEvent;
   selectedObject?: ObjectEvent;
   private npcs: Npc[] = [];
@@ -124,6 +137,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     kb.on('keydown-BACKTICK', () => this.hud.setVisible(!this.hud.visible));
 
     await this.assets.loadTextTextures(this);
+    // The field shares pokemon.c functions with the battle engine (AdjustFriendship), which reads its tables.
+    initBattleEnv(await sharedBattleData(), this.assets.scripts.defines, this.state.pokemon, this.state, this.charmap);
     await this.assets.loadFieldEffectTextures(this);
     this.fieldEffects = new FieldEffects(this, this.assets.emoticons, this.field);
     const charmap = this.charmap;
@@ -148,6 +163,11 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     );
 
     this.world = new World(this, this.assets);
+    initRoamerTables(this.assets.wildEncounters);
+    this.wild = new WildEncounters(this.assets.wildEncounters, this.state, this.defines, {
+      startWildBattle: (mon) => this.startWildBattle(mon),
+      startRoamerBattle: (mon) => this.runWildBattle(this.defines.require('BATTLE_TYPE_ROAMER'), mon), // StartRoamerBattle
+    });
     const playerInfo = await this.assets.loadSprite(this, PLAYER_GFX);
     if (!playerInfo) throw new Error(`Missing player sprite ${PLAYER_GFX}`);
     this.player = new ObjectEvent(this, playerInfo, 0, 0, this.field);
@@ -204,6 +224,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     for (const n of this.npcs) n.brain.obj.updateSubpriority();
     this.player.updateSubpriority();
     this.fieldEffects.tick(); // created after the objects, so their callbacks run after the objects'
+    this.poisonEffect?.tick();
+    if (this.poisonEffect && !this.poisonEffect.active) this.poisonEffect = undefined;
     this.updateFieldCamera();
   }
 
@@ -286,23 +308,74 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       return;
     }
 
+    // LoadMapFromCameraTransition: the step's tile already belongs to the new map, so the rest of
+    // the step is handled against it once it's loaded.
     const chunk = this.world.chunkAt(x, y);
     if (chunk && chunk !== this.world.current) {
       this.busy = true;
       void this.world.setCurrent(chunk).then(async () => {
         await this.onMapLoaded(false);
         this.busy = false;
+        if (!this.scripts.running && this.overlay === undefined) this.processStep(x, y);
       });
       return;
     }
+    this.processStep(x, y);
+  }
 
+  /**
+   * ProcessPlayerFieldInput for a completed step (tookStep / checkStandardWildEncounter):
+   * TryStartStepBasedScript (step warps, coord events, the repel counter), then CheckStandardWildEncounter.
+   * Not ported: the other step counters (happiness, poison, egg hatching, VS Seeker, Safari Zone)
+   * and TrySetUpWalkIntoSignpostScript.
+   */
+  private processStep(x: number, y: number): void {
     const tile = this.world.tileAt(x, y);
     const warp = this.warpAt(x, y);
     if (warp && this.behaviors.isStepWarp(tile.behavior)) {
       void this.takeWarp(warp);
       return;
     }
-    this.tryCoordEvent(x, y);
+    if (this.tryCoordEvent(x, y)) return;
+    // No forced movement (PLAYER_AVATAR_FLAG_FORCED) exists yet, so only the tile is checked.
+    const forced = this.behaviors.isForcedMovementTile(tile.behavior);
+    if (this.tryStartStepCountScript(forced)) return;
+    if (!forced && this.wild.updateRepelCounter()) {
+      this.startFieldScript('EventScript_RepelWoreOff');
+      return;
+    }
+    if (!forced) this.wild.tryStandardWildEncounter(tile);
+  }
+
+  /** TryStartStepCountScript */
+  private tryStartStepCountScript(forced: boolean): boolean {
+    updateHappinessStepCounter(this.state);
+    if (!forced) {
+      if (updateVsSeekerStepCounter(this.state)) return this.startFieldScript('EventScript_VsSeekerChargingDone');
+      if (updatePoisonStepCounter(this.state, this.world.current.data.mapType, () => this.startPoisonEffect())) {
+        return this.startFieldScript('EventScript_FieldPoison');
+      }
+      if (shouldEggHatch(this.state)) return this.startFieldScript('EventScript_EggHatch'); // (GAME_STAT_HATCHED_EGGS isn't kept)
+    }
+    return this.safariZoneTakeStep();
+  }
+
+  /** SafariZoneTakeStep: the PA calls time after 600 steps. */
+  private safariZoneTakeStep(): boolean {
+    if (!this.state.getFlag('FLAG_SYS_SAFARI_MODE')) return false;
+    if (--this.state.safariZoneStepCounter === 0) return this.startFieldScript('SafariZone_EventScript_TimesUp');
+    return false;
+  }
+
+  /** FldEffPoison_Start */
+  private startPoisonEffect(): void {
+    this.poisonEffect = new FieldPoisonEffect((value) => setBgMosaic(this, this.world.mapLayers, value));
+  }
+
+  private startFieldScript(script: string): boolean {
+    this.selectedObject = undefined;
+    this.scripts.npcTextColor = 'neutral';
+    return this.scripts.start(script);
   }
 
   /** TryStartInteractionScript: NPC in front (or across a counter), then bg events. */
@@ -339,20 +412,17 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     return false;
   }
 
-  private tryCoordEvent(x: number, y: number): void {
+  /** TryStartCoordEventScript */
+  private tryCoordEvent(x: number, y: number): boolean {
     const cur = this.world.current;
     const lx = x - cur.originX;
     const ly = y - cur.originY;
     for (const e of cur.data.coordEvents) {
       if (e.type !== 'trigger' || e.x !== lx || e.y !== ly) continue;
       if (this.state.getVar(e.var) !== this.state.value(e.var_value)) continue;
-      if (e.script && e.script !== '0x0') {
-        this.selectedObject = undefined;
-        this.scripts.npcTextColor = 'neutral';
-        this.scripts.start(e.script);
-      }
-      return;
+      return !!e.script && e.script !== '0x0' && this.startFieldScript(e.script);
     }
+    return false;
   }
 
   /** TryRunOnFrameMapScript */
@@ -360,9 +430,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     const table = this.scripts.mapScript(this.world.current.name, 'MAP_SCRIPT_ON_FRAME_TABLE');
     const script = table && this.scripts.mapScriptTable(table);
     if (!script) return false;
-    this.selectedObject = undefined;
-    this.scripts.npcTextColor = 'neutral';
-    return this.scripts.start(script);
+    return this.startFieldScript(script);
   }
 
   // ------------------------------------------------------------------ collision
@@ -414,14 +482,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     this.busy = true;
     await fade(this, 'out');
     const data = await this.assets.loadMap(name);
-    const dest = warpId >= 0 ? data.warpEvents[warpId] : { x, y };
-    if (!dest) {
-      console.warn('[warp] missing warp', name, warpId);
-    } else {
-      await this.enterMap(name, dest.x, dest.y, this.player.facing, true);
-      const arrival = this.world.tileAt(this.player.tileX, this.player.tileY);
-      if (this.behaviors.isDoor(arrival.behavior)) this.player.move('down'); // walk out of the doorway
-    }
+    const dest = warpDestCoords(data, warpId, x, y);
+    await this.enterMap(name, dest.x, dest.y, this.player.facing, true);
+    const arrival = this.world.tileAt(this.player.tileX, this.player.tileY);
+    if (this.behaviors.isDoor(arrival.behavior)) this.player.move('down'); // walk out of the doorway
     await fade(this, 'in');
     this.busy = false;
   }
@@ -445,8 +509,15 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     await this.preloadMapSprites();
     this.templates.set(name, cur.data.objectEvents.map((e) => ({ ...e }))); // LoadObjEventTemplatesFromHeader
     this.state.currentMap = name;
+    this.state.currentMapId = cur.data.id;
     this.state.currentMapSection = this.mapSection();
     this.state.clearTemps();
+    this.wild.resetEncounterRateModifiers(); // RestartWildEncounterImmunitySteps
+    mapResetTrainerRematches(this.state);
+    // LoadMapFromWarp / LoadMapFromCameraTransition
+    updateLocationHistoryForRoamer(this.state);
+    if (warped) roamerMoveToOtherLocationSet(this.state);
+    else roamerMove(this.state);
     const transition = this.scripts.mapScript(name, 'MAP_SCRIPT_ON_TRANSITION');
     if (transition) this.scripts.runImmediately(transition);
     const load = this.scripts.mapScript(name, 'MAP_SCRIPT_ON_LOAD');
@@ -594,6 +665,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
         if (r === undefined) return false;
         if (r === 'POKEMON') this.openFieldMenu('party');
         else if (r === 'BAG') this.openFieldMenu('bag');
+        else if (r === 'RETIRE') this.startFieldScript('SafariZone_EventScript_RetirePrompt'); // SafariZoneRetirePrompt
         else if (r !== 'close') this.showNotice(`${r} isn't implemented yet.`);
         return true;
       },
@@ -621,6 +693,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
           onExit: (openStartMenu: boolean) => {
             this.scene.stop('FieldMenu');
             this.scene.wake('Overworld');
+            this.resumeMap();
             this.screenFade.begin(d.require('FADE_FROM_BLACK'));
             if (openStartMenu) {
               this.openStartMenu(true);
@@ -657,6 +730,24 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   openYesNo(): YesNoMenu {
     const text = (label: string) => this.charmap.encode(this.assets.strings[label] ?? '?$');
     return new YesNoMenu(this, this.fonts, this.buttons, { yesNo: text('gText_YesNo'), cursor: text('gText_SelectorArrow2') });
+  }
+
+  showMoneyBox(x: number, y: number): void {
+    this.moneyBox?.destroy();
+    this.moneyBox = new MoneyBox(this, this.fonts, this.buttons, this.charmap, this.assets.strings, this.state.money, x, y);
+  }
+
+  updateMoneyBox(): void {
+    this.moneyBox?.change(this.state.money);
+  }
+
+  hideMoneyBox(): void {
+    this.moneyBox?.destroy();
+    this.moneyBox = undefined;
+  }
+
+  setWarpDestination(mapId: string, warpId: number, x: number, y: number): void {
+    this.warpDestination = { mapId, warpId, x, y };
   }
 
   showMonPic(species: number, x: number, y: number): void {
@@ -703,14 +794,114 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     return this.runBattle({ battleTypeFlags, trainerBattleOpponent_A: 0, trainerBattleMode: 0, rivalBattleFlags: 0, enemyParty });
   }
 
+  /**
+   * StartWildBattle (battle_setup.c) with gEnemyParty[0] = `enemy`: DoGhostBattle in Pokémon Tower
+   * without the Silph Scope, else DoStandardWildBattle. Field controls and objects stay frozen until
+   * CB2_EndWildBattle has either whited out or faded back in (FieldCB_SafariZoneRanOutOfBalls).
+   */
+  private startWildBattle(enemy: Pokemon): void {
+    const d = this.defines;
+    let battleTypeFlags = 0;
+    if (this.state.getFlag('FLAG_SYS_SAFARI_MODE')) {
+      this.doSafariBattle(enemy);
+      return;
+    } else if (POKEMON_TOWER_MAPS.includes(this.state.currentMapId) && !this.state.bag.has(d.require('ITEM_SILPH_SCOPE'), 1)) {
+      // DoGhostBattle
+      battleTypeFlags = d.require('BATTLE_TYPE_GHOST');
+      enemy.nickname = this.charmap.encodePlain(this.assets.strings.gText_Ghost);
+    }
+    this.runWildBattle(battleTypeFlags, enemy);
+  }
+
+  /**
+   * DoSafariBattle + CB2_EndSafariBattle (safari_zone.c): with balls left, back to the field; out of balls
+   * mid-battle, SafariZone_EventScript_OutOfBallsMidBattle sets the entrance as the warp and the map is
+   * loaded there (FieldCB_SafariZoneRanOutOfBalls fades in); out of balls by catching with the last one,
+   * the field fades back in and SafariZone_EventScript_OutOfBalls runs.
+   */
+  private doSafariBattle(enemy: Pokemon): void {
+    const d = this.defines;
+    this.wild.resetEncounterRateModifiers();
+    const run = this.runBattle({ battleTypeFlags: d.require('BATTLE_TYPE_SAFARI'), trainerBattleOpponent_A: 0, trainerBattleMode: 0, rivalBattleFlags: 0, enemyParty: [enemy] });
+    let fadeIn: (() => boolean) | undefined;
+    let afterFade: (() => void) | undefined;
+    let warping = false;
+    this.overlay = {
+      tick: () => {
+        if (warping) return false;
+        if (fadeIn) {
+          if (!fadeIn()) return false;
+          afterFade?.();
+          return true;
+        }
+        if (!run.done()) return false;
+        const outcome = this.state.battleOutcome;
+        if (this.state.numSafariBalls !== 0) {
+          fadeIn = run.returnToField(); // CB2_ReturnToField
+        } else if (outcome === d.require('B_OUTCOME_NO_SAFARI_BALLS')) {
+          this.scripts.runImmediately('SafariZone_EventScript_OutOfBallsMidBattle');
+          warping = true;
+          void this.warpIntoMapFromBlack().then(() => {
+            warping = false;
+            this.screenFade.begin(d.require('FADE_FROM_BLACK')); // FieldCB_SafariZoneRanOutOfBalls
+            fadeIn = () => !this.screenFade.active;
+          });
+        } else if (outcome === d.require('B_OUTCOME_CAUGHT')) {
+          // ScriptContext_SetupScript + CB2_ReturnToFieldContinueScriptPlayMapMusic: the script waits for the fade
+          fadeIn = run.returnToField();
+          afterFade = () => this.startFieldScript('SafariZone_EventScript_OutOfBalls');
+        } else {
+          // Not reachable: the last ball either catches or ends the battle with B_OUTCOME_NO_SAFARI_BALLS.
+          fadeIn = run.returnToField();
+        }
+        return false;
+      },
+    };
+  }
+
+  /** WarpIntoMap + CB2_LoadMap to the `setwarp` destination, from a black screen that stays black. */
+  private async warpIntoMapFromBlack(): Promise<void> {
+    const w = this.warpDestination;
+    const name = w && this.assets.mapNameForId(w.mapId);
+    if (!w || !name) {
+      console.warn('[warp] no warp destination set');
+      return;
+    }
+    this.busy = true;
+    const data = await this.assets.loadMap(name);
+    const dest = warpDestCoords(data, w.warpId, w.x, w.y);
+    await this.enterMap(name, dest.x, dest.y, this.player.facing, true);
+    this.busy = false;
+  }
+
+  /** The DoStandardWildBattle / StartRoamerBattle / DoGhostBattle part: battle, then CB2_EndWildBattle. */
+  private runWildBattle(battleTypeFlags: number, enemy: Pokemon): void {
+    // Task_BattleStart: RestartWildEncounterImmunitySteps once the transition is done
+    this.wild.resetEncounterRateModifiers();
+    const run = this.runBattle({ battleTypeFlags, trainerBattleOpponent_A: 0, trainerBattleMode: 0, rivalBattleFlags: 0, enemyParty: [enemy] });
+    let fadeIn: (() => boolean) | undefined;
+    this.overlay = {
+      tick: () => {
+        if (fadeIn) return fadeIn();
+        if (!run.done()) return false;
+        // CB2_EndWildBattle
+        if (!run.playerWon()) {
+          this.whiteOut();
+          return true;
+        }
+        fadeIn = run.returnToField();
+        return false;
+      },
+    };
+  }
+
   /** CreateBattleStartTask: fade out, run BattleScene, and leave the field black for the caller. */
   private runBattle(setup: Pick<BattleStart, 'battleTypeFlags' | 'trainerBattleOpponent_A' | 'trainerBattleMode' | 'rivalBattleFlags' | 'defeatSpeech' | 'victorySpeech' | 'enemyParty'>): TrainerBattleRun {
     const d = this.defines;
     const color = this.scripts.contextTextColor();
     const map = this.world.current.data;
-    let phase: 'fadeOut' | 'battle' | 'fadeIn' | 'done' = 'fadeOut';
+    let phase: 'poison' | 'fadeOut' | 'battle' | 'done' = 'poison';
     let outcome = 0;
-    this.screenFade.begin(d.require('FADE_TO_BLACK'));
     const start: BattleStart = {
       ...setup,
       npcTextColor: d.require(color === 'male' ? 'NPC_TEXT_COLOR_MALE' : color === 'female' ? 'NPC_TEXT_COLOR_FEMALE' : 'NPC_TEXT_COLOR_NEUTRAL'),
@@ -723,6 +914,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       charmap: this.charmap,
       onEnd: (o) => {
         outcome = o;
+        this.state.battleOutcome = o;
         this.scene.stop('Battle');
         this.scene.wake('Overworld');
         phase = 'done';
@@ -730,8 +922,14 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     };
     return {
       done: () => {
+        // Task_BattleStart: the transition waits for FldEffPoison to finish
+        if (phase === 'poison' && !this.poisonEffect) {
+          phase = 'fadeOut';
+          this.screenFade.begin(d.require('FADE_TO_BLACK'));
+        }
         if (phase === 'fadeOut' && !this.screenFade.active) {
           phase = 'battle';
+          this.state.setVar('VAR_POISON_STEP_COUNTER', 0); // ClearPoisonStepCounter
           this.scene.launch('Battle', start);
           this.scene.sleep();
         }
@@ -740,10 +938,23 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       // IsPlayerDefeated: B_OUTCOME_LOST or B_OUTCOME_DREW
       playerWon: () => outcome !== d.require('B_OUTCOME_LOST') && outcome !== d.require('B_OUTCOME_DREW'),
       returnToField: () => {
+        this.resumeMap();
         this.screenFade.begin(d.require('FADE_FROM_BLACK'));
         return () => !this.screenFade.active;
       },
     };
+  }
+
+  /**
+   * CB2_ReturnToField → ReturnToFieldLocal, for coming back from a battle or a field menu: ResumeMap's
+   * RunOnResumeMapScript, then ReloadObjectsAndRunReturnToFieldMapScript's RunOnReturnToFieldMapScript.
+   */
+  private resumeMap(): void {
+    const name = this.world.current.name;
+    for (const type of ['MAP_SCRIPT_ON_RESUME', 'MAP_SCRIPT_ON_RETURN_TO_FIELD']) {
+      const script = this.scripts.mapScript(name, type);
+      if (script) this.scripts.runImmediately(script);
+    }
   }
 
   /**
@@ -847,7 +1058,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   }
 
   /** ComputeWhiteOutMoneyLoss: highest party level * 4 * a multiplier by badge count, capped at your money. */
-  private whiteOutMoneyLoss(): number {
+  whiteOutMoneyLoss(): number {
     const { moneyLossMultipliers, moneyLossBadgeFlags } = this.assets.scripts.whiteOut;
     const badges = moneyLossBadgeFlags.filter((f) => this.state.getFlag(f)).length;
     const topLevel = this.state.party.reduce((m, p) => (!p.isEgg && p.level > m ? p.level : m), 0); // GetPlayerPartyHighestLevel
@@ -982,6 +1193,16 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     );
   }
 }
+
+/** SetPlayerCoordsFromWarp: the warp event if the map has it, else (x, y), else the map's centre. */
+function warpDestCoords(data: MapData, warpId: number, x: number, y: number): { x: number; y: number } {
+  if (warpId >= 0 && warpId < data.warpEvents.length) return data.warpEvents[warpId];
+  if (x >= 0 && y >= 0) return { x, y };
+  return { x: Math.trunc(data.width / 2), y: Math.trunc(data.height / 2) };
+}
+
+/** CheckSilphScopeInPokemonTower: the floors whose wild mons are ghosts without the Silph Scope. */
+const POKEMON_TOWER_MAPS = ['1F', '2F', '3F', '4F', '5F', '6F', '7F'].map((f) => `MAP_POKEMON_TOWER_${f}`);
 
 /** Whether a tile can be on the 15x10 screen around the player (with a tile's slack for scrolling). */
 function onScreen(x: number, y: number, px: number, py: number): boolean {

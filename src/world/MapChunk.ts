@@ -91,6 +91,11 @@ export class MapChunk {
     );
   }
 
+  /** The below/above tilemap layers. */
+  get layers(): Phaser.Tilemaps.TilemapLayer[] {
+    return this.maps.flatMap((m) => m.layers.map((l) => l.tilemapLayer));
+  }
+
   destroy(): void {
     for (const m of this.maps) m.destroy();
     this.maps = [];

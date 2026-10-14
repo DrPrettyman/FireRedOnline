@@ -3,9 +3,9 @@ import type { ScriptsData } from '../script/ScriptEngine';
 import type { CharmapData } from '../text/charmap';
 import { fontTextureKey, type FontsData } from '../text/Font';
 import { MESSAGE_TEXTURES } from '../text/MessageBox';
-import { userFrameTexture } from '../ui/MenuWindow';
+import { STD_FRAME_TEXTURE, userFrameTexture } from '../ui/MenuWindow';
 import { TilesetPair } from '../world/TilesetPair';
-import type { Constants, ItemInfo, MapData, MoveInfo, PokemonTables, SpeciesInfo, SpriteInfo, TilesetIndex } from './types';
+import type { Constants, ItemInfo, MapData, MoveInfo, PokemonTables, SpeciesInfo, SpriteInfo, TilesetIndex, WildEncounterData } from './types';
 
 const GEN = 'gen';
 
@@ -31,11 +31,12 @@ export class Assets {
   items: ItemInfo[] = [];
   pokemonTables!: PokemonTables;
   emoticons!: EmoticonData;
+  wildEncounters!: WildEncounterData;
 
   private maps = new Map<string, Promise<MapData>>();
 
   async init(): Promise<void> {
-    const [index, sprites, tilesets, constants, fonts, charmap, strings, scripts, species, moves, items, tables, emoticons] = await Promise.all([
+    const [index, sprites, tilesets, constants, fonts, charmap, strings, scripts, species, moves, items, tables, emoticons, wildEncounters] = await Promise.all([
       fetchJson<Record<string, string>>(`${GEN}/maps/index.json`),
       fetchJson<Record<string, SpriteInfo>>(`${GEN}/sprites/manifest.json`),
       fetchJson<TilesetIndex>(`${GEN}/tilesets/index.json`),
@@ -49,7 +50,9 @@ export class Assets {
       fetchJson<ItemInfo[]>(`${GEN}/pokemon/items.json`),
       fetchJson<PokemonTables>(`${GEN}/pokemon/tables.json`),
       fetchJson<EmoticonData>(`${GEN}/field_effects/emoticons.json`),
+      fetchJson<WildEncounterData>(`${GEN}/wild_encounters.json`),
     ]);
+    this.wildEncounters = wildEncounters;
     this.species = species;
     this.moves = moves;
     this.items = items;
@@ -108,6 +111,7 @@ export class Assets {
       [MESSAGE_TEXTURES.frame, `${GEN}/text/dialogue_frame.png`],
       [MESSAGE_TEXTURES.arrows, `${GEN}/text/down_arrows.png`],
       ...Array.from({ length: 10 }, (_, i): [string, string] => [userFrameTexture(i + 1), `${GEN}/text/frame_type${i + 1}.png`]),
+      [STD_FRAME_TEXTURE, `${GEN}/text/frame_std.png`],
     ]);
   }
 

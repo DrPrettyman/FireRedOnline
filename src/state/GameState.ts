@@ -1,4 +1,4 @@
-import type { Pokemon, PokemonData } from '../pokemon/Pokemon';
+import type { Pokemon, PokemonData, StatBlock } from '../pokemon/Pokemon';
 import { TEMP_VARS_END, TEMP_VARS_START, type Defines } from '../script/Defines';
 import type { TextSpeed } from '../text/TextPrinter';
 import { random32 } from '../util/random';
@@ -25,6 +25,17 @@ export class GameState {
   lastHealLocation?: { map: string; x: number; y: number };
   /** gSaveBlock1Ptr->trainerRematches, by local id: set by the VS Seeker (not implemented yet). */
   trainerRematches: number[] = [];
+  /** gSaveBlock1Ptr->trainerRematchStepCounter: low byte = steps with the VS Seeker in the bag, high byte = charging steps. */
+  trainerRematchStepCounter = 0;
+  /** gSaveBlock1Ptr->daycare.stepCounter (u8): party eggs lose an egg cycle each time it reaches 255. */
+  daycareStepCounter = 0;
+  /** gSaveBlock1Ptr->roamer (struct Roamer). The contest stats are left out: FRLG mons never have any. */
+  roamer: RoamerSave = { ivs: { hp: 0, attack: 0, defense: 0, speed: 0, spAttack: 0, spDefense: 0 }, personality: 0, species: 0, hp: 0, level: 0, status: 0, active: false };
+  /** gNumSafariBalls / gSafariZoneStepCounter (safari_zone.c, EWRAM): set by EnterSafariMode. */
+  numSafariBalls = 0;
+  safariZoneStepCounter = 0;
+  /** gBattleOutcome as the last battle left it (GetBattleOutcome). */
+  battleOutcome = 0;
   /** gSaveBlock1Ptr->registeredItem (ITEM_NONE = 0) */
   registeredItem = 0;
 
@@ -54,8 +65,10 @@ export class GameState {
   nationalDexEnabled = false;
   /** GetCurrentRegionMapSectionId(), kept current by the overworld. */
   currentMapSection = 'MAPSEC_NONE';
-  /** gSaveBlock1Ptr->location as a MAP_* name, kept current by the overworld. */
+  /** The current map's folder name (e.g. "Route1"), kept current by the overworld. */
   currentMap = '';
+  /** gSaveBlock1Ptr->location as its MAP_* id (e.g. "MAP_ROUTE1"), kept current by the overworld. */
+  currentMapId = '';
 
   constructor(
     readonly defines: Defines,
@@ -147,4 +160,16 @@ export class GameState {
     for (const f of [...this.flags]) if (f >= fs && f <= fe) this.flags.delete(f);
     for (let v = TEMP_VARS_START; v <= TEMP_VARS_END; v++) this.vars.delete(v);
   }
+}
+
+/** struct Roamer */
+export interface RoamerSave {
+  ivs: StatBlock;
+  personality: number;
+  species: number;
+  hp: number;
+  level: number;
+  /** u8: only the non-volatile status's low byte survives */
+  status: number;
+  active: boolean;
 }

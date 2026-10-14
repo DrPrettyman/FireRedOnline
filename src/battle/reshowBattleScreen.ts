@@ -18,12 +18,14 @@ import {
   BattleInterfaceSetWindowPals,
   BattleLoadAllHealthBoxesGfx,
   BattleLoadOpponentMonSpriteGfx,
+  DecompressGhostFrontPic,
   BattleLoadPlayerMonSpriteGfx,
   BattleLoadSubstituteOrMonSpriteGfx,
   ClearSpritesHealthboxAnimData,
   DecompressTrainerBackPalette,
   GetBattlerSpriteCoord,
   GetBattlerSpriteDefault_Y,
+  GetGhostSpriteDefault_Y,
   GetBattlerSpriteSubpriority,
   GetSubstituteSpriteDefault_Y,
   gMultiuseSpriteTemplate,
@@ -164,7 +166,7 @@ function LoadBattlerSpriteGfx(battler: number): boolean {
   if (battler < g.battlersCount) {
     const sbd = g.battleSpritesDataPtr;
     if (getBattlerSide(battler) !== K.B_SIDE_PLAYER) {
-      if (isGhostWithoutScope(g.battleTypeFlags)) console.warn('[battle] DecompressGhostFrontPic: ghost battles are not implemented');
+      if (isGhostWithoutScope(g.battleTypeFlags)) DecompressGhostFrontPic(g.enemyParty[g.battlerPartyIndexes[battler]]!, battler);
       else if (!sbd.battlerData[battler].behindSubstitute) BattleLoadOpponentMonSpriteGfx(g.enemyParty[g.battlerPartyIndexes[battler]]!, battler);
       else BattleLoadSubstituteOrMonSpriteGfx(battler, false);
     } else if (g.battleTypeFlags & K.BATTLE_TYPE_SAFARI && battler === K.B_POSITION_PLAYER_LEFT) {
@@ -187,8 +189,7 @@ function CreateBattlerSprite(battler: number): void {
   const sbd = g.battleSpritesDataPtr;
   let posY: number;
   if (isGhostWithoutScope(g.battleTypeFlags)) {
-    console.warn('[battle] GetGhostSpriteDefault_Y: ghost battles are not implemented');
-    posY = GetBattlerSpriteDefault_Y(battler);
+    posY = GetGhostSpriteDefault_Y(battler);
   } else if (sbd.battlerData[battler].behindSubstitute) {
     posY = GetSubstituteSpriteDefault_Y(battler);
   } else {

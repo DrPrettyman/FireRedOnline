@@ -104,6 +104,10 @@ function gfxSymbolsFor(data: BattleData, start: BattleStart): string[] {
     add(a.trainerFrontPics[trainer.trainerPic]?.pic);
     add(a.trainerFrontPalettes[trainer.trainerPic]);
   }
+  if (start.battleTypeFlags & K.BATTLE_TYPE_GHOST) {
+    add('gGhostFrontPic');
+    add('gGhostPalette');
+  }
   a.trainerBackPics.forEach(add);
   a.trainerBackPalettes.forEach(add);
   return [...syms];
@@ -146,6 +150,9 @@ export class BattleScene extends GbaHostScene implements BattleUi {
     g.mapType = start.mapType;
     g.overworldWeather = start.overworldWeather;
     g.playerParty = start.state.party;
+    g.numSafariBalls = start.state.numSafariBalls; // EWRAM on the GBA: it outlives the battle
+    // gEnemyParty as the field left it (the wild/scripted mon); CreateNPCTrainerParty replaces it for trainers
+    if (start.enemyParty) g.enemyParty = Array.from({ length: K.PARTY_SIZE }, (_, i) => start.enemyParty![i]);
     g.onBattleEnd = (outcome) => this.endBattle(outcome);
 
     SetMainCallback1(null);
@@ -153,13 +160,10 @@ export class BattleScene extends GbaHostScene implements BattleUi {
     this.startHost();
   }
 
-  /**
-   * gEnemyParty as the field left it (a scripted/wild mon), or battle-test.html's configured party and
-   * battle type swapped in after CreateNPCTrainerParty.
-   */
+  /** battle-test.html: its configured trainer party and battle type swapped in after CreateNPCTrainerParty. */
   private applyTestOverrides(): void {
     const { enemyParty, double } = this.start;
-    if (enemyParty) {
+    if (enemyParty && g.battleTypeFlags & K.BATTLE_TYPE_TRAINER) {
       g.enemyParty = Array.from({ length: K.PARTY_SIZE }, (_, i) => enemyParty[i]);
     }
     if (double !== undefined) {
@@ -175,6 +179,7 @@ export class BattleScene extends GbaHostScene implements BattleUi {
     SetVBlankCallback(null);
     gMain.inBattle = false;
     setBattleUi(undefined as unknown as BattleUi);
+    this.start.state.numSafariBalls = g.numSafariBalls;
     this.start.onEnd(outcome);
   }
 

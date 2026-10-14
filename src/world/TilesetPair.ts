@@ -38,6 +38,13 @@ export class TilesetPair {
       : (this.secondary.behaviors[metatile - NUM_METATILES_IN_PRIMARY] ?? 0);
   }
 
+  /** METATILE_ATTRIBUTE_ENCOUNTER_TYPE (TILE_ENCOUNTER_*) */
+  encounterType(metatile: number): number {
+    return metatile < NUM_METATILES_IN_PRIMARY
+      ? (this.primary.encounters[metatile] ?? 0)
+      : (this.secondary.encounters[metatile - NUM_METATILES_IN_PRIMARY] ?? 0);
+  }
+
   primaryTexture(layer: AtlasLayer): string {
     return `ts_${this.info.primary}_${layer}`;
   }

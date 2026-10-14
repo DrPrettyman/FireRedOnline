@@ -1,4 +1,7 @@
+import { adjustFriendship } from '../battle/pokemonBattle';
 import type { GameState } from '../state/GameState';
+import { initRoamer } from '../world/roamer';
+import { isPoisoned } from '../world/stepCounters';
 import type { ScriptHost } from './ScriptEngine';
 
 export interface SpecialEnv {
@@ -6,6 +9,10 @@ export interface SpecialEnv {
   host: ScriptHost;
   /** For specials that start a task the script then blocks on with `waitstate` (ScriptContext_Stop/Enable). */
   setWaitState(done: () => boolean): void;
+  /** ShowFieldMessage(label); the wait ends once it has printed (IsFieldMessageBoxHidden). */
+  showFieldMessage(label: string): () => boolean;
+  /** The special left the field (SetMainCallback2), so the script never resumes. */
+  endScript(): void;
   warnOnce(key: string, message: string): void;
 }
 
@@ -22,10 +29,79 @@ const NO_OP = [
   'UpdatePickStateFromSpecialVar8005',
   'SetUnlockedPokedexFlags', // gcnLinkFlags, only used for GameCube link
   'DisableMsgBoxWalkaway',
+  'Script_FadeOutMapMusic', // audio: its waitstate ends at once
+  'InitUnionRoom', // wireless only (and stubbed out from REVISION 0xA): CableClub_OnResume in every Pokémon Center
 ];
 
 export const SPECIALS: Record<string, Special> = {
   ...Object.fromEntries(NO_OP.map((name) => [name, () => {}])),
+
+  /** EnterSafariMode (safari_zone.c; GAME_STAT_ENTERED_SAFARI_ZONE isn't kept) */
+  EnterSafariMode({ state }) {
+    state.setFlag('FLAG_SYS_SAFARI_MODE', true);
+    state.numSafariBalls = 30;
+    state.safariZoneStepCounter = 600;
+  },
+
+  /** ExitSafariMode */
+  ExitSafariMode({ state }) {
+    state.setFlag('FLAG_SYS_SAFARI_MODE', false);
+    state.numSafariBalls = 0;
+    state.safariZoneStepCounter = 0;
+  },
+
+  /** IsThereRoomInAnyBoxForMorePokemon: PC boxes aren't ported, so they never fill up. */
+  IsThereRoomInAnyBoxForMorePokemon() {
+    return 1;
+  },
+
+  /** InitRoamer (roamer.c) */
+  InitRoamer({ state }) {
+    initRoamer(state);
+  },
+
+  /** GetBattleOutcome (battle_setup.c): gBattleOutcome */
+  GetBattleOutcome({ state }) {
+    return state.battleOutcome;
+  },
+
+  /**
+   * TryFieldPoisonWhiteOut (field_poison.c): for each mon the field poison knocked out, "X fainted…"
+   * (FaintFromFieldPoison clears its status), then VAR_RESULT = whether every mon has fainted.
+   */
+  TryFieldPoisonWhiteOut(env) {
+    const { state } = env;
+    let partyId = 0;
+    let message: (() => boolean) | undefined;
+    env.setWaitState(() => {
+      if (message && !message()) return false;
+      message = undefined;
+      for (; partyId < state.party.length; partyId++) {
+        const mon = state.party[partyId];
+        if (!mon.isEgg && mon.hp === 0 && isPoisoned(state, mon)) {
+          adjustFriendship(mon, state.defines.require('FRIENDSHIP_EVENT_FAINT_OUTSIDE_BATTLE'));
+          mon.status = 0;
+          state.stringVars[0] = [...mon.nickname];
+          message = env.showFieldMessage('gText_PkmnFainted3');
+          return false;
+        }
+      }
+      // AllMonsFainted
+      state.setVar('VAR_RESULT', state.party.every((mon) => mon.isEgg || mon.hp === 0) ? 1 : 0);
+      return true;
+    });
+  },
+
+  /** OverworldWhiteOutGetMoneyLoss: STR_VAR_1 = ComputeWhiteOutMoneyLoss() */
+  OverworldWhiteOutGetMoneyLoss({ state, host }) {
+    state.stringVars[0] = state.pokemon.encodeName(String(host.whiteOutMoneyLoss()));
+  },
+
+  /** SetCB2WhiteOut (post_battle_event_funcs.c), from the black screen EventScript_FieldWhiteOutFade leaves. */
+  SetCB2WhiteOut({ host, endScript }) {
+    endScript();
+    host.whiteOut();
+  },
 
   HealPlayerParty({ state }) {
     healPlayerParty(state);

@@ -28,7 +28,7 @@ import {
   type SubspriteTable,
 } from '../gba/sprite';
 import { CreateTask, DestroyTask, gTasks, TaskDummy, type TaskFunc } from '../gba/task';
-import { AddTextPrinterParameterized4, AddWindow, FillWindowPixelBuffer, gWindows, PIXEL_FILL, RemoveWindow, TEXT_SKIP_DRAW } from '../gba/window';
+import { AddTextPrinterParameterized4, AddWindow, FillWindowPixelBuffer, GetStringWidth, gWindows, PIXEL_FILL, RemoveWindow, TEXT_SKIP_DRAW } from '../gba/window';
 import type { Pokemon } from '../pokemon/Pokemon';
 import { ui } from './battleUi';
 import { K } from './constants';
@@ -347,6 +347,32 @@ function TextIntoHealthboxObject(dest: number, windowTileData: Uint8Array, windo
     const s = srcOffset + i * 32 + 20;
     vram.set(windowTileData.subarray(s, s + 12), OBJ_VRAM0 + dest + i * 32 + 20);
   }
+}
+
+/** SafariTextIntoHealthboxObject: `dest` is an OBJ VRAM byte offset */
+function SafariTextIntoHealthboxObject(dest: number, windowTileData: Uint8Array, srcOffset: number, windowWidth: number): void {
+  vram.set(windowTileData.subarray(srcOffset, srcOffset + windowWidth * TILE_SIZE_4BPP), OBJ_VRAM0 + dest);
+  vram.set(windowTileData.subarray(srcOffset + 256, srcOffset + 256 + windowWidth * TILE_SIZE_4BPP), OBJ_VRAM0 + dest + 256);
+}
+
+/** UpdateSafariBallsTextOnHealthbox: "SAFARI BALLS" */
+function UpdateSafariBallsTextOnHealthbox(healthboxSpriteId: number): void {
+  const { windowId, tileData } = AddTextPrinterAndCreateWindowOnHealthbox(encodeBattleText('gText_SafariBalls'), 0, 3);
+  const spriteTileNum = gSprites[healthboxSpriteId].oam.tileNum * TILE_SIZE_4BPP;
+  TextIntoHealthboxObject(0x40 + spriteTileNum, tileData, 6);
+  TextIntoHealthboxObject(0x800 + spriteTileNum, tileData, 2, 0xc0);
+  RemoveWindow(windowId);
+}
+
+/** UpdateLeftNoOfBallsTextOnHealthbox: "Left: N", right-aligned to x 47 */
+function UpdateLeftNoOfBallsTextOnHealthbox(healthboxSpriteId: number): void {
+  const left = encodeBattleText('gText_HighlightRed_Left');
+  const text = [...left.slice(0, left.indexOf(K.EOS)), ...ConvertIntToDecimalStringN(g.numSafariBalls, STR_CONV_MODE_LEFT_ALIGN, 2), K.EOS];
+  const { windowId, tileData } = AddTextPrinterAndCreateWindowOnHealthbox(text, 47 - GetStringWidth(0 /* FONT_SMALL */, text, 0), 3);
+  const spriteTileNum = gSprites[healthboxSpriteId].oam.tileNum * TILE_SIZE_4BPP;
+  SafariTextIntoHealthboxObject(0x2c0 + spriteTileNum, tileData, 0, 2);
+  SafariTextIntoHealthboxObject(0xa00 + spriteTileNum, tileData, 0x40, 4);
+  RemoveWindow(windowId);
 }
 
 /** UpdateLvlInHealthbox */
@@ -764,7 +790,8 @@ export function UpdateHealthboxAttribute(healthboxSpriteId: number, mon: Pokemon
     }
     if (elementId === K.HEALTHBOX_NICK || all) UpdateNickInHealthbox(healthboxSpriteId, mon);
     if (elementId === K.HEALTHBOX_STATUS_ICON || all) UpdateStatusIconInHealthbox(healthboxSpriteId);
-    if (elementId === K.HEALTHBOX_SAFARI_ALL_TEXT || elementId === K.HEALTHBOX_SAFARI_BALLS_TEXT) console.warn('[battle] safari healthbox text not implemented');
+    if (elementId === K.HEALTHBOX_SAFARI_ALL_TEXT) UpdateSafariBallsTextOnHealthbox(healthboxSpriteId);
+    if (elementId === K.HEALTHBOX_SAFARI_ALL_TEXT || elementId === K.HEALTHBOX_SAFARI_BALLS_TEXT) UpdateLeftNoOfBallsTextOnHealthbox(healthboxSpriteId);
   } else {
     if (elementId === K.HEALTHBOX_LEVEL || all) UpdateLvlInHealthbox(healthboxSpriteId, mon.level);
     if (elementId === K.HEALTHBOX_HEALTH_BAR || all) {

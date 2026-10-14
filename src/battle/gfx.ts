@@ -247,6 +247,12 @@ export function GetBattlerSpriteDefault_Y(battlerId: number): number {
   return GetBattlerSpriteCoord(battlerId, K.BATTLER_COORD_Y_PIC_OFFSET_DEFAULT);
 }
 
+/** GetGhostSpriteDefault_Y (battle_anim_mons.c) */
+export function GetGhostSpriteDefault_Y(battlerId: number): number {
+  if (getBattlerSide(battlerId) !== K.B_SIDE_OPPONENT) return GetBattlerSpriteCoord(battlerId, K.BATTLER_COORD_Y_PIC_OFFSET_DEFAULT);
+  return GetBattlerSpriteCoord(battlerId, K.BATTLER_COORD_Y);
+}
+
 export function GetSubstituteSpriteDefault_Y(battlerId: number): number {
   return GetBattlerSpriteCoord(battlerId, K.BATTLER_COORD_Y) + (getBattlerSide(battlerId) !== K.B_SIDE_PLAYER ? 16 : 17);
 }
@@ -690,6 +696,15 @@ export function BattleLoadPlayerMonSpriteGfx(mon: Pokemon, battlerId: number): v
   const personality = t ? g.transformedPersonalities[battlerId] : mon.personality;
   LoadSpecialPokePic(false, species, personality, gMonSpritesGfxPtr!.sprites[getBattlerPosition(battlerId)]);
   loadBattlerPalette(mon, battlerId, species);
+}
+
+/** DecompressGhostFrontPic: the Pokémon Tower ghost's pic and palette in place of the mon's */
+export function DecompressGhostFrontPic(_mon: Pokemon, battlerId: number): void {
+  const buf = gMonSpritesGfxPtr!.sprites[getBattlerPosition(battlerId)];
+  buf.set(gfx('gGhostFrontPic').subarray(0, buf.length));
+  const pal = gfx16('gGhostPalette');
+  LoadPalette(pal, OBJ_PLTT_ID(battlerId), PLTT_SIZE_4BPP);
+  LoadPalette(pal, BG_PLTT_ID(8) + BG_PLTT_ID(battlerId), PLTT_SIZE_4BPP);
 }
 
 /** DecompressTrainerFrontPic: sheet + palette tagged with the TRAINER_PIC id */
