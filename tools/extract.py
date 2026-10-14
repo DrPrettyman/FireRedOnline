@@ -689,7 +689,7 @@ EXTRA_DEFINE_HEADERS = (
     "include/battle_ai_switch_items.h", "include/battle_util.h", "include/battle_gfx_sfx_util.h",
     "include/pokeball.h", "include/sprite.h", "include/gba/io_reg.h", "include/bg.h", "include/window.h",
     "include/palette.h", "include/scanline_effect.h", "include/trainer_pokemon_sprites.h", "include/decompress.h",
-    "include/battle_main.h", "include/battle_script_commands.h", "include/gba/types.h", "include/gba/defines.h", "include/menu.h", "include/pokemon_icon.h",
+    "include/battle_main.h", "include/battle_script_commands.h", "include/gba/types.h", "include/gba/defines.h", "include/menu.h", "include/pokemon_icon.h", "include/pokedex.h", "include/berry.h",
 )
 
 

@@ -418,7 +418,9 @@ def extract_battle(decomp, out):
     for key, body in c_initializers(msg_c, "sTextOnWindowsInfo_Normal").items():
         idx = defines[key]
         windows += [None] * (idx + 1 - len(windows))
-        windows[idx] = c_struct_fields(re.sub(r"PIXEL_FILL\((\w+)\)", r"\1", body), defines)
+        # PIXEL_FILL(c) = c | c << 4 (window.h)
+        body = re.sub(r"PIXEL_FILL\((\w+)\)", lambda m: str(int(m.group(1), 0) * 0x11), body)
+        windows[idx] = c_struct_fields(body, defines)
     # Other battle UI strings live in src/strings.c, already in text/strings.json.
     misc_names = (decomp / "src/data/text/abilities.h").read_text()
     data = {
