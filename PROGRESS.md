@@ -27,7 +27,8 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [ ] Wild encounters data
 - [x] Battle graphics by C INCBIN symbol as decompressed ROM bytes (`tools/extract_gfx.py` → gen/gfx/): interface, terrain, balls, trainer/mon front+back pics and palettes, fonts
 - [x] Battle scripts (assembled ROM image), battle strings, mechanics tables, anim command tables (`tools/extract_anims.py`)
-- [ ] Mon icons, move/status battle animation scripts
+- [x] Party menu / bag / item icon / mon icon / help-window graphics; `menus.json` (`tools/extract_menus.py`: mon and item icon tables, TM/HM + tutor learnsets, TM/HM + tutor moves, evolutions)
+- [ ] Move/status battle animation scripts
 - [x] Pure event macros (giveitem_msg, famechecker, trainerbattle_earlyrival, ...) expanded like the assembler would
 - [ ] Audio
 
@@ -60,16 +61,18 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] Text colour through VAR_TEXT_COLOR / VAR_PREV_TEXT_COLOR (ContextNpcGetTextColor), VAR_LAST_TALKED
 - [ ] Movement emotes (exclamation mark etc.) and other field effects in movement scripts
 - [ ] Interacting with metatiles (PCs, bookshelves, TVs via behavior scripts)
-- [~] Start menu shell: items by flags, wrap-around cursor, remembered position, B/START close. Every entry except EXIT shows a "not implemented" notice
+- [~] Start menu shell: items by flags, wrap-around cursor, remembered position, B/START close. POKéMON and BAG open the real screens; the other entries (except EXIT) show a "not implemented" notice
 - [ ] Start menu help/description window
 - [ ] Door animations (`opendoor`/`closedoor`/`waitdooranim` are no-ops), tile animations, field effects
 - [ ] Map name popup
 - [ ] Save/load
-- [ ] Bag, party, summary, Pokédex, options
+- [x] Party menu (party_menu.c) and bag (item_menu.c, bag.c, item_use.c) on the GBA layer, from the field and in battle; list menus, scroll arrows, mon/item icons, std/dialog frames, YES/NO, money box
+- [ ] Summary screen, Pokédex, options, TM case, berry pouch
 - [ ] Wild encounters, trainer sight
 - [x] Battle engine core: script interpreter, turn flow, damage/effects, messages, AI (battle_ai_script_commands.c + switch/items), player/opponent/Oak-Old Man controllers
 - [x] GBA video layer (src/gba: VRAM/palette/regs, bg.c, window.c, sprite.c, task.c, palette fades, scanline effects, software PPU) and the battle presentation on it (BattleScene)
-- [ ] Battle: move/status animations, party/bag/summary screens from battle, evolution scene, battle transitions, wild battles, white-out
+- [x] Battle: bag and party menu (choose item, use medicine/PP items/X items/balls, switch/send out) with reshow_battle_screen.c
+- [ ] Battle: move/status animations, summary screen from battle, evolution scene, battle transitions, wild battles, white-out
 - [ ] Audio playback
 - [ ] Title screen / intro / Oak's speech / naming (ChangePokemonNickname keeps the name for now)
 
@@ -82,8 +85,17 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - White-out (`CB2_WhiteOut`) after a lost battle: logs a warning and continues the script.
   - Battles: no move/status/special battle animation scripts (InitAndLaunchSpecialAnimation etc. finish at once;
     only the Poké Ball open burst is drawn); no shiny sparkle; no audio (PlaySE/cries/BGM are no-ops).
-  - Battles: the bag returns no item and the party screen auto-picks the first healthy mon when a switch is forced
-    (cancels otherwise); the move-forget summary screen keeps the old moves; evolutions are skipped.
+  - Battles: the move-forget summary screen keeps the old moves; evolutions are skipped.
+  - Party menu: SUMMARY goes straight back to the party menu (no summary screen); learning a 5th move from a TM/
+    Rare Candy can't pick a move to forget (it asks "Stop learning?"); field moves always say they can't be used
+    here (badge checks are real); mail, Softboiled/Milk Drink, the move relearner, Union Room, minigames,
+    Pokédude/Teachy TV demos are not ported. Evolution (Rare Candy, stones) doesn't happen; a stone is still used up.
+  - Item use: the item-use animation (pokemon_special_anim.c) is skipped. Bag uses that need overworld systems
+    (bike, rods, Escape Rope, Itemfinder, VS Seeker, Town Map, Fame Checker, Teachy TV, mail, TM case, berry pouch,
+    registered SELECT items) log "not implemented" and return to the bag. Coins and berry powder read as 0; PC
+    storage is never full for Poké Balls; the item PC / Pokémon storage give flows aren't ported.
+  - Bag/party run in their own scene (FieldMenuScene) when opened from the field; the field side fades with the
+    overworld's ScreenFade.
   - Battles: the level-up banner (exp to a mon that isn't sent out) has no mon icon; Spinda's spots aren't drawn;
     HP-as-text (SwapHpBarsWithHpText) and link/multi battles aren't implemented.
   - Battle transitions: a fade to black instead of the B_TRANSITION_* effects.
@@ -111,8 +123,13 @@ State as of the last log entry:
   pokeball.c etc. on top of it. `BattleScene` runs CB2_InitBattle → CB2_HandleStartBattle → BattleMainCB1/CB2 +
   VBlankCB_Battle at 60 Hz and draws with the software PPU. `OverworldScene.startTrainerBattle` builds `BattleStart`.
 - **Next blockers on the main path:** Viridian City Mart parcel scene (`pokemart`, multichoice), Route 22 trainers
-  (`trainerbattle_single`, trainer sight), Oak's parcel → Pokédex scene; in battle: the bag/party screens,
-  move animations (battle_anim scripts), wild battles.
+  (`trainerbattle_single`, trainer sight), Oak's parcel → Pokédex scene; in battle: move animations
+  (battle_anim scripts), wild battles; the summary screen (party menu SUMMARY, move forgetting), evolution scene.
+- **GBA screens:** `src/gba/main.ts` is gMain (callbacks, ReadKeys with key repeat). `GbaHostScene` runs the
+  main loop; `BattleScene` and `FieldMenuScene` extend it. Screens hand over with SetMainCallback2 like the C
+  (battle → CB2_BagMenuFromBattle → ... → ReshowBattleScreenAfterMenu → BattleMainCB2). Graphics are fetched
+  asynchronously, so `prepareMenus()` (src/menus/host.ts) preloads everything the bag/party can draw.
+- **Bag tests:** `battleTest.launch({..., bag: [["ITEM_POTION", 3]]})` stocks the bag for a battle.
 - **Quick battle test:** `npm run dev:battle` opens `battle-test.html`: pick both parties (species, level, moves,
   held item), trainer or wild, single/double, IVs, terrain, then Start. Scripted: `battleTest.launch({...config})`
   and `mash:battleTest.lastOutcome` in `browser-test.mjs`; `await import('/src/battle/env.ts')` exposes the live
@@ -238,3 +255,26 @@ State as of the last log entry:
   CreateNPCTrainerParty. `npm run dev:battle` opens the page.
 - Verified headless: trainer single (Giovanni intro, AI using Bite), wild single on grass terrain, and a trainer
   double battle, each to B_OUTCOME_WON.
+
+### Party menu and bag
+- Ported party_menu.c, item_menu.c, bag.c, item_use.c, item_menu_icons.c, pokemon_icon.c, list_menu.c,
+  menu_indicators.c (scroll arrows), menu.c / new_menu_helpers.c / menu_helpers.c / text_window.c,
+  reshow_battle_screen.c and money.c's money box, plus pokemon.c's PokemonUseItemEffects (now complete, in and out
+  of battle), PokemonItemUseNoEffect, GetEvolutionTargetSpecies, CanMonLearnTMHM, Battle_PrintStatBoosterEffectMessage.
+- gMain + `GbaHostScene`: the battle's CB2s/VBlank moved to `battle/battleCallbacks.ts` so the menus can replace
+  and restore them; the player and Oak/Old Man controllers now open the real bag/party (incl. InitOldManBag and
+  Oak's first-battle party narration).
+- Extractor: menu graphics prefixes (party_menu, item_menu, items, help_system) and mon icons; anim tables for
+  party_menu.c / item_menu_icons.c / pokemon_icon.c / menu_indicators.c (4-arg ANIMCMD_FRAME now parsed);
+  `menus.json`; more define headers (item.h, list_menu.h, menu_helpers.h, task.h, ...), `((u8) -N)` values;
+  gPPUpAddValues and sStatsToRaise in the mechanics tables.
+- Fixes found on the way: glyph colour 0 now leaves the window pixel untouched (GLYPH_COPY), so text on a
+  differently-filled background no longer punches holes; GetStringWidth ported from text.c (latin glyphs don't add
+  letter spacing, control-code argument lengths).
+- Verified headless: field party menu (render, action menu, SWITCH slide, back to the start menu), bag (pockets,
+  scroll arrows, icons, descriptions, context menu), Potion on a hurt mon from the bag (HP bar animates 12→28, bag
+  3→2, back to the bag), Rare Candy (Lv5→6, both stats pages), giving a held item; in battle: bag → Potion at full HP
+  ("won't have any effect"), X Attack ("ATTACK rose!"), Poké Ball throw → B_OUTCOME_CAUGHT, cancel → battle screen
+  rebuilt, party SHIFT → "Go! PIDGEY!"; a trainer battle still runs to B_OUTCOME_WON.
+- Not verified: Oak's first-battle narration in the party menu (needs the lab rival battle), the Old Man bag.
+
