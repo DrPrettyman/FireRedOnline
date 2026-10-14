@@ -75,6 +75,13 @@ export interface BattleStart {
   state: GameState;
   pokemon: PokemonData;
   charmap: Charmap;
+  /**
+   * Test harness only (battle-test.html): replaces the party CreateNPCTrainerParty builds, or is
+   * the wild mon(s) when BATTLE_TYPE_TRAINER isn't set.
+   */
+  enemyParty?: Pokemon[];
+  /** Test harness only: forces BATTLE_TYPE_DOUBLE on or off after the trainer's own flag is applied. */
+  double?: boolean;
   /** gMain.savedCallback: called with gBattleOutcome once the screen has faded to black. */
   onEnd(outcome: number): void;
 }
@@ -97,6 +104,7 @@ function gfxSymbolsFor(data: BattleData, start: BattleStart): string[] {
   addMon(0);
   // Unown letter forms live after NUM_SPECIES in the pic tables
   for (const mon of start.state.party) addMon(mon.species);
+  for (const mon of start.enemyParty ?? []) addMon(mon.species);
   const trainer = data.tables.trainers[start.trainerBattleOpponent_A];
   for (const m of trainer?.party ?? []) addMon(m.species);
   if (trainer) {
@@ -227,7 +235,19 @@ export class BattleScene extends Phaser.Scene implements BattleUi {
     SetReservedSpritePaletteCount(4);
     // SetUpBattleVars, CreateNPCTrainerParty, AdjustFriendship(FRIENDSHIP_EVENT_LEAGUE_BATTLE)
     initBattleInternal();
+    this.applyTestOverrides();
     this.callback2 = () => this.CB2_HandleStartBattle();
+  }
+
+  /** battle-test.html: swap in the configured enemy party and battle type after CreateNPCTrainerParty. */
+  private applyTestOverrides(): void {
+    const { enemyParty, double } = this.start;
+    if (enemyParty) {
+      g.enemyParty = Array.from({ length: K.PARTY_SIZE }, (_, i) => enemyParty[i]);
+    }
+    if (double !== undefined) {
+      g.battleTypeFlags = double ? g.battleTypeFlags | K.BATTLE_TYPE_DOUBLE : g.battleTypeFlags & ~K.BATTLE_TYPE_DOUBLE;
+    }
   }
 
   /** CB2_HandleStartBattle (single-player path) */

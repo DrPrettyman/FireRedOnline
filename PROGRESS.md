@@ -113,9 +113,10 @@ State as of the last log entry:
 - **Next blockers on the main path:** Viridian City Mart parcel scene (`pokemart`, multichoice), Route 22 trainers
   (`trainerbattle_single`, trainer sight), Oak's parcel → Pokédex scene; in battle: the bag/party screens,
   move animations (battle_anim scripts), wild battles.
-- **Quick battle test:** in dev, from the console (or a `browser-test.mjs` eval) give a mon and call
-  `game.scene.getScene("Overworld").startTrainerBattle({...})`, polling `done()`; `await import('/src/battle/env.ts')`
-  exposes the live battle globals (`g`) for `mash:` conditions.
+- **Quick battle test:** `npm run dev:battle` opens `battle-test.html`: pick both parties (species, level, moves,
+  held item), trainer or wild, single/double, IVs, terrain, then Start. Scripted: `battleTest.launch({...config})`
+  and `mash:battleTest.lastOutcome` in `browser-test.mjs`; `await import('/src/battle/env.ts')` exposes the live
+  battle globals (`g`).
 - **How to find what a script needs:** unimplemented script commands and specials log once to the browser console
   as `[script] unimplemented command ...`.
 - **Testing long scenes:** `tools/browser-test.mjs` has `mash:<js>` (press A until a condition holds), e.g.
@@ -227,3 +228,13 @@ State as of the last log entry:
   pokedex.h/berry.h added to the define headers; `K` must be initialised before listing gfx symbols.
 - Verified headless: full Oak's Lab rival battle (Charmander vs Squirtle) to a win, Lv5→6 with both level-up pages,
   back in the lab overworld. `browser-test.mjs` now prints exception messages.
+
+### Battle test harness
+- `battle-test.html` + `src/battleTest.ts`: a standalone page that loads the assets and launches `BattleScene`
+  without the overworld. A side panel edits both parties (datalists of species/moves/items, validated),
+  trainer (any gTrainers id: name, pic, AI flags and items come from it) or wild, double battles, IVs
+  (random/max/zero), terrain and text speed; random teams/moves buttons; config kept in localStorage.
+- `BattleStart.enemyParty` / `double` (test-only) replace gEnemyParty and force BATTLE_TYPE_DOUBLE after
+  CreateNPCTrainerParty. `npm run dev:battle` opens the page.
+- Verified headless: trainer single (Giovanni intro, AI using Bite), wild single on grass terrain, and a trainer
+  double battle, each to B_OUTCOME_WON.

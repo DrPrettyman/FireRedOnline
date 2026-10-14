@@ -4,6 +4,7 @@
   "scripts": {
     "extract": "python3 tools/extract.py",
     "dev": "vite",
+    "dev:battle": "vite --open /battle-test.html",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc"

@@ -13,6 +13,7 @@ npm install
 pip3 install pillow           # extractor dependency
 npm run extract               # reads ../pret/firered by default
 npm run dev                   # http://localhost:5173
+npm run dev:battle            # battle test harness (battle-test.html)
 ```
 
 To point at a decomp somewhere else, use `FIRERED_DECOMP=/path/to/firered npm run extract`
