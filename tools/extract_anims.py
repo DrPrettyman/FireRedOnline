@@ -31,6 +31,10 @@ ANIM_FILES = [
     "src/battle_controller_player.c",
     "src/battle_controller_opponent.c",
     "src/battle_controller_oak_old_man.c",
+    "src/party_menu.c",
+    "src/item_menu_icons.c",
+    "src/pokemon_icon.c",
+    "src/menu_indicators.c",
 ]
 
 ARRAY = re.compile(r"(?:static\s+)?const\s+union\s+(AnimCmd|AffineAnimCmd)\s+(\w+)\s*\[\s*\]\s*=\s*\{(.*?)\};", re.S)
@@ -79,7 +83,7 @@ def anim_cmd(entry, defines):
     if entry.startswith("ANIMCMD_FRAME"):
         args = macro_args(entry)
         cmd = {"type": None, "hFlip": False, "vFlip": False}
-        positional = ["imageValue", "duration"]
+        positional = ["imageValue", "duration", "hFlip", "vFlip"]
         for i, a in enumerate(args):
             m = re.fullmatch(r"\.(\w+)\s*=\s*(.+)", a)
             if m:

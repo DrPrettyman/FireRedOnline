@@ -690,6 +690,9 @@ EXTRA_DEFINE_HEADERS = (
     "include/pokeball.h", "include/sprite.h", "include/gba/io_reg.h", "include/bg.h", "include/window.h",
     "include/palette.h", "include/scanline_effect.h", "include/trainer_pokemon_sprites.h", "include/decompress.h",
     "include/battle_main.h", "include/battle_script_commands.h", "include/gba/types.h", "include/gba/defines.h", "include/menu.h", "include/pokemon_icon.h", "include/pokedex.h", "include/berry.h",
+    "include/item.h", "include/item_menu.h", "include/item_menu_icons.h", "include/list_menu.h", "include/menu_helpers.h",
+    "include/menu_indicators.h", "include/money.h", "include/party_menu.h", "include/new_menu_helpers.h", "include/item_use.h",
+    "include/task.h",
 )
 
 
@@ -699,6 +702,8 @@ def parse_defines(decomp):
     defines = {}
     headers = sorted((decomp / "include/constants").glob("*.h")) + [decomp / h for h in EXTRA_DEFINE_HEADERS]
     texts = [re.sub(r"/\*.*?\*/", "", hdr.read_text(errors="ignore"), flags=re.S) for hdr in headers if hdr.exists()]
+    # `((u8) -1)` style values: the u8 they wrap around to.
+    texts = [re.sub(r"\(\s*u8\s*\)\s*-\s*(\d+)", lambda m: str(256 - int(m.group(1))), t) for t in texts]
     for text in texts:
         for name, val in re.findall(r"^#define\s+(\w+)\s+\(?(-?(?:0x[0-9A-Fa-f]+|\d+))\)?\s*(?://.*)?$", text, re.M):
             defines.setdefault(name, int(val, 0))
@@ -998,6 +1003,10 @@ def main():
     from extract_battle import extract_battle
 
     extract_battle(decomp, out)
+    print("menus")
+    from extract_menus import extract_menus
+
+    extract_menus(decomp, out)
     print("gfx")
     from extract_gfx import extract_gfx
     extract_gfx(decomp, out)

@@ -247,6 +247,8 @@ MECHANICS_TABLES = [
     ("src/pokemon.c", "sHoldEffectToType"),
     ("src/pokemon.c", "gPPUpGetMask"),
     ("src/pokemon.c", "gPPUpClearMask"),
+    ("src/pokemon.c", "gPPUpAddValues"),
+    ("src/pokemon.c", "sStatsToRaise"),
     ("src/battle_message.c", "gTrappingMoves"),
     ("src/overworld.c", "sWhiteOutMoneyLossMultipliers"),
     ("src/overworld.c", "sWhiteOutMoneyLossBadgeFlagIDs"),

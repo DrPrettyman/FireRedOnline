@@ -16,7 +16,8 @@ from PIL import Image
 
 from extract import read_jasc
 
-# Graphics the ported code loads (battle UI, terrain, Pokémon/trainer pics, balls, battle anims).
+# Graphics the ported code loads (battle UI, terrain, Pokémon/trainer pics and icons, balls, battle
+# anims, party menu, bag and item icons).
 GFX_PREFIXES = (
     "graphics/battle_interface/",
     "graphics/battle_terrain/",
@@ -27,9 +28,13 @@ GFX_PREFIXES = (
     "graphics/text_window/",
     "graphics/pokemon/",
     "graphics/fonts/",
+    "graphics/party_menu/",
+    "graphics/item_menu/",
+    "graphics/items/",
+    "graphics/help_system/",
 )
-# Per-species files that are big and unused by battle (icons are separate, footprints are 1bpp).
-SKIP_SUFFIXES = ("icon.4bpp", "footprint.1bpp")
+# Footprints are 1bpp and unused so far.
+SKIP_SUFFIXES = ("footprint.1bpp",)
 
 INCBIN = re.compile(r"(\w+)\s*\[[^\]]*\]\s*=\s*INCBIN_U(?:8|16|32)\(((?:\s*\"[^\"]+\"\s*,?)+)\)")
 # `const u16 gTextWindowPalettes[][16] = { INCBIN_U16("a"), INCBIN_U16("b") };` -> concatenation
