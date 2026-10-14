@@ -29,6 +29,18 @@ const IN_PLACE: [string, MoveKind][] = [
   ['jump_in_place_', 'jump1'],
 ];
 
+/** MovementAction_Emote*_Step0: the icon field effect each one starts (it runs on its own; the action ends at once). */
+const EMOTES: Record<string, string> = {
+  emote_exclamation_mark: 'FLDEFF_EXCLAMATION_MARK_ICON',
+  emote_question_mark: 'FLDEFF_QUESTION_MARK_ICON',
+  emote_x: 'FLDEFF_X_ICON',
+  emote_double_exclamation_mark: 'FLDEFF_DOUBLE_EXCL_MARK_ICON',
+  emote_smile: 'FLDEFF_SMILEY_FACE_ICON',
+};
+
+/** FieldEffectStart for an effect attached to an object; false if that effect isn't ported. */
+export type StartFieldEffect = (fldEff: string, obj: ObjectEvent) => boolean;
+
 /**
  * Executes a movement script (applymovement) on one object, one action at a time.
  * Scripted movement ignores collision, as on the GBA.
@@ -43,6 +55,7 @@ export class MovementRunner {
     private code: Instruction[],
     private pc: number,
     private player: ObjectEvent,
+    private startFieldEffect: StartFieldEffect,
   ) {}
 
   tick(): void {
@@ -89,6 +102,10 @@ export class MovementRunner {
         }
       }
     }
+    if (op in EMOTES) {
+      if (!this.startFieldEffect(EMOTES[op], obj)) console.debug('[movement] unimplemented', op);
+      return false;
+    }
     switch (op) {
       case 'face_player':
         obj.face(towards(obj, this.player));
@@ -112,7 +129,7 @@ export class MovementRunner {
         // MovementAction_RevealTrainer only acts on tree/mountain-disguised trainers, which FRLG doesn't use
         return false;
       default:
-        // emotes, affine anims, bike tricks etc. are not implemented yet
+        // affine anims, bike tricks etc. are not implemented yet
         console.debug('[movement] unimplemented', op);
         return false;
     }

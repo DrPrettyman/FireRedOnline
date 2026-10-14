@@ -63,8 +63,8 @@ export interface BattleStart {
   pokemon: PokemonData;
   charmap: Charmap;
   /**
-   * Test harness only (battle-test.html): replaces the party CreateNPCTrainerParty builds, or is
-   * the wild mon(s) when BATTLE_TYPE_TRAINER isn't set.
+   * gEnemyParty for a non-trainer battle (the wild/scripted mon(s) the field set up). The test harness
+   * (battle-test.html) also uses it to replace the party CreateNPCTrainerParty builds.
    */
   enemyParty?: Pokemon[];
   /** Test harness only: forces BATTLE_TYPE_DOUBLE on or off after the trainer's own flag is applied. */
@@ -153,7 +153,10 @@ export class BattleScene extends GbaHostScene implements BattleUi {
     this.startHost();
   }
 
-  /** battle-test.html: swap in the configured enemy party and battle type after CreateNPCTrainerParty. */
+  /**
+   * gEnemyParty as the field left it (a scripted/wild mon), or battle-test.html's configured party and
+   * battle type swapped in after CreateNPCTrainerParty.
+   */
   private applyTestOverrides(): void {
     const { enemyParty, double } = this.start;
     if (enemyParty) {

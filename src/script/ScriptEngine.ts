@@ -1,5 +1,6 @@
 import type { ObjectEvent } from '../entities/ObjectEvent';
 import type { Input } from '../input/Input';
+import type { Pokemon } from '../pokemon/Pokemon';
 import type { GameState } from '../state/GameState';
 import type { Charmap } from '../text/charmap';
 import type { MessageBox, TextColor } from '../text/MessageBox';
@@ -66,6 +67,10 @@ export interface ScriptHost {
   fadeScreen(mode: number): Wait;
   /** StartTrainerBattle: `done` ends when the battle is over (screen still black), with the outcome. */
   startTrainerBattle(battle: TrainerBattle): TrainerBattleRun;
+  /** A non-trainer battle against `enemyParty` (gEnemyParty), e.g. StartOldManTutorialBattle. */
+  startScriptedBattle(battleTypeFlags: number, enemyParty: Pokemon[]): TrainerBattleRun;
+  /** FieldEffectStart for an effect over `obj` (the emote icons); false if it isn't ported. */
+  startFieldEffect(fldEff: string, obj: ObjectEvent): boolean;
   /** CB2_WhiteOut: from the black screen after a lost battle to the last heal location. */
   whiteOut(): void;
   /** GetCurrentRegionMapSectionId, for a new mon's met location. */
@@ -573,7 +578,7 @@ export class ScriptEngine {
       const pc = this.data.labels[a[1]];
       if (!obj || pc === undefined) return;
       this.movements = this.movements.filter((m) => m.obj !== obj);
-      this.movements.push(new MovementRunner(obj, this.data.code, pc, this.host.player));
+      this.movements.push(new MovementRunner(obj, this.data.code, pc, this.host.player, (f, o) => this.host.startFieldEffect(f, o)));
     },
     waitmovement(this: ScriptEngine, ctx: ScriptContext) {
       ctx.wait = () => this.movements.length === 0;

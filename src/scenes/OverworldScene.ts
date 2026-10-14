@@ -1,13 +1,14 @@
 import Phaser from 'phaser';
 import { spriteTextureKey, type Assets } from '../data/assets';
 import type { ObjectEventData, WarpEventData } from '../data/types';
+import { FieldEffects } from '../entities/FieldEffects';
 import { NpcBrain } from '../entities/NpcBrain';
 import { applyStartPreset, type StartPreset } from '../dev/startPresets';
 import { ObjectEvent, type ObjectEventField } from '../entities/ObjectEvent';
 import { healPlayerParty } from '../script/specials';
 import { WhiteOutText } from '../ui/WhiteOutText';
 import { Input } from '../input/Input';
-import { PokemonData, readPokemonConstants } from '../pokemon/Pokemon';
+import { PokemonData, readPokemonConstants, type Pokemon } from '../pokemon/Pokemon';
 import { Defines } from '../script/Defines';
 import { directionId, ScriptEngine, textColorFromId, type ScriptHost, type TrainerBattle, type TrainerBattleRun, type Wait } from '../script/ScriptEngine';
 import { GameState } from '../state/GameState';
@@ -68,6 +69,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   /** A field UI overlay (start menu, notices) that owns input while open. */
   private overlay?: { tick(): boolean };
   private screenFade!: ScreenFade;
+  private fieldEffects!: FieldEffects;
   private monPic?: MonPicBox;
   player!: ObjectEvent;
   selectedObject?: ObjectEvent;
@@ -122,6 +124,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     kb.on('keydown-BACKTICK', () => this.hud.setVisible(!this.hud.visible));
 
     await this.assets.loadTextTextures(this);
+    await this.assets.loadFieldEffectTextures(this);
+    this.fieldEffects = new FieldEffects(this, this.assets.emoticons, this.field);
     const charmap = this.charmap;
     const d = this.defines;
     this.screenFade = new ScreenFade(this, {
@@ -199,6 +203,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     // only then do CameraUpdate and UpdateCameraPanning move it.
     for (const n of this.npcs) n.brain.obj.updateSubpriority();
     this.player.updateSubpriority();
+    this.fieldEffects.tick(); // created after the objects, so their callbacks run after the objects'
     this.updateFieldCamera();
   }
 
@@ -423,6 +428,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
 
   /** Load a map fresh (origin at 0,0) and put the player at local (x, y). */
   private async enterMap(name: string, x: number, y: number, facing: Direction, warped: boolean): Promise<void> {
+    this.fieldEffects.clear();
     await this.world.load(name);
     this.player.setVisible(true); // the GBA recreates the player object on every warp
     this.player.setPosition(x, y); // also updates elevation and priority, as on spawn
@@ -682,18 +688,31 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       battleTypeFlags |= d.require('BATTLE_TYPE_FIRST_BATTLE');
     }
     const speech = (label?: string) => (label && this.assets.strings[label] !== undefined ? this.charmap.encode(this.assets.strings[label]) : undefined);
-    const color = this.scripts.contextTextColor();
-    const map = this.world.current.data;
-    let phase: 'fadeOut' | 'battle' | 'fadeIn' | 'done' = 'fadeOut';
-    let outcome = 0;
-    this.screenFade.begin(d.require('FADE_TO_BLACK'));
-    const start: BattleStart = {
+    return this.runBattle({
       battleTypeFlags,
       trainerBattleOpponent_A: battle.trainer,
       trainerBattleMode: battle.mode,
       rivalBattleFlags: battle.mode === d.require('TRAINER_BATTLE_EARLY_RIVAL') ? battle.localIdOrFlags : 0,
       defeatSpeech: speech(battle.defeatText),
       victorySpeech: speech(battle.victoryText),
+    });
+  }
+
+  /** Scripted non-trainer battles (StartOldManTutorialBattle etc.): gEnemyParty is set up by the caller. */
+  startScriptedBattle(battleTypeFlags: number, enemyParty: Pokemon[]): TrainerBattleRun {
+    return this.runBattle({ battleTypeFlags, trainerBattleOpponent_A: 0, trainerBattleMode: 0, rivalBattleFlags: 0, enemyParty });
+  }
+
+  /** CreateBattleStartTask: fade out, run BattleScene, and leave the field black for the caller. */
+  private runBattle(setup: Pick<BattleStart, 'battleTypeFlags' | 'trainerBattleOpponent_A' | 'trainerBattleMode' | 'rivalBattleFlags' | 'defeatSpeech' | 'victorySpeech' | 'enemyParty'>): TrainerBattleRun {
+    const d = this.defines;
+    const color = this.scripts.contextTextColor();
+    const map = this.world.current.data;
+    let phase: 'fadeOut' | 'battle' | 'fadeIn' | 'done' = 'fadeOut';
+    let outcome = 0;
+    this.screenFade.begin(d.require('FADE_TO_BLACK'));
+    const start: BattleStart = {
+      ...setup,
       npcTextColor: d.require(color === 'male' ? 'NPC_TEXT_COLOR_MALE' : color === 'female' ? 'NPC_TEXT_COLOR_FEMALE' : 'NPC_TEXT_COLOR_NEUTRAL'),
       terrain: this.battleTerrainId(),
       mapBattleScene: d.get(map.battleScene ?? '') ?? d.require('MAP_BATTLE_SCENE_NORMAL'),
@@ -865,6 +884,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     if (b.isSurfable(behavior)) return d.require('BATTLE_TERRAIN_POND');
     if (b.isMountain(behavior)) return d.require('BATTLE_TERRAIN_MOUNTAIN');
     return d.require('BATTLE_TERRAIN_PLAIN');
+  }
+
+  startFieldEffect(fldEff: string, obj: ObjectEvent): boolean {
+    return this.fieldEffects.start(fldEff, obj);
   }
 
   mapSection(): string {

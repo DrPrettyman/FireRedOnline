@@ -74,6 +74,8 @@ export function menuGfxSymbols(state: GameState): string[] {
   const items = new Set<number>();
   for (const pocket of state.bag.pockets) for (const slot of pocket) if (slot.itemId) items.add(slot.itemId);
   for (const mon of state.party) if (mon.heldItem) items.add(mon.heldItem);
+  // InitOldManBag's demo bag (the old man's tutorial battle)
+  items.add(K.ITEM_POTION).add(K.ITEM_POKE_BALL);
   for (const s of itemIconSymbols(items)) syms.add(s);
   return [...syms];
 }

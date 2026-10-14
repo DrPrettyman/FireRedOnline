@@ -267,12 +267,28 @@ export class PokemonData {
     return (mon.personality >>> 0) % this.c.NUM_NATURES;
   }
 
-  /** GetMonGender / GetGenderFromSpeciesAndPersonality */
+  /** GetMonGender */
   gender(mon: Pokemon): number {
+    return this.genderFromPersonality(mon.species, mon.personality);
+  }
+
+  /** GetGenderFromSpeciesAndPersonality */
+  genderFromPersonality(species: number, personality: number): number {
     const { MON_MALE, MON_FEMALE, MON_GENDERLESS } = this.c;
-    const ratio = this.species[mon.species].genderRatio;
+    const ratio = this.species[species].genderRatio;
     if (ratio === MON_MALE || ratio === MON_FEMALE || ratio === MON_GENDERLESS) return ratio;
-    return ratio > (mon.personality & 0xff) ? MON_FEMALE : MON_MALE;
+    return ratio > (personality & 0xff) ? MON_FEMALE : MON_MALE;
+  }
+
+  /** CreateMaleMon: rerolls personality and OT id together until the mon is male. */
+  createMaleMon(speciesId: number, level: number, opts: Omit<CreateMonOptions, 'personality' | 'otId' | 'fixedIV'>): Pokemon {
+    let otId: number;
+    let personality: number;
+    do {
+      otId = random32();
+      personality = random32();
+    } while (this.genderFromPersonality(speciesId, personality) !== this.c.MON_MALE);
+    return this.createMon(speciesId, level, { ...opts, personality, otId }); // USE_RANDOM_IVS, OT_ID_PRESET
   }
 
   /** CalculatePPWithBonus */

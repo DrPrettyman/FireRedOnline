@@ -21,7 +21,7 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] Std window frames (type1..10, palette from each PNG); menu cursor is the ▶ font glyph
 - [ ] Tile animations (water, flowers, etc.)
 - [ ] Door animation graphics
-- [ ] Field effect graphics (grass, shadows, emotes, ...)
+- [~] Field effect graphics: emote icons (`field_effects/emoticons.*`); not yet grass, shadows, ripples, ...
 - [x] Species (base stats, names, learnsets, national dex numbers), moves, items, experience tables, nature table, std strings
 - [x] Trainers / trainer parties (battle/tables.json)
 - [ ] Wild encounters data
@@ -61,7 +61,7 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] White-out (CB2_WhiteOut → DoWhiteOut → FieldCB_RushInjuredPokemonToCenter) and `setrespawn`
 - [x] trainerbattle: every mode (BattleSetup_ConfigureTrainerBattle + the trainer_battle.inc scripts and their specials, gotobeatenscript, rematch checks against vs_seeker.c sRematches). Talk-to only: trainer sight isn't implemented
 - [x] Text colour through VAR_TEXT_COLOR / VAR_PREV_TEXT_COLOR (ContextNpcGetTextColor), VAR_LAST_TALKED
-- [ ] Movement emotes (exclamation mark etc.) and other field effects in movement scripts
+- [x] Movement emotes (`emote_*` → FLDEFF_*_ICON, `entities/FieldEffects.ts`); other field effects in movement scripts not yet
 - [ ] Interacting with metatiles (PCs, bookshelves, TVs via behavior scripts)
 - [~] Start menu shell: items by flags, wrap-around cursor, remembered position, B/START close. POKéMON and BAG open the real screens; the other entries (except EXIT) show a "not implemented" notice
 - [ ] Start menu help/description window
@@ -75,7 +75,8 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] Battle engine core: script interpreter, turn flow, damage/effects, messages, AI (battle_ai_script_commands.c + switch/items), player/opponent/Oak-Old Man controllers
 - [x] GBA video layer (src/gba: VRAM/palette/regs, bg.c, window.c, sprite.c, task.c, palette fades, scanline effects, software PPU) and the battle presentation on it (BattleScene)
 - [x] Battle: bag and party menu (choose item, use medicine/PP items/X items/balls, switch/send out) with reshow_battle_screen.c
-- [ ] Battle: move/status animations, evolution scene, battle transitions, wild battles, white-out
+- [x] Old Man's catching tutorial (StartOldManTutorialBattle)
+- [ ] Battle: move/status animations, evolution scene, battle transitions, wild battles
 - [ ] Audio playback
 - [ ] Title screen / intro / Oak's speech / naming (ChangePokemonNickname keeps the name for now)
 
@@ -163,9 +164,12 @@ State as of the last log entry:
 - **Open overworld follow-ups:** dynamic-graphics objects have only been checked on Viridian's old man; other maps
   that use them (e.g. rival appearances) are untested. A script that sets `VAR_OBJ_GFX_ID_*` and then `addobject`s
   in the same run only works if that sprite was already preloaded; otherwise it logs `[overworld] no sprite loaded`.
-- **Next blockers on the main path:** Viridian City Mart parcel scene (`pokemart`, multichoice), trainer sight
-  (trainers only battle when talked to; Route 22 rival, Viridian Forest, gym trainers), Oak's parcel → Pokédex scene; in battle: move animations
-  (battle_anim scripts), wild battles, evolution scene.
+- **Story checked so far:** the Viridian Mart parcel scene, Oak's parcel → Pokédex scene and the Viridian old man's
+  catching tutorial all run to completion headless.
+- **Next blockers on the main path:** wild encounters (no encounter data or grass checks yet; Route 1/22, Viridian
+  Forest), trainer sight (trainers only battle when talked to; Viridian Forest, gym trainers), `pokemart`
+  (the clerk's shop; the parcel scene doesn't need it), multichoice; in battle: move animations (battle_anim
+  scripts), evolution scene.
 - **GBA screens:** `src/gba/main.ts` is gMain (callbacks, ReadKeys with key repeat). `GbaHostScene` runs the
   main loop; `BattleScene` and `FieldMenuScene` extend it. Screens hand over with SetMainCallback2 like the C
   (battle → CB2_BagMenuFromBattle → ... → ReshowBattleScreenAfterMenu → BattleMainCB2). Graphics are fetched
@@ -501,3 +505,21 @@ State as of the last log entry:
   back home", house 1F (8,5) facing north, Mom's script, party healed, ₽48 lost (Lv6 × 4 × 2); after entering
   Pewter's Pokémon Center → "scurried to a POKéMON CENTER", Pewter PC 1F (7,4), VAR_LAST_TALKED = the nurse, her
   heal script. Winning against Brock still fades back to the field and continues his script.
+
+### Old Man tutorial battle, emote icons (main-path check)
+- Ran the main path past Route 1 headless: the Viridian Mart parcel scene and Oak's parcel → Pokédex scene already
+  worked; the only gaps were Oak's `emote_exclamation_mark` and `special StartOldManTutorialBattle`.
+- StartOldManTutorialBattle (battle_setup.c): `PokemonData.createMaleMon` (CreateMaleMon, with
+  GetGenderFromSpeciesAndPersonality split out) makes the Lv5 Weedle; `ScriptHost.startScriptedBattle` launches a
+  non-trainer battle with that gEnemyParty (OverworldScene's battle start is now shared by trainer and scripted
+  battles, `runBattle`), and the special's `waitstate` ends after CB2_ReturnToFieldContinueScriptPlayMapMusic's
+  fade in. The bag/party preload now includes InitOldManBag's Potion and Poké Ball icons.
+- Emote icons: the extractor writes `field_effects/emoticons.png` (sSpriteImages_Emoticons order) and `.json`
+  (sSpriteAnimTable_Emoticons). `entities/FieldEffects.ts` ports FldEff_*Icon / SetIconSpriteData /
+  SpriteCB_TrainerIcons (bounce, follows the object incl. jump lift, priority 1 with the C's subpriority, ends
+  when the anim does or the object is gone); MovementRunner starts them for `emote_*` and moves on at once, like
+  MovementAction_Emote*_Step0. Field effects are cleared on map entry.
+- Verified headless: Oak shows "!" over his head in the Pokédex scene, FLAG_SYS_POKEDEX_GET set, VAR 6. Old man
+  (VAR_MAP_SCENE_VIRIDIAN_CITY_OLD_MAN = 1, walking onto the left trigger): his back pic, a male Weedle, the demo
+  bag cycling pockets, the throw, "Gotcha! WEEDLE was caught!", back to the field, Teachy TV given, VAR 2; party,
+  Pokédex and bag otherwise unchanged (the old man's Potion/Ball are removed again), no console warnings.

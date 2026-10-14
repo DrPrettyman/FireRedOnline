@@ -66,6 +66,25 @@ export const SPECIALS: Record<string, Special> = {
     return mon.isEgg ? state.pokemon.c.SPECIES_EGG : mon.species;
   },
 
+  /**
+   * StartOldManTutorialBattle (battle_setup.c): a male Lv5 Weedle for the old man to catch, then
+   * CB2_ReturnToFieldContinueScriptPlayMapMusic, which the script waits for with `waitstate`.
+   */
+  StartOldManTutorialBattle({ state, host, setWaitState }) {
+    const weedle = state.pokemon.createMaleMon(state.defines.require('SPECIES_WEEDLE'), 5, {
+      otName: state.playerName, // CreateBoxMon always copies the player's name and gender
+      otGender: state.playerGender,
+      metLocation: host.mapSection(),
+    });
+    const run = host.startScriptedBattle(state.defines.require('BATTLE_TYPE_OLD_MAN_TUTORIAL'), [weedle]);
+    let fadeIn: (() => boolean) | undefined;
+    setWaitState(() => {
+      if (fadeIn) return fadeIn();
+      if (run.done()) fadeIn = run.returnToField();
+      return false;
+    });
+  },
+
   /** BufferMonNickname: nickname of party slot VAR_0x8004 into STR_VAR_1. */
   BufferMonNickname({ state }) {
     state.stringVars[0] = [...(state.party[state.getVar('VAR_0x8004')]?.nickname ?? [])];

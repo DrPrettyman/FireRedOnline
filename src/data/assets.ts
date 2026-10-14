@@ -30,11 +30,12 @@ export class Assets {
   moves: MoveInfo[] = [];
   items: ItemInfo[] = [];
   pokemonTables!: PokemonTables;
+  emoticons!: EmoticonData;
 
   private maps = new Map<string, Promise<MapData>>();
 
   async init(): Promise<void> {
-    const [index, sprites, tilesets, constants, fonts, charmap, strings, scripts, species, moves, items, tables] = await Promise.all([
+    const [index, sprites, tilesets, constants, fonts, charmap, strings, scripts, species, moves, items, tables, emoticons] = await Promise.all([
       fetchJson<Record<string, string>>(`${GEN}/maps/index.json`),
       fetchJson<Record<string, SpriteInfo>>(`${GEN}/sprites/manifest.json`),
       fetchJson<TilesetIndex>(`${GEN}/tilesets/index.json`),
@@ -47,11 +48,13 @@ export class Assets {
       fetchJson<MoveInfo[]>(`${GEN}/pokemon/moves.json`),
       fetchJson<ItemInfo[]>(`${GEN}/pokemon/items.json`),
       fetchJson<PokemonTables>(`${GEN}/pokemon/tables.json`),
+      fetchJson<EmoticonData>(`${GEN}/field_effects/emoticons.json`),
     ]);
     this.species = species;
     this.moves = moves;
     this.items = items;
     this.pokemonTables = tables;
+    this.emoticons = emoticons;
     this.fonts = fonts;
     this.charmap = charmap;
     this.strings = strings;
@@ -108,6 +111,17 @@ export class Assets {
     ]);
   }
 
+  /** Field effect sprite sheets (the emote icons). */
+  loadFieldEffectTextures(scene: Phaser.Scene): Promise<void> {
+    if (scene.textures.exists(EMOTICONS_TEXTURE)) return Promise.resolve();
+    const { frameWidth, frameHeight } = this.emoticons;
+    return new Promise((resolve) => {
+      scene.load.spritesheet(EMOTICONS_TEXTURE, `${GEN}/field_effects/emoticons.png`, { frameWidth, frameHeight });
+      scene.load.once(Phaser.Loader.Events.COMPLETE, () => resolve());
+      scene.load.start();
+    });
+  }
+
   /** Ensure a species' front pic (64x64) is loaded; returns its texture key. */
   async loadMonFrontPic(scene: Phaser.Scene, species: number): Promise<string> {
     const key = monFrontPicKey(species);
@@ -142,6 +156,15 @@ export class Assets {
 
 export function monFrontPicKey(species: number): string {
   return `mon_front_${species}`;
+}
+
+export const EMOTICONS_TEXTURE = 'fldeff_emoticons';
+
+/** trainer_see.c's emote icons: sSpriteAnimTable_Emoticons as [frame, duration] lists. */
+export interface EmoticonData {
+  frameWidth: number;
+  frameHeight: number;
+  anims: [number, number][][];
 }
 
 export function spriteTextureKey(info: SpriteInfo): string {

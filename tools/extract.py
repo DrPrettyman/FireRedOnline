@@ -388,6 +388,39 @@ def extract_object_events(decomp, out):
     print(f"  {len(written)} sprite sheets, {len(manifest)} gfx ids")
 
 
+def extract_field_effects(decomp, out):
+    """Emote icons (trainer_see.c sSpriteTemplate_Emoticons): a strip in sSpriteImages_Emoticons order plus
+    sSpriteAnimTable_Emoticons as [[frame, duration], ...] per anim. oam.paletteNum 0 is the player's palette
+    slot in the field, which is also the PNG's own palette."""
+    src = (decomp / "src/trainer_see.c").read_text()
+    gfx_path = re.search(r"sGfx_Emoticons\[\] = INCBIN_U16\(\"(.+?)\.4bpp\"\)", src).group(1)
+    images = re.search(r"sSpriteImages_Emoticons\[\] =\s*\{(.*?)\};", src, re.S).group(1)
+    frames = [int(n) for n in re.findall(r"overworld_frame\(sGfx_Emoticons,\s*2,\s*2,\s*(\d+)\)", images)]
+    cmds = {name: [[int(f), int(d)] for f, d in re.findall(r"ANIMCMD_FRAME\(\s*(\d+),\s*(\d+)\)", body)]
+            for name, body in re.findall(r"static const union AnimCmd (\w+)\[\] = \{(.*?)\};", src, re.S)}
+    table = re.search(r"sSpriteAnimTable_Emoticons\[\] = \{(.*?)\};", src, re.S).group(1)
+    anims = [cmds[name] for name in re.findall(r"\w+", table)]
+
+    img = load_indexed(decomp / f"{gfx_path}.png")
+    pal = img.getpalette()
+    idx = img.load()
+    cols = img.width // 16
+    strip = Image.new("RGBA", (16 * len(frames), 16), (0, 0, 0, 0))
+    sp = strip.load()
+    for i, n in enumerate(frames):
+        sx, sy = (n % cols) * 16, (n // cols) * 16
+        for y in range(16):
+            for x in range(16):
+                c = idx[sx + x, sy + y] & 0xF
+                if c:
+                    sp[i * 16 + x, y] = tuple(pal[c * 3 : c * 3 + 3]) + (255,)
+    fe = out / "field_effects"
+    fe.mkdir(parents=True, exist_ok=True)
+    strip.save(fe / "emoticons.png", optimize=True)
+    (fe / "emoticons.json").write_text(json.dumps({"frameWidth": 16, "frameHeight": 16, "anims": anims}))
+    print(f"  emoticons: {len(frames)} frames, {len(anims)} anims")
+
+
 # ---------------------------------------------------------------- text: charmap, fonts, windows
 
 
@@ -1106,6 +1139,8 @@ def main():
     extract_scripts(decomp, out)
     print("sprites")
     extract_object_events(decomp, out)
+    print("field effects")
+    extract_field_effects(decomp, out)
     print("pokemon")
     extract_pokemon(decomp, out)
     print("battle")
