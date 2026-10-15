@@ -128,11 +128,41 @@ export function ClearGpuRegBits(regOffset: number, mask: number): void {
  */
 export const hblankRegs = new Map<number, Uint16Array>();
 
+/** REG_VCOUNT: the line being drawn, for HBlank callbacks. */
+let vcount = 0;
+export function getVCount(): number {
+  return vcount;
+}
+export function setVCount(line: number): void {
+  vcount = line;
+}
+
+/** HBlank DMA channel 0's destination, so DmaStop(0) can end it. */
+let dma0Dest = -1;
+
+/**
+ * DmaSet(0, src, &REG_x, ...DMA_START_HBLANK | DMA_REPEAT...): one 16-bit value of `src` per line into
+ * the register, modelled like scanline effects as a per-line table (line L gets src[L]). The table is
+ * the live buffer, so writes to it before the frame is drawn show up, as they would on hardware.
+ */
+export function DmaSetHBlank16(src: Uint16Array, regOffset: number): void {
+  DmaStop0();
+  hblankRegs.set(regOffset, src);
+  dma0Dest = regOffset;
+}
+
+/** DmaStop(0) for an HBlank transfer started with DmaSetHBlank16. */
+export function DmaStop0(): void {
+  if (dma0Dest >= 0) hblankRegs.delete(dma0Dest);
+  dma0Dest = -1;
+}
+
 export function resetHardware(): void {
   vram.fill(0);
   pltt.fill(0);
   regs.fill(0);
   hblankRegs.clear();
+  dma0Dest = -1;
 }
 
 export const RGB = (r: number, g: number, b: number) => (r & 0x1f) | ((g & 0x1f) << 5) | ((b & 0x1f) << 10);

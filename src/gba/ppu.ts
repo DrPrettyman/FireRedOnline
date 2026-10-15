@@ -1,5 +1,7 @@
-// A software GBA PPU for mode 0: four text BGs, OBJ (normal and affine), WIN0/WIN1/OBJ window and
-// colour special effects (alpha blend, brighten, darken). Mosaic is not implemented.
+// A software GBA PPU for mode 0: four text BGs (with BG mosaic), OBJ (normal and affine), WIN0/WIN1/OBJ
+// window and colour special effects (alpha blend, brighten, darken). OBJ mosaic is not implemented.
+// The HBlank callback, if any, runs before each line is drawn (REG_VCOUNT = that line), like the
+// HBlank DMA model in hblankRegs.
 
 import {
   DISPLAY_HEIGHT,
@@ -14,6 +16,7 @@ import {
   REG_OFFSET_BLDCNT,
   REG_OFFSET_BLDY,
   REG_OFFSET_DISPCNT,
+  REG_OFFSET_MOSAIC,
   REG_OFFSET_WIN0H,
   REG_OFFSET_WIN0V,
   REG_OFFSET_WIN1H,
@@ -21,8 +24,10 @@ import {
   REG_OFFSET_WININ,
   REG_OFFSET_WINOUT,
   regs,
+  setVCount,
   vram,
 } from './hw';
+import { gMain } from './main';
 import { oamBuffer, oamMatrices, sOamDimensions } from './sprite';
 
 const W = DISPLAY_WIDTH;
@@ -44,6 +49,21 @@ const objColor = new Int32Array(W); // -1 = none, else BGR555
 const objPrio = new Uint8Array(W);
 const objSemi = new Uint8Array(W);
 const objWin = new Uint8Array(W);
+
+/**
+ * Sprites drawn outside OAM, as a screen-sized layer behind every OAM sprite: the overworld's objects
+ * while the field is shown on this PPU (battle transitions). `color` is BGR555 or -1 (transparent).
+ */
+export interface ObjBitmapLayer {
+  color: Int32Array;
+  priority: Uint8Array;
+}
+
+let objBitmap: ObjBitmapLayer | null = null;
+
+export function setObjBitmapLayer(layer: ObjBitmapLayer | null): void {
+  objBitmap = layer;
+}
 
 function reg(offset: number, line: number): number {
   const h = hblankRegs.get(offset);
@@ -90,6 +110,10 @@ function renderObjLine(line: number, dispcnt: number): void {
   objSemi.fill(0);
   objWin.fill(0);
   if (!(dispcnt & 0x1000)) return;
+  if (objBitmap) {
+    objColor.set(objBitmap.color.subarray(line * W, line * W + W));
+    objPrio.set(objBitmap.priority.subarray(line * W, line * W + W));
+  }
   const oneD = (dispcnt & 0x40) !== 0;
   // Lower OAM index wins, so draw from the back of OAM to the front.
   for (let i = 127; i >= 0; i--) {
@@ -179,6 +203,10 @@ function darken(a: number, evy: number): number {
 export function renderFrame(out: Uint32Array): void {
   const bgColor = new Int32Array(4);
   for (let line = 0; line < H; line++) {
+    if (gMain.hblankCallback) {
+      setVCount(line);
+      gMain.hblankCallback();
+    }
     const dispcnt = reg(REG_OFFSET_DISPCNT, line);
     if (dispcnt & 0x80) {
       out.fill(0xffffffff, line * W, line * W + W); // forced blank shows white
@@ -206,6 +234,11 @@ export function renderFrame(out: Uint32Array): void {
     const evb = Math.min(16, (bldalpha >> 8) & 0x1f);
     const effect = (bldcnt >> 6) & 3;
     const backdrop = pltt[0];
+    // BG mosaic: each block of (h + 1) x (v + 1) pixels shows its top-left pixel
+    const mosaic = reg(REG_OFFSET_MOSAIC, line);
+    const mosaicH = (mosaic & 0xf) + 1;
+    const mosaicV = ((mosaic >> 4) & 0xf) + 1;
+    const mosaicLine = line - (line % mosaicV);
     for (let x = 0; x < W; x++) {
       // Window mask: bits 0-3 BGs, 4 OBJ, 5 colour effects
       let mask = 0x3f;
@@ -215,7 +248,11 @@ export function renderFrame(out: Uint32Array): void {
         else if (dispcnt & 0x8000 && objWin[x]) mask = (winout >> 8) & 0x3f;
         else mask = winout & 0x3f;
       }
-      for (const b of order) bgColor[b] = mask & (1 << b) ? bgPixel(x, line, cnt[b], hofs[b], vofs[b]) : -1;
+      for (const b of order) {
+        if (!(mask & (1 << b))) bgColor[b] = -1;
+        else if (cnt[b] & 0x40) bgColor[b] = bgPixel(x - (x % mosaicH), mosaicLine, cnt[b], hofs[b], vofs[b]);
+        else bgColor[b] = bgPixel(x, line, cnt[b], hofs[b], vofs[b]);
+      }
       // Find the top two layers.
       let top = backdrop;
       let topLayer = LAYER_BD;

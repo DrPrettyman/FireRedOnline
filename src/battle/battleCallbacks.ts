@@ -25,7 +25,7 @@ import {
   SetGpuReg,
   WIN_RANGE,
 } from '../gba/hw';
-import { gMain, SetMainCallback1, SetMainCallback2, SetVBlankCallback } from '../gba/main';
+import { gMain, SetHBlankCallback, SetMainCallback1, SetMainCallback2, SetVBlankCallback } from '../gba/main';
 import { ResetPaletteFade, TransferPlttBuffer, UpdatePaletteFade } from '../gba/palette';
 import { gScanlineEffectRegBuffers, ScanlineEffect_Clear, ScanlineEffect_InitHBlankDmaTransfer, ScanlineEffect_SetParams, SCANLINE_EFFECT_DMACNT_16BIT } from '../gba/scanline';
 import { AnimateSprites, BuildOamBuffer, FreeAllSpritePalettes, ProcessSpriteCopyRequests, ResetSpriteData, SetReservedSpritePaletteCount } from '../gba/sprite';
@@ -50,6 +50,8 @@ export function CB2_InitBattle(terrain: number, afterSetUp: () => void = () => {
   AllocateMonSpritesGfx();
 
   // CB2_InitBattleInternal
+  SetHBlankCallback(null);
+  SetVBlankCallback(null);
   resetHardware(); // CpuFill32(0, VRAM, VRAM_SIZE)
   SetGpuReg(REG_OFFSET_MOSAIC, 0);
   SetGpuReg(REG_OFFSET_WIN0H, DISPLAY_WIDTH);
