@@ -7,6 +7,12 @@ import { random, random32 } from '../util/random';
 import { setRoamerInactive, updateRoamerHPStatus } from '../world/roamer';
 import { battleAI_HandleItemUseBeforeAISetup, recordAbilityBattle } from './ai';
 import { BeginFastPaletteFade, gPaletteFade } from '../gba/palette';
+import { gMain } from '../gba/main';
+import { ResetSpriteData } from '../gba/sprite';
+import { FreeAllWindowBuffers } from '../gba/window';
+import { EvolutionScene, setCB2_AfterEvolution } from '../menus/evolutionScene';
+import { BattleMainCB2 } from './battleCallbacks';
+import { GetEvolutionTargetSpecies } from './items';
 import { ui } from './battleUi';
 import { K } from './constants';
 import {
@@ -30,7 +36,7 @@ import { SetControllerToSafari } from './controllerSafari';
 import { battleControllerDummy, setControllerToPlayer } from './controllerPlayer';
 import { bdata, g, gBattleMoves, gSpeciesInfo, itemHoldEffect, itemHoldEffectParam, mem, pokemon, state } from './env';
 import { bit } from './globals';
-import { clearBattleMonForms } from './gfx';
+import { clearBattleMonForms, FreeMonSpritesGfx } from './gfx';
 import { bufferBattlePartyCurrentOrderBySide, getPartyIdFromBattlePartyId, switchPartyMonSlots } from './partyOrder';
 import {
   adjustFriendship,
@@ -1308,7 +1314,9 @@ function handleEndTurn_FinishBattle(): void {
     }
     // TrySetQuestLogBattleEvent / ClearRematchStateByTrainerId: no quest log or rematches yet
     BeginFastPaletteFade(3);
+    // FadeOutMapMusic(5): no audio
     g.battleMainFunc = freeResetData_ReturnToOvOrDoEvolutions;
+    setCB2_AfterEvolution(BattleMainCB2);
   } else if (g.battleControllerExecFlags === 0) {
     gBattleScriptingCommandsTable[mem.u8(g.battlescriptCurrInstr)]();
   }
@@ -1316,16 +1324,38 @@ function handleEndTurn_FinishBattle(): void {
 
 function freeResetData_ReturnToOvOrDoEvolutions(): void {
   if (!gPaletteFade.active) {
+    ResetSpriteData();
     if (g.leveledUpInBattle === 0 || g.battleOutcome !== K.B_OUTCOME_WON) g.battleMainFunc = returnFromBattleToOverworld;
     else g.battleMainFunc = tryEvolvePokemon;
+    FreeAllWindowBuffers();
+    // !(gBattleTypeFlags & BATTLE_TYPE_LINK): FreeMonSpritesGfx / FreeBattleSpritesData / FreeBattleResources
+    FreeMonSpritesGfx();
   }
 }
 
-/** TryEvolvePokemon: the evolution scene doesn't exist yet, so evolutions are skipped. */
+/** TryEvolvePokemon: each mon that leveled up gets a chance to evolve, one evolution scene at a time. */
 function tryEvolvePokemon(): void {
-  if (g.leveledUpInBattle) console.warn('[battle] evolution scene not implemented; skipping evolutions');
-  g.leveledUpInBattle = 0;
+  while (g.leveledUpInBattle !== 0) {
+    for (let i = 0; i < K.PARTY_SIZE; i++) {
+      if (g.leveledUpInBattle & bit(i)) {
+        const levelUpBits = g.leveledUpInBattle & ~bit(i);
+        g.leveledUpInBattle = levelUpBits;
+
+        const species = GetEvolutionTargetSpecies(g.playerParty[i]!, K.EVO_MODE_NORMAL, levelUpBits);
+        if (species !== K.SPECIES_NONE) {
+          g.battleMainFunc = waitForEvoSceneToFinish;
+          EvolutionScene(g.playerParty[i]!, species, 0x81, i);
+          return;
+        }
+      }
+    }
+  }
   g.battleMainFunc = returnFromBattleToOverworld;
+}
+
+/** WaitForEvoSceneToFinish */
+function waitForEvoSceneToFinish(): void {
+  if (gMain.callback2 === BattleMainCB2) g.battleMainFunc = tryEvolvePokemon;
 }
 
 /** ReturnFromBattleToOverworld */

@@ -207,7 +207,7 @@ export function Cmd_yesnoboxlearnmove(): void {
 }
 
 /** IsHMMove2 */
-function isHMMove2(move: number): boolean {
+export function isHMMove2(move: number): boolean {
   const hm = mech().sHMMoves;
   for (let i = 0; hm[i] !== 0xffff; i++) if (hm[i] === move) return true;
   return false;

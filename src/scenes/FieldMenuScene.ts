@@ -6,7 +6,9 @@
 
 import type { Assets } from '../data/assets';
 import { K } from '../battle/constants';
-import { initBattleEnv, setTextStrings } from '../battle/env';
+import { setBattleTextSpeed } from '../battle/battleWindow';
+import { g, initBattleEnv, setTextStrings } from '../battle/env';
+import { initBattleMessages } from '../battle/message';
 import { loadGfx } from '../gba/gfx';
 import { gMain, SetMainCallback1, SetMainCallback2, SetVBlankCallback } from '../gba/main';
 import { initGbaText } from '../gba/window';
@@ -50,6 +52,8 @@ export interface FieldMenuStart {
   state: GameState;
   pokemon: PokemonData;
   charmap: Charmap;
+  /** gMapHeader.battleType (MAP_BATTLE_SCENE_*): the evolution scene's backdrop reads it. */
+  mapBattleScene: number;
   /** Back to the field; `openStartMenu` for CB2_ReturnToFieldWithOpenMenu. */
   onExit(openStartMenu: boolean): void;
 }
@@ -68,9 +72,13 @@ export class FieldMenuScene extends GbaHostScene {
     // Item effects, anim tables and battle strings come with the battle data.
     const data = await sharedBattleData();
     initBattleEnv(data, assets.scripts.defines, start.pokemon, start.state, start.charmap);
+    g.mapBattleScene = start.mapBattleScene;
     setTextStrings(assets.strings);
     await loadGfx(['sDownArrowTiles']);
     await prepareMenus(start.state);
+    // The evolution scene (Rare Candy, evolution stones) prints battle text.
+    initBattleMessages();
+    setBattleTextSpeed(TEXT_SPEED[start.state.textSpeed].delay);
     initGbaText(new Fonts(this, assets.fonts), this.buttons, TEXT_SPEED[start.state.textSpeed].scroll);
     this.lEqualsA = start.state.optionsButtonMode === K.OPTIONS_BUTTON_MODE_L_EQUALS_A;
 

@@ -202,6 +202,8 @@ function createApi(game: Phaser.Game) {
   };
   const nameOf = (prefix: string, value: number) => Object.keys(defines()).find((k) => k.startsWith(prefix) && defines()[k] === value);
   const shortName = (prefix: string, value: number) => nameOf(prefix, value)?.slice(prefix.length);
+  /** MOVE_* without the prefix, from the move table (other MOVE_* defines such as MOVE_EFFECT_SLEEP share the ids). */
+  const moveName = (value: number) => requireState().pokemon.moves[value]?.id.slice('MOVE_'.length);
   const overworld = (): OverworldLike | undefined =>
     game.scene.isActive('Overworld') || game.scene.isSleeping('Overworld') ? (game.scene.getScene('Overworld') as OverworldLike) : undefined;
   const state = () => overworld()?.state;
@@ -250,7 +252,7 @@ function createApi(game: Phaser.Game) {
     maxHP: m.maxHP,
     status: m.status,
     exp: m.exp,
-    moves: m.moves.filter((mv) => mv).map((mv) => shortName('MOVE_', mv)),
+    moves: m.moves.filter((mv) => mv).map(moveName),
   });
   const createMon = (spec: MonSpec): Pokemon => {
     const s = requireState();

@@ -50,6 +50,11 @@ function stringIdSym(stringId: number): string | undefined {
   return bdata.strings.battleStrings[stringId];
 }
 
+/** gBattleStringsTable[stringId - BATTLESTRINGS_TABLE_START], encoded */
+export function gBattleStringsTable(stringId: number): number[] {
+  return encodeBattleText(stringIdSym(stringId) ?? '');
+}
+
 /** gMoveNames[move] */
 export function moveName(move: number): number[] {
   return charmap.encode(gBattleMoves[move]?.name ?? '$');

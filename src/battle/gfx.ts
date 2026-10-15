@@ -637,6 +637,13 @@ export function LoadSpecialPokePic(front: boolean, species: number, personality:
   dest.set(pic.subarray(0, Math.min(pic.length, dest.length)));
 }
 
+/** DecompressPicFromTable(&table[species], buffer, species): `src` is the table entry's pic symbol. */
+export function DecompressPicFromTable(src: string, dest: Uint8Array): void {
+  const pic = gfx(src);
+  dest.fill(0);
+  dest.set(pic.subarray(0, Math.min(pic.length, dest.length)));
+}
+
 /** The pic symbol LoadSpecialPokePic reads (for preloading). */
 export function monPicSymbol(front: boolean, species: number, personality: number): string {
   const table = front ? bdata.anims.monFrontPics : bdata.anims.monBackPics;

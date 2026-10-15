@@ -1,7 +1,7 @@
 // party_menu.c: the party menu, from the field (start menu, using and giving items) and in battle
 // (switching, choosing a mon for an item, Oak's first-battle narration).
 //
-// Not ported because their screens or systems don't exist yet: the evolution scene, the item-use animation (pokemon_special_anim.c), mail, field moves (they report
+// Not ported because their screens or systems don't exist yet: the item-use animation (pokemon_special_anim.c), mail, field moves (they report
 // "can't use here"), link/multi battles, the Union Room, minigames and the Pokédude/Teachy TV demos.
 
 import { K } from '../battle/constants';
@@ -157,6 +157,7 @@ import { CB2_ReturnToField, CB2_ReturnToFieldContinueScriptPlayMapMusic, CB2_Ret
 import { CB2_BagMenuFromBattle, CB2_SetUpReshowBattleScreenAfterMenu, GoToBagMenu } from './itemMenu';
 import { SpecialVar } from './itemMenuState';
 import { CheckIfItemIsTMHMOrEvolutionStone } from './itemUse';
+import { BeginEvolutionScene, setCB2_AfterEvolution } from './evolutionScene';
 import { CreateMonIcon, LoadMonIconPalettes, SetPartyHPBarSprite, SpriteCB_MonIcon, UpdateMonIconFrame } from './pokemonIcon';
 
 const PARTY_PAL_SELECTED = 1 << 0;
@@ -3488,10 +3489,13 @@ function PartyMenuTryEvolution(taskId: number): void {
   const mon = P(gPartyMenu.slotId);
   const targetSpecies = GetEvolutionTargetSpecies(mon, K.EVO_MODE_NORMAL, K.ITEM_NONE);
   if (targetSpecies !== K.SPECIES_NONE) {
-    // BeginEvolutionScene(mon, targetSpecies, TRUE, gPartyMenu.slotId): not implemented yet
-    console.warn('[party_menu] the evolution scene is not implemented; the mon does not evolve');
+    FreePartyPointers();
+    setCB2_AfterEvolution(gPartyMenu.exitCallback);
+    BeginEvolutionScene(mon, targetSpecies, 1, gPartyMenu.slotId);
+    DestroyTask(taskId);
+  } else {
+    gTasks[taskId].func = Task_ClosePartyMenuAfterText;
   }
-  gTasks[taskId].func = Task_ClosePartyMenuAfterText;
 }
 
 function DisplayMonNeedsToReplaceMove(taskId: number): void {
@@ -3589,14 +3593,12 @@ export function ItemUseCB_EvolutionStone(taskId: number, func: TaskFunc): void {
   }
 }
 
-/**
- * CB2_UseEvolutionStone: ExecuteTableBasedItemEffect starts the evolution scene, which doesn't
- * exist yet (it warns); the stone is still used up like on the GBA, then back to the bag.
- */
+/** CB2_UseEvolutionStone: ExecuteTableBasedItemEffect starts the evolution scene. */
 function CB2_UseEvolutionStone(): void {
+  setCB2_AfterEvolution(gPartyMenu.exitCallback);
   ExecuteTableBasedItemEffect_(gPartyMenu.slotId, SpecialVar.ItemId, 0);
+  // ItemUse_SetQuestLogEvent: no quest log
   RemoveBagItem(SpecialVar.ItemId, 1);
-  SetMainCallback2(gPartyMenu.exitCallback);
 }
 
 function MonCanEvolve(): boolean {

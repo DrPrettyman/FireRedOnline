@@ -5,6 +5,7 @@
 
 import { gMain } from '../gba/main';
 import { menusData } from '../menus/data';
+import { BeginEvolutionScene } from '../menus/evolutionScene';
 import type { Pokemon, Stat } from '../pokemon/Pokemon';
 import { K } from './constants';
 import { emitGetMonData, markBattlerForControllerExec } from './controllers';
@@ -363,9 +364,7 @@ export function pokemonUseItemEffects(mon: Pokemon, item: number, partyIndex: nu
                 // ITEM4_EVO_STONE
                 const targetSpecies = GetEvolutionTargetSpecies(mon, K.EVO_MODE_ITEM_USE, item);
                 if (targetSpecies !== K.SPECIES_NONE) {
-                  // BeginEvolutionScene(mon, targetSpecies, FALSE, partyIndex): the evolution scene
-                  // doesn't exist yet, so the mon doesn't evolve.
-                  console.warn('[item] evolution scene not implemented; the mon does not evolve');
+                  BeginEvolutionScene(mon, targetSpecies, 0, partyIndex);
                   return false;
                 }
                 break;

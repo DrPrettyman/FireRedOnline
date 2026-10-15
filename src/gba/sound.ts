@@ -23,6 +23,14 @@ export function IsSEPlaying(): boolean {
 /** PlayCry_ByMode: no cries yet. */
 export function PlayCry_ByMode(_species: number, _pan: number, _mode: number): void {}
 
+/** PlayCry_Normal: no cries yet. */
+export function PlayCry_Normal(_species: number, _pan: number): void {}
+
+/** IsCryFinished: TRUE once the cry has stopped (no cries yet, so always). */
+export function IsCryFinished(): boolean {
+  return true;
+}
+
 export function StopCryAndClearCrySongs(): void {}
 
 /** IsCryPlayingOrClearCrySongs: TRUE while a cry is playing. */

@@ -945,11 +945,13 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
    * with the screen still black.
    */
   private runFieldMenu(start: Pick<FieldMenuStart, 'menu' | 'shopField' | 'naming'>, onReturn: (openStartMenu: boolean) => void): void {
+    const d = this.defines;
     const launch: FieldMenuStart = {
       ...start,
       state: this.state,
       pokemon: this.state.pokemon,
       charmap: this.charmap,
+      mapBattleScene: d.get(this.world.current.data.battleScene ?? '') ?? d.require('MAP_BATTLE_SCENE_NORMAL'),
       onExit: (openStartMenu: boolean) => {
         this.scene.stop('FieldMenu');
         this.scene.wake('Overworld');
