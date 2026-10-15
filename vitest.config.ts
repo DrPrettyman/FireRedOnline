@@ -4,6 +4,8 @@ import { defineConfig } from 'vitest/config';
 // headless Chrome, driven through window.__test). See tests/README.md.
 export default defineConfig({
   test: {
+    // Each e2e file drives its own headless Chrome, and software rendering is CPU-heavy.
+    maxWorkers: 4,
     projects: [
       {
         test: {
@@ -21,9 +23,6 @@ export default defineConfig({
           globalSetup: ['tests/e2e/globalSetup.ts'],
           testTimeout: 120_000,
           hookTimeout: 60_000,
-          // Each file drives its own Chrome; software rendering is CPU-heavy, so only a few at once.
-          pool: 'forks',
-          poolOptions: { forks: { maxForks: 3, minForks: 1 } },
         },
       },
     ],

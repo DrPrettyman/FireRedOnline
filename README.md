@@ -81,9 +81,13 @@ Each metatile's two layers are split by layer type into a **below** atlas (under
 
 ### Testing
 
-- `npm run typecheck`
+- `npm run typecheck` (the game, then the tests)
+- `npm test` (unit tests, Node) and `npm run test:e2e` (scripted playthroughs in headless Chrome: new game
+  through the rival battle, trainer sight, winning/losing/white-out, wild encounters, catching, the Poké
+  Mart). See [tests/README.md](tests/README.md) for how to write them.
 - In the browser: `?map=<Name>&x=<x>&y=<y>` starts anywhere; <code>`</code> shows the debug HUD; `window.game` in dev.
-- Headless: `tools/browser-test.mjs` drives Chrome (keys, evals, screenshots). See the header of that file.
+- Headless, ad hoc: `tools/browser-test.mjs` drives Chrome (keys, evals, screenshots). See the header of that file.
+  For anything worth keeping, write an e2e test instead.
 
 ## Progress
 

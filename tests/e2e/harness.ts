@@ -33,6 +33,9 @@ export const OUTPUT_DIR = resolve(__dirname, '__output__');
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** What a successful wait returns: the predicate's value, minus the falsy cases. */
+type Truthy<T> = Exclude<T, false | 0 | '' | null | undefined>;
+
 // ------------------------------------------------------------------ Chrome + CDP
 
 class Cdp {
@@ -232,7 +235,7 @@ export class Game {
   }
 
   /** Poll `fn(__test)` until it returns something truthy; returns that value. */
-  async waitFor<R>(fn: (t: TestApi) => R, opts: WaitOptions & { raw?: boolean } = {}): Promise<NonNullable<R>> {
+  async waitFor<R>(fn: (t: TestApi) => R, opts: WaitOptions & { raw?: boolean } = {}): Promise<Truthy<R>> {
     const timeout = opts.timeout ?? 30_000;
     const end = Date.now() + timeout;
     const expr = opts.raw ? `(${fn.toString()})()` : `(${fn.toString()})(window.__test)`;
@@ -240,7 +243,7 @@ export class Game {
     while (Date.now() < end) {
       try {
         last = await this.evalRaw<R>(expr);
-        if (last) return last as NonNullable<R>;
+        if (last) return last as Truthy<R>;
       } catch (e) {
         if (!opts.raw) throw e;
       }
@@ -288,7 +291,7 @@ export class Game {
   async mashUntil<R>(
     fn: (t: TestApi) => R,
     opts: WaitOptions & { button?: Button; answers?: [RegExp, Button][]; trace?: boolean; maxFrames?: number } = {},
-  ): Promise<NonNullable<R>> {
+  ): Promise<Truthy<R>> {
     const answers = (opts.answers ?? []).map(([re, b]) => [re.source, re.flags, b]);
     const call = `__test.mash(${fn.toString()}, ${JSON.stringify(opts.button ?? 'A')}, ${opts.maxFrames ?? 20000}, ${JSON.stringify(answers)})`;
     const timeout = opts.timeout ?? 120_000;
@@ -297,7 +300,7 @@ export class Game {
       sleep(timeout).then(() => undefined),
     ]);
     if (opts.trace && result) for (const m of result.messages) console.log(`[message] ${m}`);
-    if (result?.value) return result.value as NonNullable<R>;
+    if (result?.value) return result.value as Truthy<R>;
     throw new Error(`Gave up pressing ${opts.button ?? 'A'} waiting for ${opts.what ?? fn.toString()}${await this.context()}`);
   }
 
