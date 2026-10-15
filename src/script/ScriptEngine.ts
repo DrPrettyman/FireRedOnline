@@ -12,6 +12,8 @@ import type { Defines } from './Defines';
 import { MovementRunner, towards, type Instruction } from './MovementRunner';
 import type { FieldTask } from '../world/elevator';
 import { SPECIALS, type SpecialEnv } from './specials';
+import { testEvent } from '../dev/testHooks';
+import { random } from '../util/random';
 
 export interface ScriptsData {
   code: Instruction[];
@@ -246,6 +248,11 @@ export class ScriptEngine {
     return this.ctx !== undefined;
   }
 
+  /** The label the running script was started from (dev/test probes). */
+  get runningLabel(): string | undefined {
+    return this.ctx?.label;
+  }
+
   hasLabel(label: string): boolean {
     return label in this.data.labels;
   }
@@ -258,6 +265,7 @@ export class ScriptEngine {
       return false;
     }
     this.ctx = new ScriptContext(pc, label);
+    testEvent('script', { label });
     this.msgBoxIsCancelable = false; // ClearMsgBoxCancelableState
     this.msgBoxWalkawayDisabled = false; // EnableMsgBoxWalkaway
     this.registeredInputIsDpad = false; // ClearQuestLogInputIsDpadFlag
@@ -672,7 +680,7 @@ export class ScriptEngine {
       this.state.setVar(a[0], this.state.value(a[1]));
     },
     random(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
-      this.state.setVar('VAR_RESULT', Math.floor(Math.random() * Math.max(1, this.state.value(a[0]))));
+      this.state.setVar('VAR_RESULT', random() % Math.max(1, this.state.value(a[0]))); // ScrCmd_random
     },
     checkplayergender(this: ScriptEngine) {
       this.state.setVar('VAR_RESULT', this.state.playerGender === 'male' ? 0 : 1);

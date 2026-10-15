@@ -1,6 +1,7 @@
 import type { ObjectEventData } from '../data/types';
 import { DELTA, DIRECTIONS, OPPOSITE, type Direction } from '../world/direction';
 import type { ObjectEvent } from './ObjectEvent';
+import { random } from '../util/random';
 
 /** Decides what an NPC does each frame, following its MOVEMENT_TYPE_* from the map data. */
 export class NpcBrain {
@@ -93,11 +94,12 @@ function parseLookDirections(kind: string): Direction[] {
     .filter((d): d is Direction => d !== undefined);
 }
 
+// The GBA rolls these on the global RNG (Random() & 3 / & 1), so they share the seed with everything else.
 function pick<T>(arr: readonly T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[random() % arr.length];
 }
 
 function randomWait(): number {
-  // GBA wanderers idle 32/64/96/128 frames between moves.
-  return 32 * (1 + Math.floor(Math.random() * 4));
+  // GBA wanderers idle 32/64/96/128 frames between moves (gMovementDelaysMedium[Random() & 3]).
+  return 32 * (1 + (random() & 3));
 }

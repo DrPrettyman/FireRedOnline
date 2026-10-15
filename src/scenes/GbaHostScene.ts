@@ -8,6 +8,7 @@ import { DISPLAY_HEIGHT, DISPLAY_WIDTH } from '../gba/hw';
 import { CallCallbacks, gMain, ReadKeys } from '../gba/main';
 import { renderFrame } from '../gba/ppu';
 import { Input } from '../input/Input';
+import { logicSpeed } from '../dev/testHooks';
 
 const FRAME_MS = 1000 / 60;
 
@@ -44,7 +45,7 @@ export abstract class GbaHostScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (!this.running) return;
-    this.accumulator = Math.min(this.accumulator + delta, FRAME_MS * 5);
+    this.accumulator = Math.min(this.accumulator + delta * logicSpeed, FRAME_MS * 5 * logicSpeed);
     let ticked = false;
     while (this.accumulator >= FRAME_MS && this.running) {
       this.accumulator -= FRAME_MS;

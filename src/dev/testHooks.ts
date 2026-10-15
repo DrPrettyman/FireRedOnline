@@ -1,0 +1,489 @@
+// Dev-only hooks for the automated tests (tests/e2e): a virtual gamepad, an event log, a logic-speed
+// multiplier and probes into game state, exposed as `window.__test`. Nothing here changes how the game
+// plays; the game reports a few milestones through `testEvent` and samples the pad along with the keyboard.
+//
+// URL parameters (dev builds only):
+//   ?seed=N        seed the GBA RNG (random.c) before anything rolls, e.g. the trainer id
+//   ?speed=N       run N logic ticks per 60 Hz frame (fast-forward); timings stay in GBA frames
+//   ?textSpeed=fast|mid|slow   the options text speed for the new game
+
+import type Phaser from 'phaser';
+import type { Assets } from '../data/assets';
+import { g } from '../battle/env';
+import { gMain } from '../gba/main';
+import type { Button } from '../input/Input';
+import type { Pokemon } from '../pokemon/Pokemon';
+import type { GameState } from '../state/GameState';
+import { TEXT_SPEED, type TextSpeed } from '../text/TextPrinter';
+import { seedRng } from '../util/random';
+import { DELTA, type Direction } from '../world/direction';
+
+let enabled = false;
+/** `?textSpeed=`: applied to the new game's options by applyTestOptions. */
+let textSpeed: TextSpeed | undefined;
+/** Logic ticks per 60 Hz frame (`?speed=`). Scenes multiply their frame delta by this. */
+export let logicSpeed = 1;
+
+// ------------------------------------------------------------------ virtual gamepad
+
+interface QueuedPress {
+  buttons: Button[];
+  /** Ticks left holding the buttons, then ticks left released before the next press may start. */
+  frames: number;
+  gap: number;
+  done: () => void;
+}
+
+/**
+ * Buttons the tests hold or tap. Input.sample() ORs these with the keyboard once per logic tick, and
+ * only one scene samples per tick (the others are asleep), so a tap lasts exactly `frames` ticks.
+ * Conditions (`holdWhile`, `until`) are checked at the start of each tick, before the game runs it.
+ */
+class VirtualPad {
+  private holding = new Set<Button>();
+  private conditional: { button: Button; keep: () => boolean }[] = [];
+  /** Per-tick drivers: return the buttons to hold this tick, or undefined when done. */
+  private drivers: (() => Button[] | undefined)[] = [];
+  private queue: QueuedPress[] = [];
+  private waiters: { ready: () => boolean; done: () => void }[] = [];
+  /** Logic ticks sampled so far, across every scene. */
+  frame = 0;
+  /** Run at the start of every tick, before conditions are checked. */
+  onTick?: () => void;
+
+  /** Called by Input.sample once per logic tick. */
+  sample(): Button[] {
+    this.frame++;
+    this.onTick?.();
+    this.waiters = this.waiters.filter((w) => (w.ready() ? (w.done(), false) : true));
+    this.conditional = this.conditional.filter((c) => c.keep());
+    const driven: Button[] = [];
+    this.drivers = this.drivers.filter((d) => {
+      const b = d();
+      if (b) driven.push(...b);
+      return b !== undefined;
+    });
+    const head = this.queue[0];
+    let tapped: Button[] = [];
+    if (head) {
+      if (head.frames > 0) {
+        tapped = head.buttons;
+        head.frames--;
+      } else head.gap--;
+      if (head.frames === 0 && head.gap <= 0) {
+        this.queue.shift();
+        head.done();
+      }
+    }
+    return [...this.holding, ...this.conditional.map((c) => c.button), ...driven, ...tapped];
+  }
+
+  /** Hold `buttons` for `frames` ticks, then release for `gap` ticks; resolves once the release is sampled. */
+  press(buttons: Button[], frames: number, gap: number): Promise<void> {
+    return new Promise((done) => this.queue.push({ buttons, frames: Math.max(1, frames), gap: Math.max(1, gap), done }));
+  }
+
+  hold(b: Button): void {
+    this.holding.add(b);
+  }
+
+  /** Hold `b` on every tick that `keep()` is true at its start; dropped for good the first time it isn't. */
+  holdWhile(b: Button, keep: () => boolean): void {
+    this.conditional.push({ button: b, keep });
+  }
+
+  release(b?: Button): void {
+    if (b) this.holding.delete(b);
+    else this.holding.clear();
+    this.conditional = b ? this.conditional.filter((c) => c.button !== b) : [];
+  }
+
+  /** Run `step` at the start of every tick (after conditions) until it returns undefined. */
+  drive(step: () => Button[] | undefined): void {
+    this.drivers.push(step);
+  }
+
+  /** Resolves at the start of the first tick where `ready()` holds. */
+  until(ready: () => boolean): Promise<void> {
+    return new Promise((done) => this.waiters.push({ ready, done }));
+  }
+
+  waitFrames(n: number): Promise<void> {
+    const at = this.frame + n;
+    return this.until(() => this.frame >= at);
+  }
+}
+
+const pad = new VirtualPad();
+
+/** Buttons the virtual pad holds this tick (empty unless the hooks are installed). */
+export function sampleVirtualPad(): Button[] {
+  return enabled ? pad.sample() : [];
+}
+
+// ------------------------------------------------------------------ event log
+
+export interface TestEvent {
+  seq: number;
+  frame: number;
+  type: string;
+  [key: string]: unknown;
+}
+
+const events: TestEvent[] = [];
+let seq = 0;
+
+/**
+ * Record a milestone for the tests: `ready`, `map` {map}, `script` {label}, `trainerApproach`,
+ * `battleStart` {flags, trainer}, `battleEnd` {outcome}, `whiteOut`.
+ */
+export function testEvent(type: string, data: Record<string, unknown> = {}): void {
+  if (!enabled) return;
+  events.push({ ...data, seq: ++seq, frame: pad.frame, type });
+  if (events.length > 5000) events.splice(0, events.length - 5000);
+}
+
+// ------------------------------------------------------------------ probes
+
+/** What OverworldScene.testProbe reports. */
+export interface FieldProbe {
+  map: string;
+  /** Map-local position (as in `?map=&x=&y=` and the map's events). */
+  x: number;
+  y: number;
+  /** World tile position (stable across map connections). */
+  worldX: number;
+  worldY: number;
+  facing: Direction;
+  busy: boolean;
+  /** Label of the running script, if any. */
+  script: string | undefined;
+  overlay: boolean;
+  moving: boolean;
+  approaching: boolean;
+  fading: boolean;
+  /** The field message box's text while it's open (encoded; `__test.message()` decodes it). */
+  message: number[] | undefined;
+}
+
+/** The parts of OverworldScene the hooks use (`startWildBattle` is private there; reached by name). */
+interface OverworldLike extends Phaser.Scene {
+  testProbe(): FieldProbe | undefined;
+  testFindPath(worldX: number, worldY: number): Direction[] | undefined;
+  testPushWarpDirection(): Direction | undefined;
+  state: GameState;
+  startWildBattle(mon: Pokemon): void;
+}
+
+export interface MonSpec {
+  /** SPECIES_* without the prefix, e.g. "MEWTWO". */
+  species: string;
+  level: number;
+  /** MOVE_* without the prefix; omitted keeps CreateMon's level-up moveset. */
+  moves?: string[];
+  /** Fixed IVs (0-31); omitted rolls them. */
+  iv?: number;
+  /** ITEM_* without the prefix. */
+  item?: string;
+}
+
+/** Argument bytes after FC <code> (as TextPrinter reads them); codes not listed take none. */
+const EXT_CTRL_ARGS: Record<number, number> = { 0x01: 1, 0x02: 1, 0x03: 1, 0x04: 3, 0x05: 1, 0x06: 1, 0x08: 1, 0x0b: 2, 0x0c: 1, 0x0d: 1, 0x0e: 1, 0x10: 2, 0x11: 1, 0x12: 1, 0x13: 1, 0x14: 1 };
+
+const DIR_BUTTON: Record<Direction, Button> = { up: 'UP', down: 'DOWN', left: 'LEFT', right: 'RIGHT' };
+
+function createApi(game: Phaser.Game) {
+  const assets = (): Assets => game.registry.get('assets');
+  const defines = () => assets().scripts.defines;
+  const define = (name: string) => {
+    const v = defines()[name];
+    if (v === undefined) throw new Error(`Unknown constant ${name}`);
+    return v;
+  };
+  const nameOf = (prefix: string, value: number) => Object.keys(defines()).find((k) => k.startsWith(prefix) && defines()[k] === value);
+  const shortName = (prefix: string, value: number) => nameOf(prefix, value)?.slice(prefix.length);
+  const overworld = (): OverworldLike | undefined =>
+    game.scene.isActive('Overworld') || game.scene.isSleeping('Overworld') ? (game.scene.getScene('Overworld') as OverworldLike) : undefined;
+  const state = () => overworld()?.state;
+  const requireState = () => {
+    const s = state();
+    if (!s) throw new Error('No game state yet');
+    return s;
+  };
+  const field = () => overworld()?.testProbe();
+  /** Nothing holds the field right now: no script, menu, fade, movement, trainer or pending warp. */
+  const free = () => {
+    if (!game.scene.isActive('Overworld')) return false;
+    const p = field();
+    return !!p && !p.busy && !p.script && !p.overlay && !p.moving && !p.approaching && !p.fading;
+  };
+  // A free field can still start an ON_FRAME script or a trainer on its next tick, so "idle" means it
+  // was free at the start of two ticks in a row.
+  let freeTicks = 0;
+  pad.onTick = () => {
+    freeTicks = free() ? freeTicks + 1 : 0;
+  };
+  const idle = () => freeTicks >= 2 && free();
+
+  let decodeTable: Map<number, string> | undefined;
+  /** Encoded bytes back to text (single-byte charmap entries; good enough for names). */
+  const decode = (bytes: number[]) => {
+    if (!decodeTable) {
+      decodeTable = new Map();
+      for (const [ch, b] of Object.entries(assets().charmap.chars)) if (b.length === 1 && !decodeTable.has(b[0])) decodeTable.set(b[0], ch);
+    }
+    let s = '';
+    for (let i = 0; i < bytes.length; i++) {
+      const b = bytes[i];
+      if (b === 0xff) break;
+      if (b === 0xfa || b === 0xfb || b === 0xfe) s += ' '; // \l \p \n
+      else if (b === 0xfc) i += 1 + (EXT_CTRL_ARGS[bytes[i + 1]] ?? 0); // text colour etc.: skip the code and its args
+      else s += decodeTable.get(b) ?? '?';
+    }
+    return s.replace(/ +/g, ' ');
+  };
+  const monSummary = (m: Pokemon) => ({
+    species: shortName('SPECIES_', m.species),
+    nickname: decode(m.nickname),
+    level: m.level,
+    hp: m.hp,
+    maxHP: m.maxHP,
+    status: m.status,
+    exp: m.exp,
+    moves: m.moves.filter((mv) => mv).map((mv) => shortName('MOVE_', mv)),
+  });
+  const createMon = (spec: MonSpec): Pokemon => {
+    const s = requireState();
+    const mon = s.pokemon.createMon(define(`SPECIES_${spec.species}`), spec.level, {
+      otId: s.trainerId,
+      otName: s.playerName,
+      otGender: s.playerGender,
+      metLocation: s.currentMapSection,
+      fixedIV: spec.iv,
+    });
+    if (spec.moves) {
+      mon.moves = [0, 0, 0, 0];
+      mon.pp = [0, 0, 0, 0];
+      spec.moves.slice(0, 4).forEach((name, i) => {
+        mon.moves[i] = define(`MOVE_${name}`);
+        mon.pp[i] = s.pokemon.moves[mon.moves[i]].pp;
+      });
+    }
+    if (spec.item) mon.heldItem = define(`ITEM_${spec.item}`);
+    return mon;
+  };
+
+  const walk = async (dir: Direction, tiles = 1, maxFrames = 40 * tiles + 60) => {
+    const start = field();
+    if (!start) throw new Error('No field');
+    const { dx, dy } = DELTA[dir];
+    const tx = start.worldX + dx * tiles;
+    const ty = start.worldY + dy * tiles;
+    const deadline = pad.frame + maxFrames;
+    const interrupted = () => {
+      const f = field();
+      return !f || !game.scene.isActive('Overworld') || !!f.script || f.overlay || f.approaching || f.busy;
+    };
+    let holding = true;
+    pad.holdWhile(DIR_BUTTON[dir], () => {
+      const f = field();
+      holding = !!f && !(f.worldX === tx && f.worldY === ty) && !interrupted() && pad.frame < deadline;
+      return holding;
+    });
+    await pad.until(() => !holding && (interrupted() || !field()?.moving));
+    pad.release(DIR_BUTTON[dir]);
+    const f = field()!;
+    return { x: f.x, y: f.y, map: f.map, arrived: f.worldX === tx && f.worldY === ty, interrupted: interrupted() };
+  };
+
+  const api = {
+    /** Logic ticks sampled so far. */
+    frame: () => pad.frame,
+
+    // --- input
+    /** Tap buttons together for `frames` ticks (default 2), then release for `gap` ticks (default 2). */
+    press: (buttons: Button | Button[], frames = 2, gap = 2) => pad.press(Array.isArray(buttons) ? buttons : [buttons], frames, gap),
+    hold: (b: Button) => pad.hold(b),
+    release: (b?: Button) => pad.release(b),
+    waitFrames: (n: number) => pad.waitFrames(n),
+    /**
+     * Hold a direction until the player has started the step onto the tile `tiles` away, then let go, and
+     * resolve once they've stopped. Gives up early if anything takes the controls (script, menu, trainer,
+     * warp, battle) or after `maxFrames`. Resolves with where the player ended up.
+     */
+    walk,
+    /**
+     * Walk to map-local (x, y) along the shortest route (OverworldScene.testFindPath), re-planning if an
+     * NPC steps in the way. Stops early like `walk` if something takes the controls, e.g. a trainer or a
+     * warp on the target tile. Throws if there's no route.
+     */
+    walkTo: async (x: number, y: number) => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const f = field();
+        if (!f) throw new Error('No field');
+        const tx = x + f.worldX - f.x;
+        const ty = y + f.worldY - f.y;
+        if (f.worldX === tx && f.worldY === ty) return { x: f.x, y: f.y, map: f.map, arrived: true, interrupted: false };
+        const path = overworld()!.testFindPath(tx, ty);
+        if (!path) throw new Error(`No route from (${f.x},${f.y}) to (${x},${y}) on ${f.map}`);
+        let result: Awaited<ReturnType<typeof walk>> | undefined;
+        for (let i = 0; i < path.length; ) {
+          let n = 1;
+          while (path[i + n] === path[i]) n++;
+          result = await walk(path[i], n);
+          if (!result.arrived) break;
+          i += n;
+        }
+        if (result && (result.arrived || result.interrupted)) return result;
+      }
+      const f = field()!;
+      return { x: f.x, y: f.y, map: f.map, arrived: false, interrupted: false };
+    },
+    /**
+     * Standing on a stair or arrow warp: push the way it leads and resolve once the next map is loaded
+     * and the field is free again. Returns the new map's name.
+     */
+    enterWarp: async () => {
+      const dir = overworld()?.testPushWarpDirection();
+      if (!dir) throw new Error(`Not standing on a push warp: ${JSON.stringify(field())}`);
+      const from = field()!.map;
+      pad.holdWhile(DIR_BUTTON[dir], () => field()?.map === from && !field()?.busy);
+      await pad.until(() => field()?.map !== from && idle());
+      return field()!.map;
+    },
+    /** Turn to face `dir` without moving (a tap shorter than the walk threshold). */
+    face: async (dir: Direction) => {
+      if (field()?.facing === dir) return;
+      await pad.press([DIR_BUTTON[dir]], 1, 1);
+      await pad.until(() => !field()?.moving);
+    },
+    /** Resolves at the start of the first tick where `pred()` is true (checked every tick, in the page). */
+    until: (pred: () => unknown, maxFrames = 3600) => {
+      const deadline = pad.frame + maxFrames;
+      return pad.until(() => !!pred() || pad.frame >= deadline).then(() => !!pred());
+    },
+
+    // --- events
+    events: (since = 0) => events.filter((e) => e.seq > since),
+    lastSeq: () => seq,
+
+    // --- probes
+    scenes: () => game.scene.getScenes(true).map((s) => s.scene.key),
+    /** The GBA-layer screen running (gMain.callback2's name, e.g. BattleMainCB2, CB2_NamingScreen), if any. */
+    gbaScreen: () => (game.scene.isActive('Battle') || game.scene.isActive('FieldMenu') ? gMain.callback2?.name : undefined),
+    field,
+    idle,
+    get state() {
+      return state();
+    },
+    flag: (name: string) => requireState().getFlag(name),
+    var: (name: string) => requireState().getVar(name),
+    money: () => requireState().money,
+    /** The trainer's flag (TRAINER_FLAGS_START + id), e.g. trainerDefeated('BUG_CATCHER_RICK'). */
+    trainerDefeated: (name: string) => requireState().getFlag(define('TRAINER_FLAGS_START') + define(`TRAINER_${name}`)),
+    party: () => state()?.party.map(monSummary) ?? [],
+    /** Every set flag and non-zero var, by name (FLAG_* / VAR_*, numbers for unnamed ones). */
+    snapshot: () => {
+      const s = requireState() as unknown as { flags: Set<number>; vars: Map<number, number> };
+      const flags = [...s.flags].sort((a, b) => a - b).map((f) => nameOf('FLAG_', f) ?? String(f));
+      const vars: Record<string, number> = {};
+      for (const [v, value] of [...s.vars].sort((a, b) => a[0] - b[0])) if (value) vars[nameOf('VAR_', v) ?? String(v)] = value;
+      return { flags, vars };
+    },
+    /** The field message box's text while it's open, decoded (line breaks become spaces). */
+    message: () => {
+      const m = field()?.message;
+      return m ? decode(m) : undefined;
+    },
+    /** Quantity of the first stack of ITEM_<name> in the bag (0 if none). */
+    itemCount: (name: string) => {
+      const id = define(`ITEM_${name}`);
+      return requireState().bag.pockets.flat().find((s) => s.itemId === id)?.quantity ?? 0;
+    },
+    /** The live battle (battle globals), or undefined outside one. */
+    battle: () => {
+      if (!game.scene.isActive('Battle') || !g) return undefined;
+      const mons = Array.from({ length: g.battlersCount }, (_, i) => {
+        const m = g.battleMons[i];
+        return { species: shortName('SPECIES_', m.species), hp: m.hp, maxHP: m.maxHP, level: m.level };
+      });
+      // The player's controller function, e.g. HandleInputChooseAction while the action menu waits.
+      const controller = g.battlerControllerFuncs[0]?.name;
+      return { typeFlags: g.battleTypeFlags, trainer: g.trainerBattleOpponent_A, mons, outcome: g.battleOutcome, controller };
+    },
+    /** gBattleOutcome as the last battle left it, by name (B_OUTCOME_WON, ...). */
+    lastOutcome: () => {
+      const o = state()?.battleOutcome;
+      return o ? nameOf('B_OUTCOME_', o) : undefined;
+    },
+    define,
+    nameOf,
+    decode,
+
+    // --- setup
+    seed: (n: number) => seedRng(n),
+    /** Replace the party (CreateMon with the player as OT). */
+    setParty: (specs: MonSpec[]) => {
+      requireState().party = specs.map(createMon);
+    },
+    /** StartWildBattle against a fresh mon, skipping the encounter dice. */
+    startWildBattle: (spec: MonSpec) => overworld()!.startWildBattle(createMon(spec)),
+
+    /**
+     * Tap `button` (2 ticks down, 4 up) until `pred(__test)` is truthy, checking at the start of every tick
+     * and deciding whether to press in that same tick, so no press lands after the condition comes true
+     * (e.g. on a menu that just opened). While the field message matches an `answers` pattern (regex
+     * source, flags), that answer's button is tapped instead. Resolves with pred's value (falsy if
+     * `maxFrames` ran out) and the distinct messages seen on the way.
+     */
+    // (pred takes `never` only to keep TestApi's type from referring to itself; it is called with the api.)
+    mash: (pred: (t: never) => unknown, button: Button = 'A', maxFrames = 20000, answers: [string, string, Button][] = []) =>
+      new Promise<{ value: unknown; messages: string[] }>((resolve, reject) => {
+        const patterns = answers.map(([src, flags, b]) => [new RegExp(src, flags), b] as const);
+        const messages: string[] = [];
+        const deadline = pad.frame + maxFrames;
+        let cycle = 0;
+        let current: Button = button;
+        pad.drive(() => {
+          let value: unknown;
+          try {
+            value = pred(api as never);
+          } catch (e) {
+            reject(e);
+            return undefined;
+          }
+          const msg = api.message();
+          if (msg && messages[messages.length - 1] !== msg) messages.push(msg);
+          if (value || pad.frame >= deadline) {
+            resolve({ value, messages });
+            return undefined;
+          }
+          const phase = cycle++ % 6;
+          if (phase === 0) current = patterns.find(([re]) => msg && re.test(msg))?.[1] ?? button;
+          return phase < 2 ? [current] : [];
+        });
+      }),
+  };
+  return api;
+}
+
+/** `window.__test` */
+export type TestApi = ReturnType<typeof createApi>;
+
+function install(game: Phaser.Game): void {
+  enabled = true;
+  const q = new URLSearchParams(location.search);
+  if (q.has('seed')) seedRng(Number(q.get('seed')));
+  if (q.has('speed')) logicSpeed = Math.max(1, Math.floor(Number(q.get('speed')) || 1));
+  const ts = q.get('textSpeed');
+  if (ts && ts in TEXT_SPEED) textSpeed = ts as TextSpeed;
+  (window as unknown as { __test: TestApi }).__test = createApi(game);
+  testEvent('hooks');
+}
+
+/** The URL's new-game options, applied by the overworld once its state exists and before the first map loads. */
+function applyTestOptions(state: GameState): void {
+  if (textSpeed) state.textSpeed = textSpeed;
+}
+
+export const testHooks = { install, applyTestOptions };

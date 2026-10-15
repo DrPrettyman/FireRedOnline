@@ -36,6 +36,8 @@ export class MessageBox {
   private printer?: TextPrinter;
   private arrowSheet: ImageData;
   visible = false;
+  /** The message being shown, placeholders expanded (dev/test probes read it). */
+  text: number[] = [];
 
   constructor(
     scene: Phaser.Scene,
@@ -61,7 +63,8 @@ export class MessageBox {
     const [fontId, fg] =
       color === 'male' ? [FONT_MALE, TEXT_COLOR_BLUE] : color === 'female' ? [FONT_FEMALE, TEXT_COLOR_RED] : [FONT_NORMAL, TEXT_COLOR_DARK_GRAY];
     this.window.fill(TEXT_COLOR_WHITE);
-    this.printer = new TextPrinter(this.window, this.fonts, this.input, this.arrowSheet, expandPlaceholders(raw, this.charmap, this.state), {
+    this.text = expandPlaceholders(raw, this.charmap, this.state);
+    this.printer = new TextPrinter(this.window, this.fonts, this.input, this.arrowSheet, this.text, {
       fontId,
       x: 0,
       y: 1,

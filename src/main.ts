@@ -3,6 +3,7 @@ import { BootScene } from './scenes/BootScene';
 import { OverworldScene } from './scenes/OverworldScene';
 import { BattleScene } from './scenes/BattleScene';
 import { FieldMenuScene } from './scenes/FieldMenuScene';
+import { testHooks } from './dev/testHooks';
 
 // GBA native resolution; scaled up with nearest-neighbour filtering.
 const game = new Phaser.Game({
@@ -20,5 +21,8 @@ const game = new Phaser.Game({
   scene: [BootScene, OverworldScene, BattleScene, FieldMenuScene],
 });
 
-// Handy for poking at state from the devtools console during development.
-if (import.meta.env.DEV) (window as unknown as { game: Phaser.Game }).game = game;
+// Handy for poking at state from the devtools console during development; `__test` drives the e2e tests.
+if (import.meta.env.DEV) {
+  (window as unknown as { game: Phaser.Game }).game = game;
+  testHooks.install(game);
+}

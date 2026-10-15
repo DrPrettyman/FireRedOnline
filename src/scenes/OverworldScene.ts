@@ -48,6 +48,7 @@ import {
 } from '../world/trainerSee';
 import { mapResetTrainerRematches, shouldEggHatch, updateHappinessStepCounter, updatePoisonStepCounter, updateVsSeekerStepCounter } from '../world/stepCounters';
 import { sharedBattleData, type BattleStart } from './BattleScene';
+import { logicSpeed, testEvent, testHooks, type FieldProbe } from '../dev/testHooks';
 import type { FieldMenuStart, NamingScreenRequest } from './FieldMenuScene';
 
 /** GBA runs at ~59.73Hz; we tick game logic at a fixed 60Hz regardless of display refresh. */
@@ -206,14 +207,86 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     this.player = new ObjectEvent(this, playerInfo, 0, 0, this.field);
     this.cameras.main.startFollow(this.player.anchor, true, 1, 1, 0, CAMERA_FOLLOW_OFFSET_Y);
 
+    testHooks.applyTestOptions(this.state);
     if (start.preset) await applyStartPreset(this.state, start.preset, this.assets.scripts.healLocations);
     await this.enterMap(start.map, start.x, start.y, start.facing ?? 'down', true);
     this.busy = false;
+    testEvent('ready');
+  }
+
+  /** Dev: what the field is doing, for the e2e tests' `__test.field()` / `__test.idle()`. */
+  testProbe(): FieldProbe | undefined {
+    if (!this.player || !this.world?.current) return undefined; // still booting
+    const { x, y } = this.playerLocal();
+    return {
+      map: this.state.currentMap,
+      x,
+      y,
+      worldX: this.player.tileX,
+      worldY: this.player.tileY,
+      facing: this.player.facing,
+      busy: this.busy,
+      script: this.scripts.runningLabel,
+      overlay: this.overlay !== undefined,
+      moving: this.player.isMoving,
+      approaching: this.trainerApproach !== undefined,
+      fading: this.screenFade.active,
+      message: this.messageBox.visible ? this.messageBox.text : undefined,
+    };
+  }
+
+  /** Dev: the direction to push to take the warp the player stands on (stairs, arrow mats), if it is one. */
+  testPushWarpDirection(): Direction | undefined {
+    const here = this.world.tileAt(this.player.tileX, this.player.tileY);
+    if (!this.warpAt(this.player.tileX, this.player.tileY)) return undefined;
+    return (['up', 'down', 'left', 'right'] as Direction[]).find((d) => this.behaviors.isPushWarp(here.behavior, d));
+  }
+
+  /**
+   * Dev: a shortest walking route (world coords) from the player to (tx, ty), by breadth-first search over
+   * the same rules as canMove: collision bits, directional blocks, elevation (carried along the path as
+   * ObjectEventUpdateElevation does: 15 keeps it), objects where they stand now. Ledges and warps aren't
+   * stepped through, but the target itself may be a warp (a door, entered from below). Undefined if
+   * there's no route within `limit` tiles searched.
+   */
+  testFindPath(tx: number, ty: number, limit = 20000): Direction[] | undefined {
+    const key = (x: number, y: number, e: number) => `${x},${y},${e}`;
+    const start = { x: this.player.tileX, y: this.player.tileY, e: this.player.currentElevation };
+    const prev = new Map<string, { from: string; dir: Direction } | null>([[key(start.x, start.y, start.e), null]]);
+    const queue = [start];
+    const occupied = new Set(this.npcs.map((n) => `${n.brain.obj.tileX},${n.brain.obj.tileY}`));
+    for (let i = 0; i < queue.length && i < limit; i++) {
+      const cur = queue[i];
+      const curKey = key(cur.x, cur.y, cur.e);
+      if (cur.x === tx && cur.y === ty) {
+        const path: Direction[] = [];
+        for (let k = curKey, p = prev.get(k); p; k = p.from, p = prev.get(k)) path.unshift(p.dir);
+        return path;
+      }
+      if ((cur.x !== start.x || cur.y !== start.y) && this.warpAt(cur.x, cur.y)) continue;
+      const from = this.world.tileAt(cur.x, cur.y);
+      for (const dir of ['up', 'down', 'left', 'right'] as Direction[]) {
+        const { dx, dy } = DELTA[dir];
+        const nx = cur.x + dx;
+        const ny = cur.y + dy;
+        const to = this.world.tileAt(nx, ny);
+        // A door is entered by walking up into it, whatever its collision (handleInput's pendingWarp).
+        const door = dir === 'up' && nx === tx && ny === ty && this.behaviors.isDoor(to.behavior) && this.warpAt(nx, ny);
+        if (!door && (to.collision !== 0 || this.behaviors.blocksMove(from.behavior, to.behavior, dir) || this.behaviors.isAnyJump(to.behavior))) continue;
+        if (isElevationMismatchAt(cur.e, to.elevation) || occupied.has(`${nx},${ny}`)) continue;
+        const e = to.elevation === 15 ? cur.e : to.elevation;
+        const k = key(nx, ny, e);
+        if (prev.has(k)) continue;
+        prev.set(k, { from: curKey, dir });
+        queue.push({ x: nx, y: ny, e });
+      }
+    }
+    return undefined;
   }
 
   update(_time: number, delta: number): void {
     if (!this.player || !this.scripts) return;
-    this.accumulator = Math.min(this.accumulator + delta, FRAME_MS * 5);
+    this.accumulator = Math.min(this.accumulator + delta * logicSpeed, FRAME_MS * 5 * logicSpeed);
     while (this.accumulator >= FRAME_MS) {
       this.accumulator -= FRAME_MS;
       this.tick();
@@ -268,7 +341,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       }
       // ProcessPlayerFieldInput checks for trainers first, on every frame the controls are free (mid-step too).
       const approach = checkForTrainersWantingBattle(this.trainerSee);
-      if (approach) this.trainerApproach = approach;
+      if (approach) {
+        this.trainerApproach = approach;
+        testEvent('trainerApproach');
+      }
       else if (!this.player.isMoving && !this.tryOnFrameScript()) this.handleInput();
     }
     this.wasMoving = this.player.isMoving;
@@ -607,12 +683,16 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
 
   /** SetupWarp (field_control_avatar.c), then the warp. */
   private async takeWarp(w: WarpEventData): Promise<void> {
+    // Lock the controls now: the destination may still be loading on the next frames, and a held push
+    // direction (stairs, arrow mats) must not set up the same warp again meanwhile.
+    this.busy = true;
     if (w.dest_map === 'MAP_DYNAMIC') {
       // SetWarpDestinationToDynamicWarp
       const dyn = this.state.dynamicWarp;
       const dynName = dyn && this.assets.mapNameForId(dyn.mapId);
       if (!dyn || !dynName) {
         console.warn('[warp] no dynamic warp set');
+        this.busy = false;
         return;
       }
       await this.warpTo(dynName, dyn.warpId, dyn.x, dyn.y);
@@ -622,6 +702,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     const destIndex = Number(w.dest_warp_id);
     if (!name || !Number.isInteger(destIndex)) {
       console.warn('[warp] unsupported destination', w.dest_map, w.dest_warp_id);
+      this.busy = false;
       return;
     }
     // A warp into a map whose matching warp is dynamic remembers where it came from (SetDynamicWarp)
@@ -669,6 +750,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     this.state.currentMap = name;
     this.state.currentMapId = cur.data.id;
     this.state.currentMapSection = this.mapSection();
+    testEvent('map', { map: name });
     this.state.clearTemps();
     this.wild.resetEncounterRateModifiers(); // RestartWildEncounterImmunitySteps
     mapResetTrainerRematches(this.state);
@@ -1227,6 +1309,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       pokemon: this.state.pokemon,
       charmap: this.charmap,
       onEnd: (o) => {
+        testEvent('battleEnd', { outcome: o });
         outcome = o;
         this.state.battleOutcome = o;
         this.scene.stop('Battle');
@@ -1244,6 +1327,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
         if (phase === 'fadeOut' && !this.screenFade.active) {
           phase = 'battle';
           this.state.setVar('VAR_POISON_STEP_COUNTER', 0); // ClearPoisonStepCounter
+          testEvent('battleStart', { flags: start.battleTypeFlags, trainer: start.trainerBattleOpponent_A });
           this.scene.launch('Battle', start);
           this.scene.sleep();
         }
@@ -1319,6 +1403,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   /** DoWhiteOut: lose money, heal, reset field state and warp to the respawn point facing north. */
   private async doWhiteOut(): Promise<void> {
     this.busy = true;
+    testEvent('whiteOut');
     this.scripts.runImmediately('EventScript_ResetEliteFourEnd');
     this.state.removeMoney(this.whiteOutMoneyLoss());
     healPlayerParty(this.state);

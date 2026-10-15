@@ -117,7 +117,8 @@ function CompleteOnBattlerSpritePosX_0(): void {
 
 /** HandleInputChooseAction (also used by the Oak/Old Man controller with its own completion) */
 export function makeHandleInputChooseAction(complete: () => void): () => void {
-  return () => {
+  // Named so the controller shows up as HandleInputChooseAction in devtools / e2e probes.
+  const HandleInputChooseAction = () => {
     const a = ab();
     const itemId = bufA()[2] | (bufA()[3] << 8);
     DoBounceEffect(a, K.BOUNCE_HEALTHBOX, 7, 1);
@@ -162,6 +163,7 @@ export function makeHandleInputChooseAction(complete: () => void): () => void {
       SwapHpBarsWithHpText();
     }
   };
+  return HandleInputChooseAction;
 }
 
 const HandleInputChooseAction = makeHandleInputChooseAction(PlayerBufferExecCompleted);
