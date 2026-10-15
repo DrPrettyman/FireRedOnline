@@ -56,6 +56,7 @@ import {
   WINOUT_WIN01_BG2,
   WINOUT_WIN01_BG3,
   WINOUT_WIN01_OBJ,
+  WININ_WIN0_ALL,
   WININ_WIN0_BG1,
   WININ_WIN0_BG2,
   WININ_WIN0_BG3,
@@ -148,7 +149,14 @@ class TransitionData {
   bg0HOfsPlayer = 0;
   bg0VOfs = 0;
   counter = 0;
-  readonly data = new Int16Array(11);
+  readonly data = new Int16Array(11); // for multiple purposes
+
+  /** memset(sTransitionData, 0, ...) */
+  clear(): void {
+    const data = this.data.fill(0);
+    Object.assign(this, new TransitionData());
+    (this as { data: Int16Array }).data = data;
+  }
 }
 
 let sTransitionData: TransitionData | null = null;
@@ -539,7 +547,7 @@ function InitPatternWeaveTransition(task: Task): void {
   task.data[tPatternSinIndex] = 0;
   task.data[tPatternAmplitude] = 0x4000;
   const t = T();
-  t.winIn = 0x3f; // WININ_WIN0_ALL
+  t.winIn = WININ_WIN0_ALL;
   t.winOut = 0;
   t.win0H = DISPLAY_WIDTH;
   t.win0V = DISPLAY_HEIGHT;
@@ -810,7 +818,7 @@ function ClockwiseWipe_TopRight(task: Task): boolean {
   // (UBFIX would end at y 0)
   InitBlackWipe(t.data, DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 2, t.data[tWipeEndX], -1, 1, 1);
   do {
-    gScanlineEffectRegBuffers[0][t.data[tWipeCurrY] & 0xffff] = WIN_RANGE(DISPLAY_WIDTH / 2, t.data[tWipeCurrX] + 1);
+    gScanlineEffectRegBuffers[0][t.data[tWipeCurrY]] = WIN_RANGE(DISPLAY_WIDTH / 2, t.data[tWipeCurrX] + 1); // y -1 lands outside the buffer
   } while (!UpdateBlackWipe(t.data, true, true));
   t.data[tWipeEndX] += 32;
   if (t.data[tWipeEndX] >= DISPLAY_WIDTH) {
@@ -1015,7 +1023,7 @@ function Wave_Init(task: Task): boolean {
   InitTransitionData();
   ScanlineEffect_Clear();
   const t = T();
-  t.winIn = 0x3f; // WININ_WIN0_ALL
+  t.winIn = WININ_WIN0_ALL;
   t.winOut = 0;
   t.win0H = DISPLAY_WIDTH;
   t.win0V = DISPLAY_HEIGHT;
@@ -1138,7 +1146,7 @@ function Mugshot_Init(task: Task): boolean {
   task.data[tTopBannerX] = 1;
   task.data[tBottomBannerX] = DISPLAY_WIDTH - 1;
   const t = T();
-  t.winIn = 0x3f; // WININ_WIN0_ALL
+  t.winIn = WININ_WIN0_ALL;
   t.winOut = WININ_WIN0_BG1 | WININ_WIN0_BG2 | WININ_WIN0_BG3 | WININ_WIN0_OBJ | WININ_WIN0_CLR;
   t.win0V = DISPLAY_HEIGHT;
   gScanlineEffectRegBuffers[1].fill(WIN_RANGE(DISPLAY_WIDTH, DISPLAY_WIDTH + 1), 0, DISPLAY_HEIGHT);
@@ -1297,7 +1305,7 @@ function Mugshot_FadeToBlack(task: Task): boolean {
 function Mugshot_End(task: Task): boolean {
   DmaStop0();
   FadeScreenBlack();
-  DestroyTask(FindTaskIdByFunc(sTasks_Main(K.B_TRANSITION_LORELEI + task.data[tMugshotId])));
+  DestroyTask(FindTaskIdByFunc(task.func));
   return false;
 }
 
@@ -1481,7 +1489,7 @@ function Slice_Init(task: Task): boolean {
   task.data[tSpeed] = 1 << 8;
   task.data[tAccel] = 1;
   const t = T();
-  t.winIn = 0x3f; // WININ_WIN0_ALL
+  t.winIn = WININ_WIN0_ALL;
   t.winOut = 0;
   t.win0V = DISPLAY_HEIGHT;
   for (let i = 0; i < DISPLAY_HEIGHT; i++) {
@@ -1616,7 +1624,7 @@ function WhiteBarsFade_BlendToBlack(task: Task): boolean {
   t.win0H = DISPLAY_WIDTH;
   t.bldY = 0;
   t.bldCnt = BLDCNT_TGT1_BG0 | BLDCNT_TGT1_BG1 | BLDCNT_TGT1_BG2 | BLDCNT_TGT1_BG3 | BLDCNT_TGT1_OBJ | BLDCNT_TGT1_BD | BLDCNT_EFFECT_DARKEN;
-  t.winIn = 0x3f; // WININ_WIN0_ALL
+  t.winIn = WININ_WIN0_ALL;
   t.counter = 0;
   SetVBlankCallback(VBlankCB_WhiteBarsFade_Blend);
   task.data[tState]++;
@@ -1759,7 +1767,7 @@ function AngledWipes_Init(task: Task): boolean {
   InitTransitionData();
   ScanlineEffect_Clear();
   const t = T();
-  t.winIn = 0x3f; // WININ_WIN0_ALL
+  t.winIn = WININ_WIN0_ALL;
   t.winOut = 0;
   t.win0V = DISPLAY_HEIGHT;
   gScanlineEffectRegBuffers[0].fill(WIN_RANGE(0, DISPLAY_WIDTH), 0, DISPLAY_HEIGHT);
@@ -1912,12 +1920,12 @@ function TransitionIntro_FadeFromGray(task: Task): boolean {
 // -----------------------------------
 
 function InitTransitionData(): void {
-  const t = new TransitionData();
+  const t = T();
+  t.clear();
   // FieldCameraGetPixelOffsetAtGround
   const camera = sFieldCameraOffset();
   t.cameraX = s16(camera.x);
   t.cameraY = s16(camera.y);
-  if (sTransitionData) Object.assign(sTransitionData, t, { data: sTransitionData.data.fill(0) });
 }
 
 function VBlankCB_BattleTransition(): void {

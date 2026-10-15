@@ -65,6 +65,7 @@ export const WININ_WIN0_BG3 = 1 << 3;
 export const WININ_WIN0_BG_ALL = 0xf;
 export const WININ_WIN0_OBJ = 1 << 4;
 export const WININ_WIN0_CLR = 1 << 5;
+export const WININ_WIN0_ALL = 0x3f;
 export const WININ_WIN1_BG0 = 1 << 8;
 export const WININ_WIN1_BG1 = 1 << 9;
 export const WININ_WIN1_BG2 = 1 << 10;
@@ -79,6 +80,7 @@ export const WINOUT_WIN01_BG3 = 1 << 3;
 export const WINOUT_WIN01_BG_ALL = 0xf;
 export const WINOUT_WIN01_OBJ = 1 << 4;
 export const WINOUT_WIN01_CLR = 1 << 5;
+export const WINOUT_WIN01_ALL = 0x3f;
 
 // BLDCNT
 export const BLDCNT_TGT1_BG0 = 1 << 0;
