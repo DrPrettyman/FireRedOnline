@@ -15,3 +15,6 @@ FireRed rebuilt in Phaser 3 + TypeScript (Vite). See README.md for setup and arc
   in dev, and `tools/browser-test.mjs`.
 - Keep PROGRESS.md current: tick the checklist, update "Where to resume", and append a log entry for each change.
 - Git: never commit (or push). The user makes all commits; leave changes in the working tree.
+- When instructed to work on new items, always do so in a new branch using a worktree (the user works on master in
+  the main checkout at the same time, so never switch its branch).
+- After working on an item, provide summary of what was done, what was not done, a confirmation that PROGRESS.md has been updated, and a short short summary to act as a commit message. 
