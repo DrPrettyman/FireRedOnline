@@ -107,6 +107,17 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
   ChangePokemonNickname from scripts and by the battle's nickname prompt after a catch
 - [ ] Title screen / intro / Oak's speech (the player and rival naming templates are ready for it)
 
+### Tests (tests/README.md)
+- [x] Unit tests (Vitest, Node): random.c, CreateMon/CalculateMonStats/levels/movesets/natures/gender/PP, Bag,
+  GameState (money, coins, flags/vars, temps, party), charmap, CalculateBaseDamage
+- [x] E2E harness: headless Chrome over CDP, dev-only `window.__test` hooks (virtual pad, per-tick in-page
+  mashing, walk/walkTo pathfinding, event log, state probes, `?seed=` `?speed=` `?textSpeed=`)
+- [x] E2E scenarios: new game → Oak → starter → rival battle (and the after-rival preset matches it), trainer
+  sight, trainer battle won (prize, flag, no rematch) and lost (white-out home, heal, money loss), wild encounter
+  in grass, running, Master Ball catch + nickname, Poké Mart purchase, walking/doors/stairs/talking
+- [ ] More scenarios: party menu / bag from the start menu, items in battle, level-up move learning, the Old Man
+  tutorial, Viridian parcel → Pokédex, elevators, item balls, PCs
+
 ## Known deviations from the decomp
 
 Things that are placeholders or approximations, so they aren't mistaken for ports. Remove entries as they get done properly.
@@ -160,7 +171,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - `fadescreen` is an alpha overlay, not a palette blend: same ramp and timing, not bit-identical; weather palettes ignored.
   - `showmonpic`: the sprite appears when its PNG has loaded; no cry.
   - Text colour is reset to NPC_TEXT_COLOR_DEFAULT when a script starts, not in ProcessPlayerFieldInput.
-  - The RNG (`random.c` formula) is seeded from `Math.random`; the trainer id is rolled when the game state is created instead of in Oak's intro.
+  - The RNG (`random.c` formula) is seeded from `Math.random` (or `?seed=` in dev); the trainer id is rolled when the game state is created instead of in Oak's intro.
   - A mon's met location is the MAPSEC_* name, not the numeric id.
   - Warps fade with Phaser's camera fade (200 ms), not the field warp fade.
   - `lock`/`lockall` only wait for the player (and the selected object) to finish their steps; other objects already
@@ -279,11 +290,16 @@ State as of the last log entry:
 - **Bugs that depend on world position:** `?map=` always loads at origin 0, so maps that are far from the origin in
   a real playthrough (e.g. Viridian at y = -80 after walking up from Pallet) need either a real walk or
   `await s.world.load(name, ox, oy)`, then `s.player.setPosition(...)` and `await s.onMapLoaded(false)`.
-- **Testing long scenes:** `tools/browser-test.mjs` has `mash:<js>` (press A until a condition holds), e.g.
+- **Tests:** `npm test` (unit) and `npm run test:e2e` (headless playthroughs, ~20 s); how to write them is in
+  tests/README.md. Each e2e file starts from a URL preset, drives `window.__test` (`src/dev/testHooks.ts`) and
+  asserts on state and events. New field mechanics should get a scenario there rather than a one-off
+  `browser-test.mjs` run. The game reports milestones through `testEvent()` (map, script, trainerApproach,
+  battleStart, battleEnd, whiteOut); add one wherever a test needs to know something happened.
+- **Testing long scenes (ad hoc):** `tools/browser-test.mjs` has `mash:<js>` (press A until a condition holds), e.g.
   `mash:game.scene.getScene("Overworld").state.getVar("VAR_MAP_SCENE_PALLET_TOWN_PROFESSOR_OAKS_LAB")===2`.
   Build step lists as a bash array (`args+=(...)`) so JS with spaces survives word splitting.
-- **Workflow used so far:** read the C in the decomp, port it, cite the function name, verify in headless Chrome with
-  `tools/browser-test.mjs`, then add an entry below.
+- **Workflow used so far:** read the C in the decomp, port it, cite the function name, verify with a test (unit for
+  pure logic, e2e for anything on screen), then add an entry below.
 
 ## Log
 
@@ -785,3 +801,29 @@ State as of the last log entry:
   `EventScript_ChangePokemonNickname` on the starter (icon, "BULBASAUR's nickname?", ♂, nickname set, old name in
   STR_VAR_3, field fades back in), Master Ball catch → YES → "PIDGEY's nickname?" (♀) → party mon named and back
   to the field, rival and PC box icons, blank entry leaves the buffer alone, party-full "transferred to Someone's PC".
+
+### Test suite (user request)
+- Vitest with two projects (`vitest.config.ts`): `unit` (Node; `tests/unit/gameData.ts` builds Defines/Charmap/
+  PokemonData/GameState and the battle env from `public/gen`) and `e2e` (one Vite dev server per run from
+  `tests/e2e/globalSetup.ts`; one headless Chrome per file, driven over the DevTools protocol by
+  `tests/e2e/harness.ts`). Scripts: `npm test`, `test:watch`, `test:e2e`, `test:all`; `npm run typecheck` now
+  also checks the tests (`tests/tsconfig.json`, `@types/node`).
+- `src/dev/testHooks.ts` (dev builds only, `window.__test`): a virtual gamepad that `Input.sample()` ORs with
+  the keyboard once per logic tick; `mash()` decides each press at the start of a tick after checking its
+  condition, so presses can't land on a menu that just opened; `walk`/`walkTo` (`OverworldScene.testFindPath`, a
+  BFS over canMove's rules, doors allowed as the target) / `face` / `enterWarp`; probes (`OverworldScene.testProbe`,
+  message box text, party, bag, battle globals incl. the player's controller function, `gMain.callback2`'s name);
+  an event log fed by `testEvent()` calls in the overworld and the script engine. `?seed=`, `?speed=` (logic
+  ticks per frame: both scene loops multiply their accumulator) and `?textSpeed=`.
+- RNG: `ScrCmd_random` and NPC wandering (direction, gMovementDelaysMedium) now roll `Random()` like the GBA
+  instead of `Math.random`, so a seed covers them.
+- Fix (found by the tests): push warps (stairs, arrow mats) ran `takeWarp` without locking the controls until
+  the destination map had loaded, so a held direction set up the same warp again every frame meanwhile; each
+  extra one reran the whole map entry (map scripts, temp clears, roamer moves). `takeWarp` now sets `busy` up front.
+  `tests/e2e/field.test.ts` covers it.
+- The after-rival preset is now checked against a real playthrough (`newGame.test.ts`): same flags, story vars,
+  money, position, party.
+- `MessageBox.text` keeps the shown message; `makeHandleInputChooseAction`'s function is named
+  (HandleInputChooseAction) so the probe can tell when the action menu waits.
+- Harness gotcha: DevTools awaits a page promise through a weak handle, so a promise resolved mid-battle could be
+  garbage-collected first ("Promise was collected"); `evalRaw` keeps each one alive until a task after it settles.
