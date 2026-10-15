@@ -94,8 +94,10 @@ def parse_tileset_symbols(decomp):
                 "folder": meta_paths[fields["metatiles"]],
                 "tiles": tile_paths[fields["tiles"]],
                 "palettes": pal_paths[fields["palettes"]],
-                # The C symbols of the GBA-native data (extract_gfx), for code that loads them into VRAM.
-                "symbols": {k: fields[k] for k in ("tiles", "palettes", "metatiles")},
+                # The C symbols of the GBA-native data (extract_gfx), for code that loads them into VRAM,
+                # and the tileset's animation init function (tileset_anims.c), if any.
+                "symbols": {k: fields[k] for k in ("tiles", "palettes", "metatiles")}
+                | ({"callback": fields["callback"]} if fields.get("callback", "NULL") != "NULL" else {}),
             }
         except KeyError as e:
             print(f"  tileset {name}: unresolved {e}", file=sys.stderr)
@@ -118,21 +120,26 @@ def metatile_attrs(ts):
     return out
 
 
-def render_atlas(slots, primary, secondary):
-    """Render metatiles into 'below' and 'above' atlases, ATLAS_COLS per row, one slot per metatile.
+ATLAS_LAYERS = ("bottom", "middle", "top")
 
-    `slots` is a list of (entries, layer_type) or None for an empty slot. FRLG metatiles have two
-    layers of 2x2 tiles; depending on layer type the top layer is drawn above or below object
-    sprites, so we bake that split into two images.
+
+def render_atlas(slots, primary, secondary):
+    """Render metatiles into 'bottom', 'middle' and 'top' atlases, ATLAS_COLS per row, one slot per metatile.
+
+    `slots` is a list of (entries, layer_type) or None for an empty slot. The three images are the
+    field's BG3/BG2/BG1 as DrawMetatile (field_camera.c) fills them for each layer type: NORMAL puts the
+    metatile's bottom layer on the middle BG and its top layer on the top BG, COVERED uses the bottom and
+    middle BGs, SPLIT the bottom and top. Sprites at OAM priority 3 (reflections, ripples) draw between
+    the bottom and middle images, priority 2 between middle and top, priority 1 above all three.
+    The bottom image is filled with the backdrop colour where nothing else is drawn.
     """
     palettes = primary.palettes[:NUM_PALS_IN_PRIMARY] + (secondary or primary).palettes[NUM_PALS_IN_PRIMARY:]
     backdrop = palettes[0][0]
     rows = max(1, -(-len(slots) // ATLAS_COLS))
-    below = Image.new("RGBA", (ATLAS_COLS * 16, rows * 16), (0, 0, 0, 0))
-    above = Image.new("RGBA", below.size, (0, 0, 0, 0))
-    bpx, apx = below.load(), above.load()
+    images = [Image.new("RGBA", (ATLAS_COLS * 16, rows * 16), (0, 0, 0, 0)) for _ in ATLAS_LAYERS]
+    bottom, middle, top = (img.load() for img in images)
 
-    def draw_tile(px, entry, ox, oy, fill_backdrop):
+    def draw_tile(px, entry, ox, oy):
         tile = entry & 0x3FF
         hflip, vflip = entry & 0x400, entry & 0x800
         pal = palettes[(entry >> 12) & 0xF]
@@ -140,29 +147,29 @@ def render_atlas(slots, primary, secondary):
             ts, t = primary, tile
         else:
             ts, t = secondary, tile - NUM_TILES_IN_PRIMARY
-        in_range = ts is not None and t < ts.tile_count
-        sx, sy = (t % ts.tile_cols) * 8 if in_range else 0, (t // ts.tile_cols) * 8 if in_range else 0
+        if ts is None or t >= ts.tile_count:
+            return
+        sx, sy = (t % ts.tile_cols) * 8, (t // ts.tile_cols) * 8
         for y in range(8):
             for x in range(8):
-                c = 0
-                if in_range:
-                    c = ts.tile_px[sx + (7 - x if hflip else x), sy + (7 - y if vflip else y)] & 0xF
+                c = ts.tile_px[sx + (7 - x if hflip else x), sy + (7 - y if vflip else y)] & 0xF
                 if c:
                     px[ox + x, oy + y] = pal[c] + (255,)
-                elif fill_backdrop:
-                    px[ox + x, oy + y] = backdrop + (255,)
 
     for slot, item in enumerate(slots):
         if item is None:
             continue
         entries, layer = item
         mx, my = (slot % ATLAS_COLS) * 16, (slot // ATLAS_COLS) * 16
-        top_target = bpx if layer == LAYER_COVERED else apx
+        for y in range(16):
+            for x in range(16):
+                bottom[mx + x, my + y] = backdrop + (255,)
+        lower, upper = {LAYER_NORMAL: (middle, top), LAYER_COVERED: (bottom, middle), LAYER_SPLIT: (bottom, top)}.get(layer, (middle, top))
         for i in range(4):
             ox, oy = mx + (i % 2) * 8, my + (i // 2) * 8
-            draw_tile(bpx, entries[i], ox, oy, True)
-            draw_tile(top_target, entries[4 + i], ox, oy, False)
-    return below, above
+            draw_tile(lower, entries[i], ox, oy)
+            draw_tile(upper, entries[4 + i], ox, oy)
+    return images
 
 
 def render_primary(primary):
@@ -184,8 +191,7 @@ def render_pair(primary, secondary):
     slots += [None] * (n_sec - len(slots))
     overrides = [i for i, m in enumerate(primary.metatiles[:NUM_METATILES_IN_PRIMARY]) if depends_on_secondary(m)]
     slots += [(primary.metatiles[i], prim_attrs["layers"][i]) for i in overrides]
-    below, above = render_atlas(slots, primary, secondary)
-    return below, above, overrides
+    return render_atlas(slots, primary, secondary), overrides
 
 
 # ---------------------------------------------------------------- maps
@@ -257,20 +263,26 @@ def extract_maps(decomp, out, ts_folders):
     short = lambda sym: sym.replace("gTileset_", "")
     index = {"primaries": {}, "secondaries": {}, "pairs": {}, "symbols": {}}
     for p in sorted({p for p, _ in pairs.values()}):
-        below, above = render_primary(get_tileset(p))
-        below.save(ts_dir / f"{short(p)}_below.png", optimize=True)
-        above.save(ts_dir / f"{short(p)}_above.png", optimize=True)
+        for layer, img in zip(ATLAS_LAYERS, render_primary(get_tileset(p))):
+            img.save(ts_dir / f"{short(p)}_{layer}.png", optimize=True)
         index["primaries"][short(p)] = metatile_attrs(get_tileset(p))
     for s_ in sorted({s_ for _, s_ in pairs.values()}):
         index["secondaries"][short(s_)] = metatile_attrs(get_tileset(s_))
     for key, (p, s_) in sorted(pairs.items()):
-        below, above, overrides = render_pair(get_tileset(p), get_tileset(s_))
-        below.save(ts_dir / f"{key}_below.png", optimize=True)
-        above.save(ts_dir / f"{key}_above.png", optimize=True)
+        images, overrides = render_pair(get_tileset(p), get_tileset(s_))
+        for layer, img in zip(ATLAS_LAYERS, images):
+            img.save(ts_dir / f"{key}_{layer}.png", optimize=True)
         index["pairs"][key] = {"primary": short(p), "secondary": short(s_), "overrides": overrides}
     for sym in sorted({t for pair in pairs.values() for t in pair}):
         index["symbols"][short(sym)] = ts_folders[sym]["symbols"]
     (ts_dir / "index.json").write_text(json.dumps(index, separators=(",", ":")))
+    # The palettes the atlases were drawn with (JASC colours, not BGR555), so tile animations can redraw
+    # metatiles at runtime in exactly the same colours. Loaded on demand.
+    palettes = {
+        short(sym): [[c for rgb in pal for c in rgb] for pal in get_tileset(sym).palettes]
+        for sym in sorted({t for pair in pairs.values() for t in pair})
+    }
+    (ts_dir / "palettes.json").write_text(json.dumps(palettes, separators=(",", ":")))
     (ts_dir / "attributes.json").unlink(missing_ok=True)
     print(f"  {len(pairs)} tileset pairs")
 
@@ -302,6 +314,34 @@ def extract_object_events(decomp, out):
     movement_c = (decomp / "src/event_object_movement.c").read_text()
     pal_by_tag = {tag: sym for sym, tag in re.findall(r"\{\s*(gObjectEventPal_\w+),\s*(OBJ_EVENT_PAL_TAG_\w+)\s*\}", movement_c)}
     pal_tag_values = {n: int(v, 0) for n, v in re.findall(r"#define\s+(OBJ_EVENT_PAL_TAG_\w+)\s+(0x[0-9A-Fa-f]+|\d+)", movement_c)}
+
+    # The palette an object's reflection sprite draws with (SetUpReflection → LoadObjectReflectionPalette,
+    # sCurrentReflectionType 0): the player's and special objects' come from their paired palette sets;
+    # NPC slots 1-4 use the reflection slot gReflectionEffectPaletteMap gives them, which map loading fills
+    # from sObjectPaletteTags0 (graphics ids leave reflectionPaletteTag NONE, so nothing repatches it).
+    def first_tags(array):
+        body = re.search(rf"{array}\[\] = \{{(.*?)\}};", movement_c, re.S)
+        return re.findall(r"OBJ_EVENT_PAL_TAG_\w+", body.group(1)) if body else []
+
+    def paired_sets(name):
+        body = re.search(rf"{name}\[\] = \{{(.*?)\}};", movement_c, re.S).group(1)
+        return {tag: (first_tags(arr) or [None])[0] for tag, arr in re.findall(r"\{\s*(OBJ_EVENT_PAL_TAG_\w+),\s*(s\w+)\s*\}", body)}
+
+    player_reflections = paired_sets("gPlayerReflectionPaletteSets")
+    special_reflections = paired_sets("gSpecialObjectReflectionPaletteSets")
+    slot_tags = first_tags("sObjectPaletteTags0")
+    pal_slots = re.search(r"enum\s*\{([^}]*PALSLOT_PLAYER[^}]*)\}", (decomp / "include/event_object_movement.h").read_text()).group(1)
+    pal_slots = {n: i for i, n in enumerate(re.findall(r"PALSLOT_\w+", pal_slots))}
+    reflection_map = dict(re.findall(r"\[(PALSLOT_\w+)\]\s*=\s*(PALSLOT_\w+)", re.search(r"gReflectionEffectPaletteMap\[16\] = \{(.*?)\};", movement_c, re.S).group(1)))
+
+    def reflection_tag(info):
+        slot, tag = info.get("paletteSlot", "").strip(), info.get("paletteTag", "").strip()
+        if slot == "PALSLOT_PLAYER":
+            return player_reflections.get(tag)
+        if slot == "PALSLOT_NPC_SPECIAL":
+            return special_reflections.get(tag)
+        target = pal_slots.get(reflection_map.get(slot, ""))
+        return slot_tags[target] if target is not None and target < len(slot_tags) else None
 
     def png_for(sym):
         p = pic_paths.get(sym)
@@ -348,6 +388,35 @@ def extract_object_events(decomp, out):
             "images": frames,
         }
 
+    def render_strip(table, fw, fh, pal):
+        strip = Image.new("RGBA", (fw * len(table), fh), (0, 0, 0, 0))
+        for i, (sym, frame) in enumerate(table):
+            path = png_for(sym)
+            if not path or not path.exists():
+                return None
+            img = Image.open(path)
+            if frame is None:
+                sx, sy = 0, 0
+            else:
+                cols = max(1, img.width // fw)
+                sx, sy = (frame % cols) * fw, (frame // cols) * fh
+            cell = img.crop((sx, sy, sx + fw, sy + fh))
+            if img.mode == "P":
+                idx = cell.load()
+                rgba = Image.new("RGBA", (fw, fh), (0, 0, 0, 0))
+                rp = rgba.load()
+                colors = pal or [tuple(img.getpalette()[c * 3 : c * 3 + 3]) for c in range(16)]
+                for y in range(fh):
+                    for x in range(fw):
+                        c = idx[x, y] & 0xF
+                        if c:
+                            rp[x, y] = colors[c] + (255,)
+                cell = rgba
+            else:
+                cell = cell.convert("RGBA")
+            strip.paste(cell, (i * fw, 0))
+        return strip
+
     # Start clean: on a case-insensitive disk, overwriting an old "Blackbelt.png" keeps that name, and the
     # dev server's case-sensitive lookup of "BlackBelt.png" then misses it.
     shutil.rmtree(out / "sprites", ignore_errors=True)
@@ -364,36 +433,8 @@ def extract_object_events(decomp, out):
         fw, fh = int(info["width"]), int(info["height"])
         key = info_name.replace("gObjectEventGraphicsInfo_", "")
         if key not in written:
-            pal = pal_for(info.get("paletteTag", ""))
-            strip = Image.new("RGBA", (fw * len(table), fh), (0, 0, 0, 0))
-            ok = True
-            for i, (sym, frame) in enumerate(table):
-                path = png_for(sym)
-                if not path or not path.exists():
-                    ok = False
-                    break
-                img = Image.open(path)
-                if frame is None:
-                    sx, sy = 0, 0
-                else:
-                    cols = max(1, img.width // fw)
-                    sx, sy = (frame % cols) * fw, (frame // cols) * fh
-                cell = img.crop((sx, sy, sx + fw, sy + fh))
-                if img.mode == "P":
-                    idx = cell.load()
-                    rgba = Image.new("RGBA", (fw, fh), (0, 0, 0, 0))
-                    rp = rgba.load()
-                    colors = pal or [tuple(img.getpalette()[c * 3 : c * 3 + 3]) for c in range(16)]
-                    for y in range(fh):
-                        for x in range(fw):
-                            c = idx[x, y] & 0xF
-                            if c:
-                                rp[x, y] = colors[c] + (255,)
-                    cell = rgba
-                else:
-                    cell = cell.convert("RGBA")
-                strip.paste(cell, (i * fw, 0))
-            if not ok:
+            strip = render_strip(table, fw, fh, pal_for(info.get("paletteTag", "")))
+            if strip is None:
                 print(f"  skip sprite {key}: missing image", file=sys.stderr)
                 continue
             strip.save(out / "sprites" / f"{key}.png", optimize=True)
@@ -404,7 +445,13 @@ def extract_object_events(decomp, out):
                 "frameCount": len(table),
                 "anims": info.get("anims", "").strip(),
                 "inanimate": info.get("inanimate", "FALSE").strip() == "TRUE",
+                "shadowSize": info.get("shadowSize", "SHADOW_SIZE_M").strip(),
+                "tracks": info.get("tracks", "TRACKS_NONE").strip(),
             }
+            refl_pal = pal_for(reflection_tag(info) or "")
+            if refl_pal:
+                render_strip(table, fw, fh, refl_pal).save(out / "sprites" / f"{key}_reflection.png", optimize=True)
+                written[key]["reflection"] = True
         manifest[gfx_id] = {**written[key], "textColor": text_color(gfx_id), "gba": gba_info(info, table)}
     (out / "sprites" / "manifest.json").write_text(json.dumps(manifest, indent=1))
     print(f"  {len(written)} sprite sheets, {len(manifest)} gfx ids")
@@ -854,7 +901,7 @@ def extract_scripts(decomp, out):
 EXTRA_DEFINE_HEADERS = (
     "include/global.h", "include/battle.h", "include/battle_controllers.h", "include/battle_message.h",
     "include/battle_interface.h", "include/battle_ai_script_commands.h", "include/battle_setup.h",
-    "include/battle_anim.h", "include/pokemon.h", "include/characters.h", "include/text.h",
+    "include/battle_anim.h", "include/pokemon.h", "include/characters.h", "include/text.h", "include/event_object_movement.h",
     "include/battle_ai_switch_items.h", "include/battle_util.h", "include/battle_gfx_sfx_util.h",
     "include/pokeball.h", "include/sprite.h", "include/gba/io_reg.h", "include/bg.h", "include/window.h",
     "include/palette.h", "include/scanline_effect.h", "include/trainer_pokemon_sprites.h", "include/decompress.h",
@@ -1279,6 +1326,12 @@ def main():
     extract_gfx(decomp, out)
     print("maps + tilesets")
     extract_maps(decomp, out, parse_tileset_symbols(decomp))
+    print("field objects + doors")
+    from extract_field import extract_doors, extract_field_effect_objects
+
+    defines = parse_defines(decomp)
+    extract_field_effect_objects(decomp, out, defines)
+    extract_doors(decomp, out, defines)
 
 
 if __name__ == "__main__":

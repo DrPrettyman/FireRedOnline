@@ -24,6 +24,77 @@ export class Behaviors {
     return this.is(behavior, 'TALL_GRASS', 'CYCLING_ROAD_PULL_DOWN_GRASS');
   }
 
+  /** MetatileBehavior_IsPokeGrass */
+  isPokeGrass(behavior: number): boolean {
+    return this.is(behavior, 'TALL_GRASS', 'CYCLING_ROAD_PULL_DOWN_GRASS');
+  }
+
+  /** MetatileBehavior_IsReflective */
+  isReflective(behavior: number): boolean {
+    return this.is(behavior, 'POND_WATER', 'PUDDLE', 'UNUSED_WATER', 'CYCLING_ROAD_WATER', 'ICE');
+  }
+
+  /** MetatileBehavior_IsIce */
+  isIce(behavior: number): boolean {
+    return this.is(behavior, 'ICE');
+  }
+
+  /** MetatileBehavior_HasRipples */
+  hasRipples(behavior: number): boolean {
+    return this.is(behavior, 'POND_WATER', 'PUDDLE');
+  }
+
+  /** MetatileBehavior_IsPuddle */
+  isPuddle(behavior: number): boolean {
+    return this.is(behavior, 'PUDDLE');
+  }
+
+  /** MetatileBehavior_IsSand */
+  isSand(behavior: number): boolean {
+    return this.is(behavior, 'SAND', 'SAND_CAVE');
+  }
+
+  /** MetatileBehavior_IsShallowFlowingWater */
+  isShallowFlowingWater(behavior: number): boolean {
+    return this.is(behavior, 'SHALLOW_WATER');
+  }
+
+  /** MetatileBehavior_IsHotSprings */
+  isHotSprings(behavior: number): boolean {
+    return this.is(behavior, 'HOT_SPRINGS');
+  }
+
+  /** MetatileBehavior_IsSeaweed */
+  isSeaweed(behavior: number): boolean {
+    return this.is(behavior, 'SEAWEED');
+  }
+
+  // FRLG stubs these out: they always return FALSE.
+  /** MetatileBehavior_IsLongGrass */
+  isLongGrass(_behavior: number): boolean {
+    return false;
+  }
+
+  /** MetatileBehavior_IsDeepSand */
+  isDeepSand(_behavior: number): boolean {
+    return false;
+  }
+
+  /** MetatileBehavior_IsFootprints */
+  isFootprints(_behavior: number): boolean {
+    return false;
+  }
+
+  /** MetatileBehavior_IsShortGrass */
+  isShortGrass(_behavior: number): boolean {
+    return false;
+  }
+
+  /** MetatileBehavior_IsPacifidlogLog */
+  isPacifidlogLog(_behavior: number): boolean {
+    return false;
+  }
+
   /** MetatileBehavior_IsSandOrShallowFlowingWater */
   isSandOrShallowFlowingWater(behavior: number): boolean {
     return this.is(behavior, 'SAND', 'SHALLOW_WATER');

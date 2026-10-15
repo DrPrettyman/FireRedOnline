@@ -59,6 +59,12 @@ export interface ScriptHost {
   setObjectTemplate(localId: number, patch: { x?: number; y?: number; movementType?: string }): void;
   setObjectPosition(localId: number, x: number, y: number): void;
   setMetatile(x: number, y: number, metatile: number, impassable: boolean): void;
+  /** opendoor / closedoor (FieldAnimateDoorOpen / FieldAnimateDoorClose), map-local coords */
+  animateDoor(x: number, y: number, open: boolean): void;
+  /** FieldIsDoorAnimationRunning */
+  doorAnimationRunning(): boolean;
+  /** setdooropen / setdoorclosed (FieldSetDoorOpened / FieldSetDoorClosed), map-local coords */
+  setDoor(x: number, y: number, open: boolean): void;
   warp(mapId: string, warpId: number, x: number, y: number): void;
   /** Map-local player coordinates. */
   playerLocal(): { x: number; y: number };
@@ -842,10 +848,23 @@ export class ScriptEngine {
     warpdoor(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
       this.doWarp(ctx, a);
     },
-    // TODO: door animations (field_door.c). The door metatiles are left as-is for now.
-    opendoor() {},
-    closedoor() {},
-    waitdooranim() {},
+    /** ScrCmd_opendoor (PlaySE(GetDoorSoundEffect) is silent: no audio yet) */
+    opendoor(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.host.animateDoor(this.state.value(a[0]), this.state.value(a[1]), true);
+    },
+    closedoor(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.host.animateDoor(this.state.value(a[0]), this.state.value(a[1]), false);
+    },
+    /** ScrCmd_waitdooranim: IsDoorAnimationStopped */
+    waitdooranim(this: ScriptEngine, ctx: ScriptContext) {
+      ctx.wait = () => !this.host.doorAnimationRunning();
+    },
+    setdooropen(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.host.setDoor(this.state.value(a[0]), this.state.value(a[1]), true);
+    },
+    setdoorclosed(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.host.setDoor(this.state.value(a[0]), this.state.value(a[1]), false);
+    },
     delay(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
       let frames = this.state.value(a[0]);
       ctx.wait = () => --frames <= 0;

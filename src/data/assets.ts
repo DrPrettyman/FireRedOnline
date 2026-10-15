@@ -1,10 +1,15 @@
 import Phaser from 'phaser';
+import type { FieldEffectObjects } from '../entities/FieldEffects';
 import type { ScriptsData } from '../script/ScriptEngine';
 import type { CharmapData } from '../text/charmap';
 import { fontTextureKey, type FontsData } from '../text/Font';
 import { MESSAGE_TEXTURES } from '../text/MessageBox';
 import { STD_FRAME_TEXTURE, userFrameTexture } from '../ui/MenuWindow';
-import { TilesetPair } from '../world/TilesetPair';
+import { loadGfx } from '../gba/gfx';
+import { FieldDoors, type DoorData } from '../world/doors';
+import { ATLAS_LAYERS, TilesetPair } from '../world/TilesetPair';
+import { TILESET_ANIM_SYMBOLS, type TilesetAnimInfo } from '../world/tilesetAnims';
+import { tilesetVram, type TilesetPalettes } from '../world/TilesetVram';
 import type { Constants, ItemInfo, MapData, MoveInfo, PokemonTables, SpeciesInfo, SpriteInfo, TilesetIndex, TilesetSymbols, WildEncounterData } from './types';
 
 const GEN = 'gen';
@@ -20,6 +25,7 @@ export class Assets {
   private spriteLoads = new Map<string, Promise<void>>();
   private tilesets!: TilesetIndex;
   private pairs = new Map<string, TilesetPair>();
+  private tilesetPalettes?: Promise<TilesetPalettes>;
   constants!: Constants;
   fonts!: FontsData;
   charmap!: CharmapData;
@@ -32,6 +38,8 @@ export class Assets {
   pokemonTables!: PokemonTables;
   emoticons!: EmoticonData;
   wildEncounters!: WildEncounterData;
+  doors!: DoorData;
+  fieldEffectObjects!: FieldEffectObjects;
 
   private maps = new Map<string, Promise<MapData>>();
 
@@ -52,6 +60,9 @@ export class Assets {
       fetchJson<EmoticonData>(`${GEN}/field_effects/emoticons.json`),
       fetchJson<WildEncounterData>(`${GEN}/wild_encounters.json`),
     ]);
+    this.doors = await fetchJson<DoorData>(`${GEN}/doors.json`);
+    this.fieldEffectObjects = await fetchJson<FieldEffectObjects>(`${GEN}/field_effects/objects.json`);
+    await loadGfx(FieldDoors.gfxSymbols(this.doors));
     this.wildEncounters = wildEncounters;
     this.species = species;
     this.moves = moves;
@@ -99,14 +110,40 @@ export class Assets {
     return pair;
   }
 
-  /** Ensure the primary and pair atlases (below/above) for a tileset pair are in the texture manager. */
+  /** Ensure the primary and pair atlases (bottom/middle/top) for a tileset pair are in the texture manager. */
   loadTilesetTextures(scene: Phaser.Scene, key: string): Promise<void> {
     const pair = this.tilesetPair(key);
-    const files = (['below', 'above'] as const).flatMap((layer): [string, string][] => [
+    const files = ATLAS_LAYERS.flatMap((layer): [string, string][] => [
       [pair.primaryTexture(layer), `${GEN}/tilesets/${pair.info.primary}_${layer}.png`],
       [pair.pairTexture(layer), `${GEN}/tilesets/${key}_${layer}.png`],
     ]);
-    return loadImages(scene, files);
+    return loadImages(scene, files).then(() => this.loadTilesetVram(scene, key));
+  }
+
+  /**
+   * The pair's GBA-native tiles, metatiles and palettes as `tilesetVram` stores (door frames are drawn
+   * from them), and for tilesets with an animation callback its frames, with the atlases made redrawable.
+   */
+  private async loadTilesetVram(scene: Phaser.Scene, key: string): Promise<void> {
+    const pair = this.tilesetPair(key);
+    const names = [pair.info.primary, pair.info.secondary];
+    const syms = names.map((n) => this.tilesets.symbols[n]);
+    this.tilesetPalettes ??= fetchJson<TilesetPalettes>(`${GEN}/tilesets/palettes.json`);
+    const [palettes] = await Promise.all([
+      this.tilesetPalettes,
+      loadGfx(syms.flatMap((s) => [s.tiles, s.metatiles, ...(s.callback ? (TILESET_ANIM_SYMBOLS[s.callback] ?? []) : [])])),
+    ]);
+    names.forEach((n, i) => tilesetVram.addStore(n, syms[i].tiles, syms[i].metatiles, palettes[n]));
+    if (syms.some((s) => s.callback)) tilesetVram.makeAtlasesLive(scene.textures, pair);
+  }
+
+  /** The animation callback (tileset_anims.c InitTilesetAnim_*) of each tileset of a pair. */
+  tilesetAnimInfo(key: string): { primary: TilesetAnimInfo; secondary: TilesetAnimInfo } {
+    const info = this.tilesets.pairs[key];
+    return {
+      primary: { name: info.primary, callback: this.tilesets.symbols[info.primary].callback },
+      secondary: { name: info.secondary, callback: this.tilesets.symbols[info.secondary].callback },
+    };
   }
 
   /** Font sheets and message box graphics, needed before any text can be shown. */
@@ -122,12 +159,15 @@ export class Assets {
     ]);
   }
 
-  /** Field effect sprite sheets (the emote icons). */
+  /** Field effect sprite sheets: the emote icons and every gFieldEffectObjectTemplate_*. */
   loadFieldEffectTextures(scene: Phaser.Scene): Promise<void> {
     if (scene.textures.exists(EMOTICONS_TEXTURE)) return Promise.resolve();
     const { frameWidth, frameHeight } = this.emoticons;
     return new Promise((resolve) => {
       scene.load.spritesheet(EMOTICONS_TEXTURE, `${GEN}/field_effects/emoticons.png`, { frameWidth, frameHeight });
+      for (const [name, t] of Object.entries(this.fieldEffectObjects.templates)) {
+        scene.load.spritesheet(fieldEffectTextureKey(name), `${GEN}/field_effects/obj_${name}.png`, { frameWidth: t.frameWidth, frameHeight: t.frameHeight });
+      }
       scene.load.once(Phaser.Loader.Events.COMPLETE, () => resolve());
       scene.load.start();
     });
@@ -150,11 +190,16 @@ export class Assets {
     let loading = this.spriteLoads.get(key);
     if (!loading) {
       loading = new Promise<void>((resolve) => {
-        scene.load.spritesheet(key, `${GEN}/sprites/${info.key}.png`, {
-          frameWidth: info.frameWidth,
-          frameHeight: info.frameHeight,
-        });
-        scene.load.once(`filecomplete-spritesheet-${key}`, () => resolve());
+        // The sheet, and the copy in its reflection palette if it has one.
+        const sheets: [string, string][] = [[key, `${GEN}/sprites/${info.key}.png`]];
+        if (info.reflection) sheets.push([reflectionTextureKey(info), `${GEN}/sprites/${info.key}_reflection.png`]);
+        let remaining = sheets.length;
+        for (const [k, url] of sheets) {
+          scene.load.spritesheet(k, url, { frameWidth: info.frameWidth, frameHeight: info.frameHeight });
+          scene.load.once(`filecomplete-spritesheet-${k}`, () => {
+            if (--remaining === 0) resolve();
+          });
+        }
         scene.load.once(Phaser.Loader.Events.COMPLETE, () => resolve());
         scene.load.start();
       }).finally(() => this.spriteLoads.delete(key));
@@ -180,6 +225,16 @@ export interface EmoticonData {
 
 export function spriteTextureKey(info: SpriteInfo): string {
   return `spr_${info.key}`;
+}
+
+/** The sheet drawn in the object's reflection palette (SetUpReflection). */
+export function reflectionTextureKey(info: SpriteInfo): string {
+  return `spr_${info.key}_reflection`;
+}
+
+/** A gFieldEffectObjectTemplate_<name>'s sprite sheet. */
+export function fieldEffectTextureKey(name: string): string {
+  return `fldeff_obj_${name}`;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {

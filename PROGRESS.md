@@ -19,9 +19,12 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] NPC text colours per graphics id (sTextColorTable)
 - [x] C strings from src/strings.c (menu labels etc.)
 - [x] Std window frames (type1..10, palette from each PNG); menu cursor is the ▶ font glyph
-- [ ] Tile animations (water, flowers, etc.)
-- [ ] Door animation graphics
-- [~] Field effect graphics: emote icons (`field_effects/emoticons.*`); not yet grass, shadows, ripples, ...
+- [x] Tilesets split into bottom/middle/top atlases (BG3/BG2/BG1 as DrawMetatile fills them), the JASC palettes
+  they were drawn with (`tilesets/palettes.json`) and each tileset's anim callback; tile anim frames are gfx symbols
+- [x] Door animations (`doors.json`: sDoorGraphics + DoorAnimFrame lists; door tiles as gfx symbols)
+- [x] Field effect graphics: emote icons (`field_effects/emoticons.*`) and every gFieldEffectObjectTemplate_*
+  (`field_effects/obj_<Name>.png` + `objects.json`: frame size, anims, callback, the reflection distortion affine
+  anims); object sprite sheets in their reflection palette (`sprites/<key>_reflection.png`)
 - [x] Species (base stats, names, learnsets, national dex numbers), moves, items, experience tables, nature table, std strings
 - [x] Trainers / trainer parties (battle/tables.json)
 - [x] Wild encounters data (`wild_encounters.json`: FireRed gWildMonHeaders, ENCOUNTER_CHANCE_* slot totals, sUnownLetterSlots)
@@ -36,7 +39,7 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [ ] Audio
 
 ### Engine
-- [x] Map rendering (below/above layers), connections, border
+- [x] Map rendering (bottom/middle/top BG layers), connections, border
 - [x] Grid movement: walk, run, tap-to-turn, ledges
 - [x] Collision: collision bits, elevation rules, directional impassable, objects
 - [x] Sprite priority from elevation (UpdateObjectEventElevationAndPriority): priority-1 objects draw over the top map layer
@@ -79,7 +82,14 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
   of Fame PC aren't ported. Not yet: GetInteractedWaterScript (Surf/Waterfall)
 - [~] Start menu shell: items by flags, wrap-around cursor, remembered position, B/START close. POKéMON and BAG open the real screens; the other entries (except EXIT) show a "not implemented" notice
 - [ ] Start menu help/description window
-- [ ] Door animations (`opendoor`/`closedoor`/`waitdooranim` are no-ops), tile animations, field effects
+- [x] Tile animations (tileset_anims.c): General water/sand/flowers, Celadon fountain, Silph Co. fountain, Mt. Ember
+  steam, Vermilion Gym door, Celadon Gym flowers
+- [x] Door animations (field_door.c), Task_DoorWarp / Task_ExitDoor, `opendoor`/`closedoor`/`waitdooranim`/
+  `setdooropen`/`setdoorclosed`
+- [~] Field effects: ground effects (tall grass, jump landings: grass/splashes/dust, shadows, ripples, puddle
+  splashes, feet in shallow water, sand footprints/bike tracks, hot springs, water/ice reflections). Not yet: the
+  field move effects (Cut, Surf blob, Strength, Rock Smash, Fly bird, ...), the warp arrow, Pokémon Center heal,
+  `dofieldeffect` in general
 - [ ] Map name popup
 - [ ] Save/load
 - [x] Party menu (party_menu.c) and bag (item_menu.c, bag.c, item_use.c) on the GBA layer, from the field and in battle; list menus, scroll arrows, mon/item icons, std/dialog frames, YES/NO, money box
@@ -138,6 +148,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - VS Seeker: `state.trainerRematches` is never set, so no trainer is ever ready for a rematch.
   - Battles: no move/status/special battle animation scripts (InitAndLaunchSpecialAnimation etc. finish at once;
     only the Poké Ball open burst is drawn); no shiny sparkle; no audio (PlaySE/cries/BGM are no-ops).
+  - Field sounds: doors (SE_DOOR / SE_SLIDING_DOOR) and puddle splashes (SE_PUDDLE) are silent.
   - Evolution scene: no audio, so cries and sound effects count as finished at once (the intro jingle and the SE_EXP
     wait don't hold the scene up); the help system isn't toggled; GAME_STAT_EVOLVED_POKEMON isn't kept. Evolving
     from the field uses fresh battle globals, so the backdrop follows the map's battle scene (gyms etc.) but not the
@@ -184,13 +195,22 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - Text colour is reset to NPC_TEXT_COLOR_DEFAULT when a script starts, not in ProcessPlayerFieldInput.
   - The RNG (`random.c` formula) is seeded from `Math.random` (or `?seed=` in dev); the trainer id is rolled when the game state is created instead of in Oak's intro.
   - A mon's met location is the MAPSEC_* name, not the numeric id.
-  - Warps fade with Phaser's camera fade (200 ms), not the field warp fade.
+  - Warps fade with Phaser's camera fade (200 ms), not the field warp fade. Leaving a building through a door,
+    the screen fades in instead of FRLG's barn door wipe (DoOutwardBarnDoorWipe); Task_ExitDoor's timing is kept.
+  - Tile animations: the GBA only has the current map's tilesets in VRAM and draws connected maps with them; here
+    each map keeps its own atlases, so a neighbour with a different secondary tileset only animates it while it's
+    the current map. BG3 under NORMAL-layer metatiles shows the backdrop colour instead of DrawMetatile's
+    garbage tile 0x3014. A door frame doesn't overwrite the last 8 BG tiles for the rest of the map
+    (CopyDoorTilesToVram's side effect).
+  - Field effect sprites are positioned in world pixels, so UpdateObjectEventSpriteInvisibility's off-screen
+    check and the gCamera map-change fixups in the grass callbacks aren't needed. Reflections ignore weather
+    palette tints (UpdateSpritePaletteWithWeather).
   - `lock`/`lockall` only wait for the player (and the selected object) to finish their steps; other objects already
     hold still while any script runs. Held movements (trainer approach, camera object) are ObjectEvent moves, so
     their frame order relative to the script and tasks can be off by a frame.
   - Sprite order: `fixedPriority` (surf/fly field effects, the `set_fixed_priority` movement action and
-    `setobjectsubpriority`, none of which FRLG scripts use) isn't ported, and neither are OAM priorities 0 and 3,
-    which no map elevation produces. Sprites tied on priority, subpriority and screen top keep creation order rather
+    `setobjectsubpriority`, none of which FRLG scripts use) isn't ported, and neither is OAM priority 0, which no
+    map elevation produces (priority 3 is only used by field effects: reflections and ripples). Sprites tied on priority, subpriority and screen top keep creation order rather
     than the previous frame's gSpriteOrder.
   - BIOS ObjAffineSet uses a computed sine table; mosaic isn't emulated by the PPU.
   - Buy menu map view: object sprites skip their subsprite tables (table 0 is empty for every size, so it draws the
@@ -318,6 +338,24 @@ State as of the last log entry:
 - **Testing long scenes (ad hoc):** `tools/browser-test.mjs` has `mash:<js>` (press A until a condition holds), e.g.
   `mash:game.scene.getScene("Overworld").state.getVar("VAR_MAP_SCENE_PALLET_TOWN_PROFESSOR_OAKS_LAB")===2`.
   Build step lists as a bash array (`args+=(...)`) so JS with spaces survives word splitting.
+- **Map layers / tile animations:** each map is three tilemaps (`ATLAS_LAYERS` bottom/middle/top = BG3/BG2/BG1,
+  `LAYER_DEPTH` in MapChunk.ts), with OAM priority 3/2/1 sprite bands between them (`objectDepth`).
+  `world/TilesetVram.ts` holds each loaded tileset's GBA tiles (`tilesetVram` stores, loaded by
+  `Assets.loadTilesetTextures`); for a pair with an animated tileset its atlases become canvas textures and
+  `writeTiles` redraws the slots whose metatiles use a changed tile. `world/tilesetAnims.ts` is tileset_anims.c,
+  driven from `OverworldScene.tick` (InitTilesetAnimations on a warp, InitSecondaryTilesetAnimation on a
+  connection). `__test.tilesetTile(name, tile)` shows a tile's current bytes.
+- **Doors:** `world/doors.ts` (FieldDoors) is field_door.c: a door frame is drawn into small canvas textures over
+  the door cell(s), with the map's tiles there hidden (`MapChunk.setCellVisible`). `OverworldScene.doDoorWarp`
+  (Task_DoorWarp) and `exitDoor` (Task_ExitDoor) run as overlays, which freeze the NPCs and the input.
+- **Field effects:** `entities/FieldEffects.ts` has FieldEffectSprite (struct Sprite's fields + sprite.c frame
+  anims, drawn by Phaser) and the ported FldEff_* / Update*FieldEffect functions; `entities/groundEffects.ts` is
+  the GetAllGroundEffectFlags_* / DoFlaggedGroundEffects / GroundEffect_* part of event_object_movement.c.
+  ObjectEvent carries the GBA ground-effect state and calls `field.groundEffects` from its spawn / begin-step /
+  finish-step points; `current` is the GBA's currentCoords, which during a jump differ from tileX/tileY (the
+  landing tile, for collisions). Probes: `field().fieldEffects` / `playerEffects`. Test spots: Route 1 ledge into
+  grass (12, 4), Viridian pond (14, 24), Four Island puddles (10, 8; mash through the rival scene first), Five
+  Island sand (8, 3), Kindle Road shallow water (4, 17), Ember Spa (11, 10).
 - **Workflow used so far:** read the C in the decomp, port it, cite the function name, verify with a test (unit for
   pure logic, e2e for anything on screen), then add an entry below.
 
@@ -891,3 +929,33 @@ State as of the last log entry:
   says YES to "Will you switch?" and lands in the party menu, so the test leads with Water Gun and sets
   `battleStyleSet`.
 
+### Tile animations, door animations, field effect graphics (user request)
+
+- Map layers: the atlases are now three per tileset pair, bottom/middle/top, as DrawMetatile (field_camera.c)
+  spreads a metatile's two layers over BG3/BG2/BG1 by layer type, so OAM priority 3 sprites (reflections, ripples)
+  can sit between the bottom and middle BGs. `objectDepth` handles priority 3; depth bands moved accordingly.
+- Tile animations: port of tileset_anims.c (`world/tilesetAnims.ts`) on top of `world/TilesetVram.ts`, which keeps
+  each tileset's GBA tiles as "VRAM", converts animated pairs' atlases to canvas textures and redraws only the
+  metatiles that use a changed tile, in the same JASC colours as the PNGs (`tilesets/palettes.json`). The
+  transfer is skipped while a palette fade runs, like CB2_Overworld. The extractor records each tileset's
+  `callback`.
+- Doors: port of field_door.c (`world/doors.ts`, data in `doors.json` from `tools/extract_field.py`), the door
+  warp (Task_DoorWarp: open, walk in, close behind the hidden player, fade) replacing the old walk-into-the-door
+  warp, the exit (Task_ExitDoor: hidden, 25 frames, open, walk out, close after 14 frames), and the door script
+  commands. TryDoorWarp is checked where ProcessPlayerFieldInput does (after A interactions, before START).
+- Field effects: `tools/extract_field.py` writes every field effect object template as a sheet + JSON and the
+  reflection distortion anims; `extract_object_events` writes each sprite in its reflection palette (picked like
+  LoadObjectReflectionPalette: player/special sets, NPC slots via gReflectionEffectPaletteMap) plus `shadowSize`
+  and `tracks`. Ported: the ground effect flags and GroundEffect_* (event_object_movement.c), FldEff_Shadow,
+  TallGrass, JumpTallGrass, Dust, JumpSmall/BigSplash, Ripple, Splash, FeetInFlowingWater, Sand/DeepSand
+  footprints, BikeTireTracks, HotSpringsWater and SetUpReflection with their update callbacks, the distortion
+  sprites' x-scale wobble, and DoShadowFieldEffect on jumps. ObjectEvent now tracks the GBA currentCoords through
+  jumps (shifted at InitJump and at JUMP_HALFWAY) and the ground-effect flags. FRLG's always-FALSE behaviours
+  (long/short grass, deep sand, footprints, Pacifidlog logs) are ported as such; bubbles (MB_SEAWEED, unused by
+  FRLG tilesets) aren't.
+- `include/event_object_movement.h` is read for defines (GROUND_EFFECT_FLAG_*, PALSLOT_*).
+- Fix: OverworldScene.update could tick before the first map had loaded (now the player's spawn ground effects
+  look at the map).
+- Tests: `tests/e2e/fieldEffects.test.ts` (water/flower tiles change, door entry and exit, ledge jump shadow into
+  grass, pond reflection). New probes: `field().playerVisible/doorAnimating/fieldEffects/playerEffects`,
+  `__test.tilesetTile()`.

@@ -17,6 +17,7 @@ import type { GameState } from '../state/GameState';
 import { TEXT_SPEED, type TextSpeed } from '../text/TextPrinter';
 import { seedRng } from '../util/random';
 import { DELTA, type Direction } from '../world/direction';
+import { tilesetVram } from '../world/TilesetVram';
 
 let enabled = false;
 /** `?textSpeed=`: applied to the new game's options by applyTestOptions. */
@@ -164,6 +165,13 @@ export interface FieldProbe {
   fading: boolean;
   /** The field message box's text while it's open (encoded; `__test.message()` decodes it). */
   message: number[] | undefined;
+  playerVisible: boolean;
+  /** FieldIsDoorAnimationRunning */
+  doorAnimating: boolean;
+  /** The field effect sprites alive (FLDEFF_* names, 'reflection' for reflections), in creation order. */
+  fieldEffects: string[];
+  /** The ones following the player (shadow, grass, splashes, reflection). */
+  playerEffects: string[];
 }
 
 /** The parts of OverworldScene the hooks use (`startWildBattle` is private there; reached by name). */
@@ -308,6 +316,11 @@ function createApi(game: Phaser.Game) {
     hold: (b: Button) => pad.hold(b),
     release: (b?: Button) => pad.release(b),
     waitFrames: (n: number) => pad.waitFrames(n),
+    /** A tile of a tileset as the field's BG VRAM holds it now (tile animations write there), as hex. */
+    tilesetTile: (tileset: string, tile: number) => {
+      const d = tilesetVram.tileData(tileset, tile);
+      return d && Array.from(d, (b) => b.toString(16).padStart(2, '0')).join('');
+    },
     /**
      * Hold a direction until the player has started the step onto the tile `tiles` away, then let go, and
      * resolve once they've stopped. Gives up early if anything takes the controls (script, menu, trainer,

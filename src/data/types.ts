@@ -144,6 +144,8 @@ export interface TilesetSymbols {
   tiles: string;
   palettes: string;
   metatiles: string;
+  /** The tileset's animation init function (tileset_anims.c InitTilesetAnim_*), if it has one. */
+  callback?: string;
 }
 
 export interface SpriteInfo {
@@ -155,6 +157,11 @@ export interface SpriteInfo {
   inanimate: boolean;
   /** NPC_TEXT_COLOR_*: 0 male (blue), 1 female (red), 2 mon, 3 neutral. */
   textColor: number;
+  /** graphicsInfo->shadowSize (SHADOW_SIZE_*) and ->tracks (TRACKS_*), by name */
+  shadowSize: string;
+  tracks: string;
+  /** Whether `<key>_reflection.png` exists: the sheet in the palette its reflection draws with. */
+  reflection?: boolean;
   /** The graphics info as GBA-native data, for screens on the GBA layer (CreateObjectGraphicsSprite). */
   gba: ObjectEventGbaInfo;
 }

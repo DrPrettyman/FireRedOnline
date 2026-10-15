@@ -4,7 +4,9 @@ import type { TilesetAttributes, TilesetPairInfo } from '../data/types';
 export const NUM_METATILES_IN_PRIMARY = 640;
 const NUM_METATILES_IN_SECONDARY = 1024 - NUM_METATILES_IN_PRIMARY;
 
-export type AtlasLayer = 'below' | 'above';
+/** The field's three map BGs (BG3, BG2, BG1), each drawn from its own atlas. */
+export const ATLAS_LAYERS = ['bottom', 'middle', 'top'] as const;
+export type AtlasLayer = (typeof ATLAS_LAYERS)[number];
 
 /**
  * A map's (primary, secondary) tileset combination, drawn from two atlases:

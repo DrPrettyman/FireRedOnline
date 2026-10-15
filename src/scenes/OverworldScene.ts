@@ -5,6 +5,7 @@ import { initBattleEnv } from '../battle/env';
 import { loadMenusData } from '../menus/data';
 import { expandPlaceholders } from '../text/placeholders';
 import { FieldEffects } from '../entities/FieldEffects';
+import { GroundEffects } from '../entities/groundEffects';
 import { FieldPoisonEffect } from '../entities/FieldPoisonEffect';
 import { NpcBrain } from '../entities/NpcBrain';
 import { applyStartPreset, type StartPreset } from '../dev/startPresets';
@@ -30,6 +31,8 @@ import { YesNoMenu } from '../ui/YesNoMenu';
 import { MonPicBox } from '../ui/MonPicBox';
 import { MoneyBox } from '../ui/MoneyBox';
 import { ScreenFade } from '../ui/ScreenFade';
+import { FieldDoors } from '../world/doors';
+import { InitSecondaryTilesetAnimation, InitTilesetAnimations, TransferTilesetAnimsBuffer, UpdateTilesetAnimations } from '../world/tilesetAnims';
 import { ShopMenu, type ShopHost } from '../ui/ShopMenu';
 import { MenuWindow } from '../ui/MenuWindow';
 import { FLOOR_NAMES, type FieldTask } from '../world/elevator';
@@ -96,6 +99,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   private overlay?: { tick(): boolean };
   private screenFade!: ScreenFade;
   private fieldEffects!: FieldEffects;
+  private doors!: FieldDoors;
   private monPic?: MonPicBox;
   private wild!: WildEncounters;
   private moneyBox?: MoneyBox;
@@ -131,7 +135,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   private readonly field: ObjectEventField = {
     elevationAt: (x, y) => this.world.tileAt(x, y).elevation,
     cameraTop: 0,
+    groundEffects: (obj, phase) => this.groundEffects.run(obj, phase),
+    startShadow: (obj) => this.fieldEffects.shadow(obj, this.defines.require(obj.info.shadowSize)), // FldEff_Shadow
   };
+  private groundEffects!: GroundEffects;
   private buttons!: Input;
   private accumulator = 0;
   private busy = true;
@@ -139,7 +146,6 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   /** Task_QuestLogPlayback_OpenStartMenu: START cancelled a walked-into sign; open the menu once the controls are free. */
   private startMenuWhenFree = false;
   private wasMoving = false;
-  private pendingWarp?: WarpEventData;
   private hud!: Phaser.GameObjects.Text;
 
   constructor() {
@@ -173,7 +179,24 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     initBattleEnv(await sharedBattleData(), this.assets.scripts.defines, this.state.pokemon, this.state, this.charmap);
     await loadMenusData('gen'); // sTMHMMoves, for BufferTMHMMoveName
     await this.assets.loadFieldEffectTextures(this);
-    this.fieldEffects = new FieldEffects(this, this.assets.emoticons, this.field);
+    const field = this.field;
+    const behaviorAt = (x: number, y: number) => this.world.tileAt(x, y).behavior;
+    this.fieldEffects = new FieldEffects(this, this.assets.emoticons, this.assets.fieldEffectObjects, {
+      elevationAt: field.elevationAt,
+      get cameraTop() {
+        return field.cameraTop;
+      },
+      behaviors: this.behaviors,
+      behaviorAt,
+      objects: () => [this.player, ...this.npcs.map((n) => n.brain.obj)],
+    });
+    this.groundEffects = new GroundEffects({
+      behaviors: this.behaviors,
+      fx: this.fieldEffects,
+      behaviorAt,
+      define: (name) => this.defines.require(name),
+      isCameraObject: (obj) => obj === this.cameraObject,
+    });
     this.trainerSee = this.createTrainerSeeHost();
     const charmap = this.charmap;
     const d = this.defines;
@@ -197,6 +220,12 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     );
 
     this.world = new World(this, this.assets);
+    this.doors = new FieldDoors(this.assets.doors, {
+      scene: this,
+      metatileAt: (x, y) => this.world.tileAt(x, y),
+      tilesetPair: (chunk) => this.assets.tilesetPair(chunk.data.tilesetPair),
+      isWarpDoor: (behavior) => this.behaviors.isDoor(behavior),
+    });
     initRoamerTables(this.assets.wildEncounters);
     this.wild = new WildEncounters(this.assets.wildEncounters, this.state, this.defines, {
       startWildBattle: (mon) => this.startWildBattle(mon),
@@ -232,6 +261,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       approaching: this.trainerApproach !== undefined,
       fading: this.screenFade.active,
       message: this.messageBox.visible ? this.messageBox.text : undefined,
+      playerVisible: this.player.visible,
+      doorAnimating: this.doors.running,
+      fieldEffects: this.fieldEffects.liveEffects(),
+      playerEffects: this.fieldEffects.liveEffects(this.player),
     };
   }
 
@@ -270,7 +303,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
         const nx = cur.x + dx;
         const ny = cur.y + dy;
         const to = this.world.tileAt(nx, ny);
-        // A door is entered by walking up into it, whatever its collision (handleInput's pendingWarp).
+        // A door is entered by walking up into it, whatever its collision (TryDoorWarp / Task_DoorWarp).
         const door = dir === 'up' && nx === tx && ny === ty && this.behaviors.isDoor(to.behavior) && this.warpAt(nx, ny);
         if (!door && (to.collision !== 0 || this.behaviors.blocksMove(from.behavior, to.behavior, dir) || this.behaviors.isAnyJump(to.behavior))) continue;
         if (isElevationMismatchAt(cur.e, to.elevation) || occupied.has(`${nx},${ny}`)) continue;
@@ -285,7 +318,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   }
 
   update(_time: number, delta: number): void {
-    if (!this.player || !this.scripts) return;
+    if (!this.player || !this.scripts || !this.world.current) return;
     this.accumulator = Math.min(this.accumulator + delta * logicSpeed, FRAME_MS * 5 * logicSpeed);
     while (this.accumulator >= FRAME_MS) {
       this.accumulator -= FRAME_MS;
@@ -297,6 +330,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   // ------------------------------------------------------------------ frame logic
 
   private tick(): void {
+    // OverworldBasic's UpdateTilesetAnimations, and VBlank's transfer of what it queued. CB2_Overworld
+    // removes the VBlank callback while a palette fade runs, so no frames are copied then.
+    UpdateTilesetAnimations();
+    if (!this.screenFade.active) TransferTilesetAnimsBuffer();
     this.buttons.sample();
     // FieldGetPlayerInput: QuestLogOverrideJoyVars replays the key that closed the last script's message.
     if (!this.scripts.running) {
@@ -321,6 +358,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     const overlay = this.overlay;
     // An overlay may hand off to another (start menu → notice); only clear it if it wasn't replaced.
     if (overlay && overlay.tick() && this.overlay === overlay) this.overlay = undefined;
+    this.doors.tick(); // Task_AnimateDoor (priority 80) runs after the tasks that start it
     const scripted = this.scripts.running || this.overlay !== undefined;
     for (const n of this.npcs) {
       n.brain.paused = scripted;
@@ -374,6 +412,15 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     // ProcessPlayerFieldInput: walking into a sign, then an A-press interaction, then START, all before movement.
     if (dir && dir === this.player.facing && this.tryWalkIntoSignpost()) return;
     if (this.buttons.pressed('A') && this.interact()) return;
+    // TryDoorWarp: holding north while facing a door with a warp on it
+    if (dir === 'up' && this.player.facing === 'up') {
+      const door = this.world.tileAt(this.player.tileX, this.player.tileY - 1);
+      const warp = this.behaviors.isDoor(door.behavior) && this.warpAt(this.player.tileX, this.player.tileY - 1);
+      if (warp) {
+        this.doDoorWarp(warp);
+        return;
+      }
+    }
     if (this.buttons.pressed('START')) {
       this.openStartMenu();
       return;
@@ -407,15 +454,6 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     const ty = this.player.tileY + dy;
     const target = this.world.tileAt(tx, ty);
 
-    if (dir === 'up' && this.behaviors.isDoor(target.behavior)) {
-      const door = this.warpAt(tx, ty);
-      if (door) {
-        this.pendingWarp = door;
-        this.player.move(dir);
-        return;
-      }
-    }
-
     if (this.behaviors.isJump(target.behavior, dir) && this.canOccupy(this.player, tx + dx, ty + dy)) {
       this.player.move(dir, 'jump');
       return;
@@ -432,19 +470,13 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   private onPlayerArrived(): void {
     const { tileX: x, tileY: y } = this.player;
 
-    if (this.pendingWarp) {
-      const w = this.pendingWarp;
-      this.pendingWarp = undefined;
-      void this.takeWarp(w);
-      return;
-    }
-
     // LoadMapFromCameraTransition: the step's tile already belongs to the new map, so the rest of
     // the step is handled against it once it's loaded.
     const chunk = this.world.chunkAt(x, y);
     if (chunk && chunk !== this.world.current) {
       this.busy = true;
       void this.world.setCurrent(chunk).then(async () => {
+        InitSecondaryTilesetAnimation(this.assets.tilesetAnimInfo(chunk.data.tilesetPair).secondary);
         await this.onMapLoaded(false);
         this.busy = false;
         if (!this.scripts.running && this.overlay === undefined) this.processStep(x, y);
@@ -715,6 +747,92 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     await this.warpTo(name, destIndex, -1, -1);
   }
 
+  /**
+   * DoDoorWarp → Task_DoorWarp (field_fadetransition.c): the door opens, the player walks in, the door
+   * closes behind them, then the warp's fade. Runs as an overlay, which freezes the other objects and
+   * the player's input like FreezeObjectEvents / LockPlayerFieldControls.
+   */
+  private doDoorWarp(warp: WarpEventData): void {
+    const { tileX: x, tileY: y } = this.player; // PlayerGetDestCoords
+    let state = 0;
+    this.overlay = {
+      tick: () => {
+        switch (state) {
+          case 0:
+            this.doors.animateOpen(x, y - 1); // PlaySE(GetDoorSoundEffect) has no audio yet
+            state = 1;
+            break;
+          case 1:
+            if (!this.doors.running) {
+              this.player.move('up'); // MOVEMENT_ACTION_WALK_NORMAL_UP
+              state = 2;
+            }
+            break;
+          case 2:
+            if (!this.player.isMoving) {
+              this.doors.animateClose(x, y - 1);
+              this.player.setVisible(false);
+              state = 3;
+            }
+            break;
+          case 3:
+            if (!this.doors.running) state = 4;
+            break;
+          case 4:
+            void this.takeWarp(warp); // WarpFadeOutScreen, then Task_Teleport2Warp's WarpIntoMap
+            return true;
+        }
+        return false;
+      },
+    };
+  }
+
+  /**
+   * Task_ExitDoor: arriving on a door, the player is hidden while the screen fades in; 25 frames on the
+   * door opens, the player walks out, and 14 frames into the step it closes again. `fadeDone` stands in
+   * for FieldFadeTransitionBackgroundEffectIsFinished.
+   */
+  private exitDoor(fadeDone: () => boolean): void {
+    let state = 5;
+    let delay = 0; // data[15]
+    let walkFrames = 0; // data[14]
+    let doorX = 0;
+    let doorY = 0;
+    this.player.setVisible(false); // case 5, before the first frame is shown (FreezeObjectEvents: the overlay)
+    state = 6;
+    this.overlay = {
+      tick: () => {
+        switch (state) {
+          case 6:
+            if (++delay === 25) {
+              this.doors.animateOpen(this.player.tileX, this.player.tileY);
+              state = 7;
+            }
+            break;
+          case 7:
+            if (!this.doors.running) {
+              doorX = this.player.tileX;
+              doorY = this.player.tileY;
+              this.player.setVisible(true);
+              this.player.move('down'); // MOVEMENT_ACTION_WALK_NORMAL_DOWN
+              state = 8;
+            }
+            break;
+          case 8:
+            if (++walkFrames === 14) {
+              this.doors.animateClose(doorX, doorY);
+              state = 9;
+            }
+            break;
+          case 9:
+            if (fadeDone() && !this.player.isMoving && !this.doors.running) return true; // case 4
+            break;
+        }
+        return false;
+      },
+    };
+  }
+
   /** Warp to a warp event index, or to explicit coordinates when warpId < 0. */
   private async warpTo(name: string, warpId: number, x: number, y: number): Promise<void> {
     this.busy = true;
@@ -722,18 +840,24 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     const data = await this.assets.loadMap(name);
     const dest = warpDestCoords(data, warpId, x, y);
     await this.enterMap(name, dest.x, dest.y, this.player.facing, true);
+    // SetUpWarpExitTask: a door (MetatileBehavior_IsWarpDoor_2) gets Task_ExitDoor.
     const arrival = this.world.tileAt(this.player.tileX, this.player.tileY);
-    if (this.behaviors.isDoor(arrival.behavior)) this.player.move('down'); // walk out of the doorway
+    let faded = false;
+    if (this.behaviors.isDoor(arrival.behavior)) this.exitDoor(() => faded);
     await fade(this, 'in');
+    faded = true;
     this.busy = false;
   }
 
   /** Load a map fresh (origin at 0,0) and put the player at local (x, y). */
   private async enterMap(name: string, x: number, y: number, facing: Direction, warped: boolean): Promise<void> {
     this.fieldEffects.clear();
+    this.doors.clear();
     this.trainerApproach = undefined;
     this.removeCameraObject();
     await this.world.load(name);
+    const anims = this.assets.tilesetAnimInfo(this.world.current.data.tilesetPair);
+    InitTilesetAnimations(anims.primary, anims.secondary);
     this.player.setVisible(true); // the GBA recreates the player object on every warp
     this.player.setPosition(x, y); // also updates elevation and priority, as on spawn
     this.updateFieldCamera(); // the warp resets the camera onto the player
@@ -1646,6 +1770,25 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   setObjectPosition(localId: number, x: number, y: number): void {
     const cur = this.world.current;
     this.objectByLocalId(localId)?.setPosition(cur.originX + x, cur.originY + y);
+  }
+
+  /** FieldAnimateDoorOpen / FieldAnimateDoorClose at map-local coords (opendoor / closedoor). */
+  animateDoor(x: number, y: number, open: boolean): void {
+    const { originX, originY } = this.world.current;
+    if (open) this.doors.animateOpen(x + originX, y + originY);
+    else this.doors.animateClose(x + originX, y + originY);
+  }
+
+  /** FieldIsDoorAnimationRunning (waitdooranim) */
+  doorAnimationRunning(): boolean {
+    return this.doors.running;
+  }
+
+  /** FieldSetDoorOpened / FieldSetDoorClosed at map-local coords (setdooropen / setdoorclosed). */
+  setDoor(x: number, y: number, open: boolean): void {
+    const { originX, originY } = this.world.current;
+    if (open) this.doors.setOpened(x + originX, y + originY);
+    else this.doors.setClosed(x + originX, y + originY);
   }
 
   setMetatile(x: number, y: number, metatile: number, impassable: boolean): void {

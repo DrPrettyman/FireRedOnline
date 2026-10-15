@@ -42,8 +42,8 @@ Debug: `?map=PalletTown&x=12&y=10` starts at any map and coordinate. In dev buil
 | Output | Source in decomp |
 | --- | --- |
 | `maps/<Name>.json`, `maps/index.json` | `data/maps/*/map.json`, `data/layouts/layouts.json`, `map.bin`/`border.bin` |
-| `tilesets/<Primary>_{below,above}.png` | primary tileset metatiles 0–639 (shared by every map using that primary) |
-| `tilesets/<Primary>__<Secondary>_{below,above}.png` | secondary metatiles 640–1023, plus "override" copies of primary metatiles that use secondary palettes |
+| `tilesets/<Primary>_{bottom,middle,top}.png` | primary tileset metatiles 0–639 (shared by every map using that primary) |
+| `tilesets/<Primary>__<Secondary>_{bottom,middle,top}.png` | secondary metatiles 640–1023, plus "override" copies of primary metatiles that use secondary palettes |
 | `tilesets/index.json` | per-tileset metatile attributes (behavior, layer type, encounter type) + per-pair override lists |
 | `sprites/<Name>.png`, `sprites/manifest.json` | overworld pic tables/palettes in `src/data/object_events/*.h`, NPC text colour (`sTextColorTable`) |
 | `text/latin_*.png`, `text/fonts.json` | latin fonts, glyph widths (`src/text.c`), font metrics (`gFontInfos`) |
@@ -55,12 +55,19 @@ Debug: `?map=PalletTown&x=12&y=10` starts at any map and coordinate. In dev buil
 | `pokemon/tables.json` | `gExperienceTables` (EXP_* macros evaluated), `sNatureStatTable`, `gStdStringPtrs`, dex counts |
 | `pokemon/front/<species>.png` | front pics with the normal palette (`gMonFrontPicTable`, `gMonPaletteTable`) |
 | `constants.json` | metatile behavior ids, new-game hidden-object flags |
+| `tilesets/palettes.json` | the JASC palettes the atlases are drawn with, for runtime redraws (tile animations, doors) |
+| `field_effects/obj_<Name>.png`, `objects.json` | every `gFieldEffectObjectTemplate_*` as a sheet with its frame size, anims and callback; the reflection distortion anims (`tools/extract_field.py`) |
+| `sprites/<Name>_reflection.png` | object sprites in the palette their reflection draws with |
+| `doors.json` | `sDoorGraphics` and the door anim frame lists (field_door.c) |
 | `gfx/<symbol>.bin`, `gfx/index.json` | every `INCBIN` graphic used by battle/interface code, by C symbol, as the ROM holds it once decompressed (`tools/extract_gfx.py`, `graphics_file_rules.mk` rules) |
 | `battle/scripts.json` | battle scripts + AI scripts assembled into a ROM image with labels and RAM symbols |
 | `battle/strings.json`, `tables.json`, `anims.json` | battle strings and text-window info, trainers/parties, type chart, mechanics tables, sprite anim command tables per C file, pic tables (`tools/extract_battle.py`, `extract_anims.py`) |
 
-Each metatile's two layers are split by layer type into a **below** atlas (under sprites) and an **above** atlas
-(over sprites), reproducing the GBA BG priorities. A map layer uses the primary atlas at gid 0 and the pair atlas at gid 640.
+Each metatile's two layers are spread over three atlases by layer type, as DrawMetatile fills the field's BG3,
+BG2 and BG1: **bottom**, **middle** and **top**. Sprites of OAM priority 3 (reflections, ripples) draw between
+bottom and middle, priority 2 between middle and top, priority 1 above all three. A map layer uses the primary
+atlas at gid 0 and the pair atlas at gid 640. Tilesets with tile animations get canvas-texture atlases whose
+animated metatiles are redrawn from the GBA tile data (`world/TilesetVram.ts`).
 
 ### Runtime (`src/`)
 
@@ -68,7 +75,9 @@ Each metatile's two layers are split by layer type into a **below** atlas (under
 | --- | --- | --- |
 | Boot | `main.ts`, `scenes/BootScene.ts`, `data/assets.ts` | 240×160 game, loads indexes, lazy-loads maps/textures |
 | World | `world/World.ts`, `MapChunk.ts`, `TilesetPair.ts`, `behaviors.ts` | current map + connected neighbours in one world space; per-tile collision/elevation/behavior; `setmetatile` edits |
+| Map graphics | `world/TilesetVram.ts`, `tilesetAnims.ts`, `doors.ts` | the tilesets' GBA tiles as VRAM, tileset_anims.c, field_door.c |
 | Objects | `entities/ObjectEvent.ts`, `NpcBrain.ts` | grid movement at GBA speeds (walk/run/jump/slow/fast/in-place), NPC movement types |
+| Field effects | `entities/FieldEffects.ts`, `groundEffects.ts` | field effect sprites (field_effect_helpers.c, emote icons) and the ground effects objects trigger (grass, shadows, splashes, reflections, ...) |
 | Field | `scenes/OverworldScene.ts` | fixed 60 Hz tick; input order (START, A, then movement); warps; coord triggers; map scripts; object spawning (on map entry and as objects come into view) |
 | Input | `input/Input.ts` | GBA buttons sampled once per tick (`held` / `pressed`) |
 | Text | `text/charmap.ts`, `Font.ts`, `TextWindow.ts`, `TextPrinter.ts`, `MessageBox.ts`, `placeholders.ts` | port of `RenderText`; pixel-buffer windows; field message box |
@@ -103,7 +112,7 @@ See [PROGRESS.md](PROGRESS.md) for the detailed checklist and log.
 - [x] Text engine: the decomp's fonts, GBA-style printer, message box
 - [~] Script interpreter for `data/maps/*/scripts.inc`, `data/scripts/*.inc` and `data/event_scripts.s` (msgbox, flags/vars, movement, give items)
 - [x] Signs, coord triggers, map scripts (on load / on frame)
-- [ ] Door and tile animations, field effects (grass rustle, shadows, reflections)
+- [x] Door and tile animations, field effects (grass rustle, shadows, reflections)
 - [ ] Save data model: party, bag, flags, vars, PC
 - [ ] Wild encounters (`src/data/wild_encounters.json`)
 - [ ] Battle engine: species, moves and types data, then the damage formula, battle scripts and AI

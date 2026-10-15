@@ -16,9 +16,12 @@ const RUN_FRAMES: Record<Direction, [number, number, number]> = {
 };
 
 /** sElevationToPriority: the OAM priority an object gets from its (previous) elevation. */
-const ELEVATION_TO_PRIORITY = [2, 2, 2, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 0, 0, 2];
+export const ELEVATION_TO_PRIORITY = [2, 2, 2, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 0, 0, 2];
 /** sElevationToSubpriority: base of the y-sort key within a priority (lower draws in front). */
-const ELEVATION_TO_SUBPRIORITY = [115, 115, 83, 115, 83, 115, 83, 115, 83, 115, 83, 115, 83, 0, 0, 115];
+export const ELEVATION_TO_SUBPRIORITY = [115, 115, 83, 115, 83, 115, 83, 115, 83, 115, 83, 115, 83, 0, 0, 115];
+
+/** When DoGroundEffects_* runs: OnSpawn, OnBeginStep, OnFinishStep. */
+export type GroundEffectPhase = 'spawn' | 'beginStep' | 'finishStep';
 
 /** What an object needs from the field. */
 export interface ObjectEventField {
@@ -29,6 +32,10 @@ export interface ObjectEventField {
    * Objects update their subpriority before the camera moves each frame, so they see last frame's.
    */
   cameraTop: number;
+  /** GetAllGroundEffectFlags_* + DoFlaggedGroundEffects for one of the DoGroundEffects_* hooks. */
+  groundEffects?(obj: ObjectEvent, phase: GroundEffectPhase): void;
+  /** DoShadowFieldEffect's FieldEffectStart(FLDEFF_SHADOW) */
+  startShadow?(obj: ObjectEvent): void;
 }
 
 /** Parabolic hop: peaks `height` px up halfway through. */
@@ -103,9 +110,34 @@ export class ObjectEvent {
   priority: number;
   /** Sprite y-sort key within its priority; lower draws in front. */
   subpriority = 0;
+  /**
+   * currentCoords: the tile the GBA has the object on, for elevation and ground effects. Same as
+   * tileX/tileY except during a jump, which shifts it a tile at the start and (a 2-tile ledge jump)
+   * another at its halfway point, while tileX/tileY already hold the landing tile for collisions.
+   */
+  private currentX: number;
+  private currentY: number;
   /** previousCoords: the tile a step started from; equal to the current tile when still. */
   private previousX: number;
   private previousY: number;
+  /** previousMovementDirection: the facing before the last SetObjectEventDirection. */
+  previousMovementDirection: Direction = 'down';
+  // struct ObjectEvent's ground effect state
+  currentMetatileBehavior = 0;
+  previousMetatileBehavior = 0;
+  triggerGroundEffectsOnMove = true; // set on spawn
+  triggerGroundEffectsOnStop = false;
+  disableCoveringGroundEffects = false;
+  landingJump = false;
+  disableJumpLandingGroundEffect = false;
+  hasShadow = false;
+  hasReflection = false;
+  inShallowFlowingWater = false;
+  inSandPile = false;
+  inShortGrass = false;
+  inHotSprings = false;
+  /** sprite->y2 from a jump: the pixels the sprite is lifted (negative is up). */
+  lift = 0;
   /** World pixel y of the sprite's bottom edge, ignoring jump lift (sprite->y - centerToCornerVecY). */
   feetY = 0;
   /** World pixel y of the sprite's top edge, including jump lift (oam.y before the camera offset). */
@@ -124,6 +156,8 @@ export class ObjectEvent {
   ) {
     this.tileX = tileX;
     this.tileY = tileY;
+    this.currentX = tileX;
+    this.currentY = tileY;
     this.previousX = tileX;
     this.previousY = tileY;
     this.currentElevation = elevation;
@@ -144,6 +178,26 @@ export class ObjectEvent {
     return { x: this.previousX, y: this.previousY };
   }
 
+  /** currentCoords (see currentX): where ground effects look. */
+  get current(): { x: number; y: number } {
+    return { x: this.currentX, y: this.currentY };
+  }
+
+  /** sprite->x: the sprite's centre, world pixels. */
+  get spriteX(): number {
+    return this.anchor.x;
+  }
+
+  /** sprite->y: the sprite's centre without the jump lift (y2), world pixels. */
+  get spriteY(): number {
+    return this.feetY - this.info.frameHeight / 2;
+  }
+
+  /** !sprite->invisible */
+  get visible(): boolean {
+    return this.sprite.visible;
+  }
+
   /** Tile this object will occupy once its current move finishes. */
   get destination(): { x: number; y: number } {
     return { x: this.tileX, y: this.tileY };
@@ -162,13 +216,61 @@ export class ObjectEvent {
     const spec = MOVES[kind];
     const tiles = opts.inPlace ? 0 : spec.tiles;
     const { dx, dy } = DELTA[dir];
+    this.previousMovementDirection = this.facing; // SetObjectEventDirection
     if (!opts.keepFacing) this.facing = dir;
     this.movement = { dir: opts.keepFacing ? this.facing : dir, spec, tiles, elapsed: 0, fromX: this.tileX, fromY: this.tileY };
     this.tileX += dx * tiles;
     this.tileY += dy * tiles;
-    // ShiftObjectEventCoords + DoGroundEffects_OnBeginStep. A jump only shifts coords at its halfway
-    // point (JUMP_HALFWAY); walking in place doesn't shift them at all.
-    if (tiles > 0 && !spec.jump) this.beginStep();
+    if (spec.jump) {
+      // InitJump: ShiftObjectEventCoords by sJumpInitDisplacements (a tile unless jumping in place),
+      // then InitJumpRegular's DoShadowFieldEffect.
+      const init = tiles > 0 ? 1 : 0;
+      this.shiftCoords(this.currentX + dx * init, this.currentY + dy * init);
+      this.triggerGroundEffectsOnMove = true;
+      this.disableCoveringGroundEffects = true;
+      if (!this.hasShadow) {
+        this.hasShadow = true;
+        this.field.startShadow?.(this);
+      }
+    } else if (tiles > 0) {
+      // InitNpcForMovement: ShiftObjectEventCoords. Walking in place doesn't shift them or trigger effects.
+      this.shiftCoords(this.tileX, this.tileY);
+      this.triggerGroundEffectsOnMove = true;
+    }
+    this.doGroundEffectsAfterMovement();
+  }
+
+  /** ShiftObjectEventCoords */
+  private shiftCoords(x: number, y: number): void {
+    this.previousX = this.currentX;
+    this.previousY = this.currentY;
+    this.currentX = x;
+    this.currentY = y;
+  }
+
+  /** DoGroundEffects_OnSpawn: the first part of each object update, for a trigger set at spawn or by a warp. */
+  private doGroundEffectsOnSpawn(): void {
+    if (!this.triggerGroundEffectsOnMove) return;
+    this.updateElevationAndPriority();
+    this.field.groundEffects?.(this, 'spawn');
+    this.triggerGroundEffectsOnMove = false;
+    this.disableCoveringGroundEffects = false;
+  }
+
+  /** DoGroundEffects_OnBeginStep + DoGroundEffects_OnFinishStep, after the movement callback. */
+  private doGroundEffectsAfterMovement(): void {
+    if (this.triggerGroundEffectsOnMove) {
+      this.updateElevationAndPriority();
+      this.field.groundEffects?.(this, 'beginStep');
+      this.triggerGroundEffectsOnMove = false;
+      this.disableCoveringGroundEffects = false;
+    }
+    if (this.triggerGroundEffectsOnStop) {
+      this.updateElevationAndPriority();
+      this.field.groundEffects?.(this, 'finishStep');
+      this.triggerGroundEffectsOnStop = false;
+      this.landingJump = false;
+    }
   }
 
   /**
@@ -176,7 +278,7 @@ export class ObjectEvent {
    * step begins and when it ends. Skipped entirely while either coord is on elevation 15.
    */
   updateElevationAndPriority(): void {
-    const cur = this.field.elevationAt(this.tileX, this.tileY);
+    const cur = this.field.elevationAt(this.currentX, this.currentY);
     const prev = this.field.elevationAt(this.previousX, this.previousY);
     if (cur !== 15 && prev !== 15) {
       // ObjectEventUpdateElevation
@@ -198,19 +300,13 @@ export class ObjectEvent {
     this.sprite.setDepth(objectDepth(this.priority, this.subpriority, this.topY - this.field.cameraTop));
   }
 
-  private beginStep(): void {
-    const m = this.movement!;
-    this.previousX = m.fromX;
-    this.previousY = m.fromY;
-    this.updateElevationAndPriority();
-  }
-
   setVisible(v: boolean): void {
     this.sprite.setVisible(v);
   }
 
   /** Advance one 60Hz frame. Returns true on the frame a move completes. */
   tick(): boolean {
+    this.doGroundEffectsOnSpawn();
     const m = this.movement;
     if (!m) return false;
     m.elapsed++;
@@ -218,34 +314,49 @@ export class ObjectEvent {
     const { dx, dy } = DELTA[m.dir];
     const px = Math.floor(t * m.tiles * TILE);
     const lift = m.spec.jump ? jumpLift(m.elapsed, m.spec.frames, m.spec.jump) : 0;
-    if (m.spec.jump && m.tiles > 0 && m.elapsed === m.spec.frames >> 1) this.beginStep();
+    if (m.spec.jump && m.tiles === 2 && m.elapsed === m.spec.frames >> 1) {
+      // UpdateJumpAnim at JUMP_HALFWAY: a ledge jump (sJumpDisplacements[JUMP_DISTANCE_FAR]) shifts another tile.
+      this.shiftCoords(this.tileX, this.tileY);
+      this.triggerGroundEffectsOnMove = true;
+      this.disableCoveringGroundEffects = true;
+    }
     const sx = this.tileX - m.fromX === 0 ? 0 : (m.fromX - this.tileX) * TILE + dx * px;
     const sy = this.tileY - m.fromY === 0 ? 0 : (m.fromY - this.tileY) * TILE + dy * px;
     this.syncSprite(sx, sy, lift);
     this.showStepFrame(m, t);
+    let finished = false;
     if (m.elapsed >= m.spec.frames) {
       this.movement = undefined;
-      // ShiftStillObjectEventCoords + DoGroundEffects_OnFinishStep (walking in place has no finish hook)
+      // ShiftStillObjectEventCoords + the trigger for DoGroundEffects_OnFinishStep (walking in place has
+      // neither). A jump lands (landingJump) and its action clears hasShadow.
       if (m.tiles > 0 || m.spec.jump) {
-        this.previousX = this.tileX;
-        this.previousY = this.tileY;
-        this.updateElevationAndPriority();
+        this.previousX = this.currentX;
+        this.previousY = this.currentY;
+        this.triggerGroundEffectsOnStop = true;
+      }
+      if (m.spec.jump) {
+        this.landingJump = true;
+        this.hasShadow = false;
       }
       this.stepParity ^= 1;
       this.syncSprite(0, 0, 0);
       this.showFacing();
-      return true;
+      finished = true;
     }
-    return false;
+    this.doGroundEffectsAfterMovement();
+    return finished;
   }
 
   /** MoveObjectEventToMapCoords: SetObjectEventCoords, then the spawn ground effects run again. */
   setPosition(tileX: number, tileY: number): void {
     this.tileX = tileX;
     this.tileY = tileY;
+    this.currentX = tileX;
+    this.currentY = tileY;
     this.previousX = tileX;
     this.previousY = tileY;
     this.movement = undefined;
+    this.triggerGroundEffectsOnMove = true;
     this.updateElevationAndPriority();
     this.syncSprite(0, 0, 0);
     this.showFacing();
@@ -259,6 +370,7 @@ export class ObjectEvent {
     const x = this.tileX * TILE + TILE / 2 + offX;
     const y = this.tileY * TILE + TILE + offY;
     this.feetY = y;
+    this.lift = lift;
     this.topY = y + lift - this.info.frameHeight;
     this.sprite.setPosition(x, y + lift);
     this.anchor.set(x, y);

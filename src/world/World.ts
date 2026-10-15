@@ -2,8 +2,7 @@ import Phaser from 'phaser';
 import type { Assets } from '../data/assets';
 import type { MapConnection, MapData } from '../data/types';
 import {
-  DEPTH_ABOVE,
-  DEPTH_BORDER,
+  LAYER_DEPTH,
   MAPGRID_COLLISION_MASK,
   MAPGRID_COLLISION_SHIFT,
   MAPGRID_ELEVATION_SHIFT,
@@ -11,6 +10,7 @@ import {
   MapChunk,
   createLayer,
 } from './MapChunk';
+import { ATLAS_LAYERS } from './TilesetPair';
 
 /** How far past the current map's edges the border pattern is drawn (screen is 15x10 tiles). */
 const BORDER_PAD_X = 9;
@@ -155,10 +155,7 @@ export class World {
       grid.push(row);
     }
     const pair = this.assets.tilesetPair(d.tilesetPair);
-    this.borderMaps = [
-      createLayer(this.scene, grid, pair, 'below', ox, oy, DEPTH_BORDER),
-      createLayer(this.scene, grid, pair, 'above', ox, oy, DEPTH_ABOVE - 1),
-    ];
+    this.borderMaps = ATLAS_LAYERS.map((layer) => createLayer(this.scene, grid, pair, layer, ox, oy, LAYER_DEPTH[layer] - 1));
   }
 
   private clear(): void {

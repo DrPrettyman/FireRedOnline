@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { MapData } from '../data/types';
-import { NUM_METATILES_IN_PRIMARY, type AtlasLayer, type TilesetPair } from './TilesetPair';
+import { ATLAS_LAYERS, NUM_METATILES_IN_PRIMARY, type AtlasLayer, type TilesetPair } from './TilesetPair';
 
 export const TILE = 16;
 
@@ -9,30 +9,35 @@ export const MAPGRID_COLLISION_MASK = 0x0c00;
 export const MAPGRID_COLLISION_SHIFT = 10;
 export const MAPGRID_ELEVATION_SHIFT = 12;
 
-// Depth bands mirror the field's BG/OAM priorities: `below` holds BG3+BG2 and `above` holds BG1.
-// Within a band objects sort like SortSprites: by subpriority, then by screen top.
-export const DEPTH_BORDER = -2;
-export const DEPTH_BELOW = -1;
-const DEPTH_OBJECTS_PRIORITY_2 = 0;
-export const DEPTH_ABOVE = 300_000;
-const DEPTH_OBJECTS_PRIORITY_1 = 400_000;
+// Depth bands mirror the field's BG/OAM priorities: `bottom`, `middle` and `top` hold BG3, BG2 and BG1
+// (DrawMetatile), and a sprite of OAM priority p draws over the BGs of priority >= p. Within a band
+// objects sort like SortSprites: by subpriority, then by screen top.
+export const DEPTH_BOTTOM = -1;
+const DEPTH_OBJECTS_PRIORITY_3 = 0;
+export const DEPTH_MIDDLE = 300_000;
+const DEPTH_OBJECTS_PRIORITY_2 = 400_000;
+export const DEPTH_TOP = 700_000;
+const DEPTH_OBJECTS_PRIORITY_1 = 800_000;
+
+/** The depth of each map layer (a border layer sits just under the map's own). */
+export const LAYER_DEPTH: Record<AtlasLayer, number> = { bottom: DEPTH_BOTTOM, middle: DEPTH_MIDDLE, top: DEPTH_TOP };
 
 /**
  * Depth of an object sprite (higher draws in front). SortSprites orders OAM by
  * `oam.priority << 8 | subpriority`, and on a tie puts the sprite whose top (oam.y) is lower on screen
- * first, i.e. in front. Priority 2 draws over BG2 and under BG1; priority 1 also draws over BG1.
- * (Priority 0 would also draw over the text window on BG0 and 3 under BG2; no map elevation gives
- * either, so they share 1's and 2's bands.) Any remaining tie keeps creation order.
+ * first, i.e. in front. Priority 3 draws over BG3 only (reflections, ripples), 2 over BG2 and under
+ * BG1, 1 over BG1 too. (Priority 0 would also draw over the text window on BG0; no map elevation gives
+ * it, so it shares 1's band.) Any remaining tie keeps creation order.
  */
 export function objectDepth(priority: number, subpriority: number, screenTop: number): number {
-  const base = priority <= 1 ? DEPTH_OBJECTS_PRIORITY_1 : DEPTH_OBJECTS_PRIORITY_2;
+  const base = priority <= 1 ? DEPTH_OBJECTS_PRIORITY_1 : priority === 2 ? DEPTH_OBJECTS_PRIORITY_2 : DEPTH_OBJECTS_PRIORITY_3;
   const top = Math.max(-512, Math.min(511, screenTop)) + 512; // only on-screen sprites can tie
   return base + (255 - subpriority) * 1024 + top;
 }
 
 /**
- * One map placed in world tile space at (originX, originY), drawn as two tilemaps:
- * "below" (under objects) and "above" (over objects), mirroring the GBA BG priorities.
+ * One map placed in world tile space at (originX, originY), drawn as three tilemaps: the field's
+ * bottom, middle and top BGs, with object sprites between them by OAM priority.
  */
 export class MapChunk {
   private maps: Phaser.Tilemaps.Tilemap[] = [];
@@ -75,6 +80,11 @@ export class MapChunk {
     }
   }
 
+  /** Show or hide this map's tiles at a map-local cell on every layer (a door drawn over it). */
+  setCellVisible(x: number, y: number, visible: boolean): void {
+    for (const m of this.maps) m.getTileAt(x, y, false)?.setVisible(visible);
+  }
+
   render(scene: Phaser.Scene, pair: TilesetPair): void {
     this.pair = pair;
     const { width, height } = this.data;
@@ -85,13 +95,10 @@ export class MapChunk {
       for (let x = 0; x < width; x++) row.push(blocks[y * width + x] & MAPGRID_METATILE_ID_MASK);
       grid.push(row);
     }
-    this.maps.push(
-      createLayer(scene, grid, pair, 'below', this.originX, this.originY, DEPTH_BELOW),
-      createLayer(scene, grid, pair, 'above', this.originX, this.originY, DEPTH_ABOVE),
-    );
+    for (const layer of ATLAS_LAYERS) this.maps.push(createLayer(scene, grid, pair, layer, this.originX, this.originY, LAYER_DEPTH[layer]));
   }
 
-  /** The below/above tilemap layers. */
+  /** The bottom/middle/top tilemap layers. */
   get layers(): Phaser.Tilemaps.TilemapLayer[] {
     return this.maps.flatMap((m) => m.layers.map((l) => l.tilemapLayer));
   }
