@@ -306,9 +306,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     // FieldInput_HandleCancelSignpost (pressedStartButton needs the player standing on a tile)
     const startPressed = this.buttons.pressed('START') && !this.player.isMoving;
     if (this.scripts.handleCancelSignpost(this.heldDirection(), this.player.facing, startPressed)) this.startMenuWhenFree = true;
-    // Like the GBA, field input is only considered if no script was running at the start of the
-    // frame, so the A press that dismisses a message can't also start a new interaction.
-    const scriptAtFrameStart = this.scripts.running;
+    // Like the GBA, field input is only considered if the controls were free at the start of the
+    // frame (CB1_Overworld checks ArePlayerFieldControlsLocked before tasks run), so the A press that
+    // dismisses a message or picks EXIT on the start menu can't also start a new interaction.
+    const lockedAtFrameStart = this.scripts.running || this.overlay !== undefined;
     this.trainerApproach?.tick();
     if (this.trainerApproach?.done) this.trainerApproach = undefined;
     this.scripts.tick();
@@ -332,7 +333,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     // Re-check after arrival: a coord trigger or warp started this frame must also block movement
     // (on the GBA, TryStartCoordEventScript makes ProcessPlayerFieldInput return before moving).
     const blocked = this.scripts.running || this.overlay !== undefined;
-    if (!this.busy && !scriptAtFrameStart && !blocked) {
+    if (!this.busy && !lockedAtFrameStart && !blocked) {
       this.scripts.msgSetNotSignpost(); // ResetFacingNpcOrSignpostVars
       if (this.startMenuWhenFree) {
         this.startMenuWhenFree = false;

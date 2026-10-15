@@ -22,7 +22,13 @@ export default async function setup(project: TestProject): Promise<() => Promise
     return async () => {};
   }
 
-  const server: ViteDevServer = await createServer({ root, configFile: false, logLevel: 'warn', server: { port: 5190, strictPort: false } });
+  // No HMR or file watching: editing a source file mid-run must not reload the pages under test.
+  const server: ViteDevServer = await createServer({
+    root,
+    configFile: false,
+    logLevel: 'warn',
+    server: { port: 5190, strictPort: false, hmr: false, watch: null },
+  });
   await server.listen();
   const url = server.resolvedUrls?.local[0];
   if (!url) throw new Error('Vite did not report a URL');

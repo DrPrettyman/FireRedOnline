@@ -827,3 +827,12 @@ State as of the last log entry:
   (HandleInputChooseAction) so the probe can tell when the action menu waits.
 - Harness gotcha: DevTools awaits a page promise through a weak handle, so a promise resolved mid-battle could be
   garbage-collected first ("Promise was collected"); `evalRaw` keeps each one alive until a task after it settles.
+
+### Start menu EXIT also interacted (user report)
+
+- Picking EXIT on the start menu in front of the bedroom NES closed the menu *and* played the NES message on the
+  same A press. The menu overlay closes mid-tick, and the field-input gate only checked whether a script was
+  running at the start of the frame. It now also checks for an open overlay (`lockedAtFrameStart` in
+  `OverworldScene.tick`), matching CB1_Overworld, which checks ArePlayerFieldControlsLocked before the menu's task
+  unlocks the controls. Applies to every field overlay (start menu, notices, field menus returning).
+  `tests/e2e/field.test.ts` covers it.

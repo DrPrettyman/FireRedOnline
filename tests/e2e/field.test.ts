@@ -42,3 +42,24 @@ test('talking to an NPC shows their text', async () => {
   expect(text).toMatch(/MOM/);
   await game.mashUntil((t) => t.idle(), { what: 'the conversation to end' });
 });
+
+test('choosing EXIT on the start menu does not also interact', async () => {
+  // Regression: the start menu closed mid-tick and the field then took the same A press, so EXIT in
+  // front of the bedroom NES also played its message. On the GBA the controls are still locked for the
+  // rest of that frame (CB1_Overworld checks them before the menu's task unlocks them).
+  const game = await session.start();
+  await game.waitIdle();
+  // The new game starts facing the NES; A on its own interacts with it.
+  await game.press('A');
+  expect(await game.waitFor((t) => t.message(), { what: 'the NES message' })).toMatch(/NES/);
+  await game.mashUntil((t) => t.idle(), { what: 'the NES message to close' });
+
+  await game.press('START');
+  await game.waitFor((t) => t.field()?.overlay, { what: 'the start menu' });
+  await game.press('UP'); // the cursor wraps from the top to EXIT
+  await game.press('A');
+  await game.waitIdle();
+  await game.eval((t) => t.waitFrames(10));
+  expect(await game.eval((t) => t.field()?.script)).toBeFalsy();
+  expect(await game.eval((t) => t.message())).toBeFalsy();
+});
