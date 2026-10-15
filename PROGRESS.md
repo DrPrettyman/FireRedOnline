@@ -31,6 +31,7 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
   event pics/palettes (sprite manifest `gba`), with spritesheet_rules.mk / tileset_rules.mk applied by extract_gfx
 - [x] Party menu / bag / item icon / mon icon / help-window graphics; `menus.json` (`tools/extract_menus.py`: mon and item icon tables, TM/HM + tutor learnsets, TM/HM + tutor moves, evolutions)
 - [ ] Move/status battle animation scripts
+- [x] Evolution scene graphics (`graphics/evolution_scene/`: moving background, sparkles)
 - [x] Pure event macros (giveitem_msg, famechecker, trainerbattle_*, ...) expanded like the assembler would, incl. `.if/.elseif/.else` on arguments
 - [ ] Audio
 
@@ -101,7 +102,11 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] GBA video layer (src/gba: VRAM/palette/regs, bg.c, window.c, sprite.c, task.c, palette fades, scanline effects, software PPU) and the battle presentation on it (BattleScene)
 - [x] Battle: bag and party menu (choose item, use medicine/PP items/X items/balls, switch/send out) with reshow_battle_screen.c
 - [x] Old Man's catching tutorial (StartOldManTutorialBattle)
-- [ ] Battle: move/status animations, evolution scene, battle transitions
+- [ ] Battle: move/status animations, battle transitions
+- [x] Evolution scene (evolution_scene.c, evolution_graphics.c): after a battle (TryEvolvePokemon), from a Rare Candy
+  or an evolution stone; holding B stops it; Crobat-style evolutions stop without the National Dex; learning the
+  new species' move (incl. forgetting one through the summary screen); Nincada's Shedinja. TradeEvolutionScene
+  isn't ported (no trading)
 - [ ] Audio playback
 - [x] Naming screen (naming_screen.c): every template (player, rival, PC box, nickname, caught mon); opened by
   ChangePokemonNickname from scripts and by the battle's nickname prompt after a catch
@@ -114,8 +119,9 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
   mashing, walk/walkTo pathfinding, event log, state probes, `?seed=` `?speed=` `?textSpeed=`)
 - [x] E2E scenarios: new game → Oak → starter → rival battle (and the after-rival preset matches it), trainer
   sight, trainer battle won (prize, flag, no rematch) and lost (white-out home, heal, money loss), wild encounter
-  in grass, running, Master Ball catch + nickname, Poké Mart purchase, walking/doors/stairs/talking
-- [ ] More scenarios: party menu / bag from the start menu, items in battle, level-up move learning, the Old Man
+  in grass, running, Master Ball catch + nickname, Poké Mart purchase, walking/doors/stairs/talking, evolution
+  (after a battle, learning a move with a full moveset, stopping it with B, Rare Candy and Fire Stone from the bag)
+- [ ] More scenarios: party menu from the start menu, items in battle, level-up move learning, the Old Man
   tutorial, Viridian parcel → Pokédex, elevators, item balls, PCs
 
 ## Known deviations from the decomp
@@ -132,12 +138,17 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - VS Seeker: `state.trainerRematches` is never set, so no trainer is ever ready for a rematch.
   - Battles: no move/status/special battle animation scripts (InitAndLaunchSpecialAnimation etc. finish at once;
     only the Poké Ball open burst is drawn); no shiny sparkle; no audio (PlaySE/cries/BGM are no-ops).
-  - Battles: evolutions are skipped.
+  - Evolution scene: no audio, so cries and sound effects count as finished at once (the intro jingle and the SE_EXP
+    wait don't hold the scene up); the help system isn't toggled; GAME_STAT_EVOLVED_POKEMON isn't kept. Evolving
+    from the field uses fresh battle globals, so the backdrop follows the map's battle scene (gyms etc.) but not the
+    last battle's type flags, which the GBA keeps (e.g. a Rare Candy right after a gym leader would draw the
+    Leader terrain there). Mons have no language, markings, ribbons or mail, so EvolutionRenameMon always treats
+    them as English and Shedinja doesn't clear those fields.
   - Summary screen: no box mons (PC), trade-screen view or multi-battle party order; the struct Pokemon fields the
     port doesn't store read as defaults (markings 0, met game FireRed, no fateful-encounter flag, English).
   - Party menu: field moves always say they can't be used
     here (badge checks are real); mail, Softboiled/Milk Drink, the move relearner, Union Room, minigames,
-    Pokédude/Teachy TV demos are not ported. Evolution (Rare Candy, stones) doesn't happen; a stone is still used up.
+    Pokédude/Teachy TV demos are not ported.
   - Item use: the item-use animation (pokemon_special_anim.c) is skipped. Bag uses that need overworld systems
     (bike, rods, Escape Rope, Itemfinder, VS Seeker, Town Map, Fame Checker, Teachy TV, mail, TM case, berry pouch,
     registered SELECT items) log "not implemented" and return to the bag. Berry powder reads as 0; PC
@@ -269,8 +280,14 @@ State as of the last log entry:
   Tests: Viridian Forest item ball (`?start=after-rival&map=ViridianForest&x=5&y=42`, face up, A), hidden Potion
   (x=3 y=23), Pallet town sign (x=9 y=13, hold up), Viridian PC (`map=ViridianCity_PokemonCenter_1F&x=11&y=2`).
 - **Next blockers on the main path:** Silph Co.'s elevator uses `special ListMenu` (scrolling floor list, not
-  ported); PC storage (a 7th mon has nowhere to go); in battle: move animations (battle_anim scripts), evolution
-  scene; field moves (Cut for Vermilion's gym).
+  ported); PC storage (a 7th mon has nowhere to go); save/load; in battle: move animations (battle_anim scripts);
+  field moves (Cut for Vermilion's gym).
+- **Evolution scene:** `menus/evolutionScene.ts` + `menus/evolutionGraphics.ts` run on whichever GBA host is up
+  (BattleScene after TryEvolvePokemon, FieldMenuScene from the party menu) and hand back through
+  `gCB2_AfterEvolution` (`setCB2_AfterEvolution`). It draws on the battle BG/window layout, so the field host
+  needs the battle text setup too (`initBattleMessages`, `setBattleTextSpeed`). `menuGfxSymbols` preloads the
+  scene's graphics plus the pics/palettes/icons of every species the party can evolve into
+  (`evolutionTargetSpecies`). Tests wait for the `evolution` event (`from`, `to`, `stopped`).
 - **GBA screens:** `src/gba/main.ts` is gMain (callbacks, ReadKeys with key repeat). `GbaHostScene` runs the
   main loop; `BattleScene` and `FieldMenuScene` extend it. Screens hand over with SetMainCallback2 like the C
   (battle → CB2_BagMenuFromBattle → ... → ReshowBattleScreenAfterMenu → BattleMainCB2). Graphics are fetched
@@ -836,3 +853,27 @@ State as of the last log entry:
   `OverworldScene.tick`), matching CB1_Overworld, which checks ArePlayerFieldControlsLocked before the menu's task
   unlocks the controls. Applies to every field overlay (start menu, notices, field menus returning).
   `tests/e2e/field.test.ts` covers it.
+
+### Evolution scene (main path: Viridian Forest Caterpie/Weedle, starters at 16)
+
+- Ported evolution_scene.c (EvolutionScene, BeginEvolutionScene, Task_EvolutionScene with its move-learning
+  states, the background palette/scroll animation, CreateShedinja, EvolutionRenameMon) and evolution_graphics.c
+  (the four sparkle sets, CycleEvolutionMonSprite) as `src/menus/evolutionScene.ts` / `evolutionGraphics.ts`.
+  The trade-evolution variant isn't ported (no trading).
+- Hooked up the three callers: `battle/main.ts` TryEvolvePokemon / WaitForEvoSceneToFinish (and
+  FreeResetData_ReturnToOvOrDoEvolutions now resets sprites, windows and mon sprite buffers like the C),
+  ExecuteTableBasedItemEffect's ITEM4_EVO_STONE case, and the party menu's PartyMenuTryEvolution (Rare Candy) and
+  CB2_UseEvolutionStone (which no longer goes straight back to the bag).
+- `tools/extract_gfx.py` extracts `graphics/evolution_scene/`. Preloading: `menuGfxSymbols` adds the scene's
+  graphics, the battle textbox/terrain, and every evolution target's pic, palettes and icon.
+- FieldMenuScene gets `mapBattleScene` from the field (gMapHeader.battleType), so an evolution in a gym draws the
+  gym backdrop like the GBA. Battle text setup (`initBattleMessages`, `setBattleTextSpeed`) now also runs there.
+- Helpers: `PlayCry_Normal` / `IsCryFinished` stubs (gba/sound.ts), `DecompressPicFromTable` (battle/gfx.ts),
+  `gBattleStringsTable(stringId)` (battle/message.ts); `isHMMove2` is exported.
+- `IsSEPlaying()` is always FALSE without audio, which would hang EVOSTATE_RESTORE_SCREEN (it waits for SE_EXP to
+  *be* playing); that state goes straight on (noted in the code and under Known deviations).
+- Tests: `tests/e2e/evolution.test.ts` (Caterpie → Metapod after a battle, learning Harden; the same with four
+  moves, forgetting Tackle through the summary screen; holding B; Rare Candy on Charmander; Fire Stone on
+  Growlithe). New test event `evolution`. Fix in the test probe: `t.party()` named moves from the first MOVE_*
+  define with that value, which picked MOVE_EFFECT_SLEEP for Pound; it now reads the move table's ids.
+
