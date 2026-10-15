@@ -62,7 +62,7 @@ function frameImages(gba: ObjectEventGbaInfo): SpriteFrameImage[] {
  * CopyObjectGraphicsInfoToSpriteTemplate. The subsprite tables are left out: a new sprite uses table 0,
  * which is {0, NULL} for every object event size and so draws as the plain OAM.
  */
-function CopyObjectGraphicsInfoToSpriteTemplate(graphicsId: string, callback: SpriteCallback): SpriteTemplate {
+export function CopyObjectGraphicsInfoToSpriteTemplate(graphicsId: string, callback: SpriteCallback): SpriteTemplate {
   const info = GetObjectEventGraphicsInfo(graphicsId);
   return {
     tileTag: TAG_NONE,

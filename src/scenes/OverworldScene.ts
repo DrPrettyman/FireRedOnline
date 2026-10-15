@@ -48,7 +48,7 @@ import {
 } from '../world/trainerSee';
 import { mapResetTrainerRematches, shouldEggHatch, updateHappinessStepCounter, updatePoisonStepCounter, updateVsSeekerStepCounter } from '../world/stepCounters';
 import { sharedBattleData, type BattleStart } from './BattleScene';
-import type { FieldMenuStart } from './FieldMenuScene';
+import type { FieldMenuStart, NamingScreenRequest } from './FieldMenuScene';
 
 /** GBA runs at ~59.73Hz; we tick game logic at a fixed 60Hz regardless of display refresh. */
 const FRAME_MS = 1000 / 60;
@@ -861,7 +861,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
    * CB2_ReturnToField(WithOpenMenu), the field runs its return-to-field map scripts and calls `onReturn`
    * with the screen still black.
    */
-  private runFieldMenu(start: Pick<FieldMenuStart, 'menu' | 'shopField'>, onReturn: (openStartMenu: boolean) => void): void {
+  private runFieldMenu(start: Pick<FieldMenuStart, 'menu' | 'shopField' | 'naming'>, onReturn: (openStartMenu: boolean) => void): void {
     const launch: FieldMenuStart = {
       ...start,
       state: this.state,
@@ -1066,6 +1066,19 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   fadeScreen(mode: number): Wait {
     this.screenFade.begin(mode);
     return () => !this.screenFade.active;
+  }
+
+  /**
+   * DoNamingScreen (FieldMenuScene) from the black field. CB2_ReturnToFieldContinueScriptPlayMapMusic
+   * reloads the field, so the message box is gone, and FieldCB_ContinueScriptHandleMusic fades it back in.
+   */
+  doNamingScreen(req: NamingScreenRequest): Wait {
+    let fadeIn: Wait | undefined;
+    this.messageBox.hide();
+    this.runFieldMenu({ menu: 'naming', naming: req }, () => {
+      fadeIn = this.fadeScreen(this.defines.require('FADE_FROM_BLACK'));
+    });
+    return () => fadeIn?.() ?? false;
   }
 
   /**

@@ -1,5 +1,6 @@
 import type { ObjectEvent } from '../entities/ObjectEvent';
 import type { Button, Input } from '../input/Input';
+import type { NamingScreenRequest } from '../scenes/FieldMenuScene';
 import type { Pokemon } from '../pokemon/Pokemon';
 import type { GameState } from '../state/GameState';
 import type { Charmap } from '../text/charmap';
@@ -89,6 +90,11 @@ export interface ScriptHost {
   openPcMenu(): { tick(): boolean; result: number };
   /** FadeScreen: returns a wait for IsPaletteNotActive. */
   fadeScreen(mode: number): Wait;
+  /**
+   * DoNamingScreen from a black field, returning through CB2_ReturnToFieldContinueScriptPlayMapMusic:
+   * the wait ends once the field has faded back in.
+   */
+  doNamingScreen(req: NamingScreenRequest): Wait;
   /** StartTrainerBattle: `done` ends when the battle is over (screen still black), with the outcome. */
   startTrainerBattle(battle: TrainerBattle): TrainerBattleRun;
   /** A non-trainer battle against `enemyParty` (gEnemyParty), e.g. StartOldManTutorialBattle. */

@@ -51,7 +51,15 @@ export const gMain = {
 
 // InitKeys
 const gKeyRepeatContinueDelay = 5;
-const gKeyRepeatStartDelay = 40;
+let gKeyRepeatStartDelay = 40;
+
+/** gKeyRepeatStartDelay (the naming screen shortens it while it runs). */
+export function GetKeyRepeatStartDelay(): number {
+  return gKeyRepeatStartDelay;
+}
+export function SetKeyRepeatStartDelay(delay: number): void {
+  gKeyRepeatStartDelay = delay;
+}
 
 export function SetMainCallback1(callback: MainCallback | null): void {
   gMain.callback1 = callback;

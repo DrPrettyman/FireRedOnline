@@ -17,7 +17,7 @@ import {
 import { gfx, gfx16 } from './gfx';
 import { pltt, REG_OFFSET_BG0CNT, REG_OFFSET_BG1CNT, REG_OFFSET_BG2CNT, REG_OFFSET_BG3CNT, REG_OFFSET_DISPCNT, SetGpuReg, vram } from './hw';
 import { B_BUTTON, DPAD_ANY, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT, DPAD_UP, A_BUTTON, JOY_NEW, JOY_REPT, L_BUTTON, R_BUTTON, SetHBlankCallback, SetVBlankCallback } from './main';
-import { LoadPalette } from './palette';
+import { BG_PLTT_ID, LoadPalette } from './palette';
 import { PlaySE } from './sound';
 import { gTasks, type TaskFunc } from './task';
 import {
@@ -29,6 +29,8 @@ import {
   COPYWIN_GFX,
   CopyToWindowPixelBuffer,
   CopyWindowToVram,
+  DeactivateAllTextPrinters,
+  DUMMY_WIN_TEMPLATE,
   FillWindowPixelBuffer,
   FillWindowPixelRect,
   FONTATTR_COLOR_BACKGROUND,
@@ -40,6 +42,7 @@ import {
   GetFontAttribute,
   GetWindowAttribute,
   gTextFlags,
+  InitWindows,
   IsTextPrinterActive,
   PIXEL_FILL,
   PutWindowTilemap,
@@ -83,9 +86,48 @@ export const menuEnv = {
 
 // ------------------------------------------------------------------ new_menu_helpers.c
 
+const DLG_WINDOW_PALETTE_NUM = 15;
+const DLG_WINDOW_BASE_TILE_NUM = 0x200;
 const STD_WINDOW_PALETTE_NUM = 14;
+const STD_WINDOW_BASE_TILE_NUM = 0x214;
 
 const sScheduledBgCopiesToVram = [false, false, false, false];
+
+/** sStandardTextBox_WindowTemplates: the field message box (window 0). */
+const sStandardTextBox_WindowTemplates: WindowTemplate[] = [
+  { bg: 0, tilemapLeft: 2, tilemapTop: 15, width: 26, height: 4, paletteNum: DLG_WINDOW_PALETTE_NUM, baseBlock: 0x198 },
+  DUMMY_WIN_TEMPLATE,
+];
+
+/** InitStandardTextBoxWindows (the start menu / map name popup window ids it resets live in the field). */
+export function InitStandardTextBoxWindows(): void {
+  InitWindows(sStandardTextBox_WindowTemplates);
+}
+
+/** InitTextBoxGfxAndPrinters */
+export function InitTextBoxGfxAndPrinters(): void {
+  ChangeBgX(0, 0, 0);
+  ChangeBgY(0, 0, 0);
+  DeactivateAllTextPrinters();
+  LoadStdWindowFrameGfx();
+}
+
+/** LoadStdWindowFrameGfx (no quest log playback) */
+export function LoadStdWindowFrameGfx(): void {
+  Menu_LoadStdPal();
+  LoadMenuMessageWindowGfx(0, DLG_WINDOW_BASE_TILE_NUM, BG_PLTT_ID(DLG_WINDOW_PALETTE_NUM));
+  LoadUserWindowGfx(0, STD_WINDOW_BASE_TILE_NUM, BG_PLTT_ID(STD_WINDOW_PALETTE_NUM));
+}
+
+/** DrawDialogueFrame (not a signpost message, so WindowFunc_DrawDialogueFrame's normal frame) */
+export function DrawDialogueFrame(windowId: number, copyToVram: boolean): void {
+  DrawDialogFrameWithCustomTileAndPalette(windowId, copyToVram, DLG_WINDOW_BASE_TILE_NUM, DLG_WINDOW_PALETTE_NUM);
+}
+
+/** Menu_LoadStdPal */
+export function Menu_LoadStdPal(): void {
+  LoadPalette(gfx16('gStandardMenuPalette'), BG_PLTT_ID(STD_WINDOW_PALETTE_NUM), 2 * 10);
+}
 
 export function ClearScheduledBgCopiesToVram(): void {
   sScheduledBgCopiesToVram.fill(false);

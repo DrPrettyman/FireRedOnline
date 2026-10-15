@@ -1,4 +1,4 @@
-// public/gen/menus.json (tools/extract_menus.py): tables the party menu, bag and summary screen index.
+// public/gen/menus.json (tools/extract_menus.py): tables the party menu, bag, summary and naming screens index.
 
 export interface MenusData {
   /** gMonIconTable: species -> icon graphics symbol */
@@ -27,6 +27,8 @@ export interface MenusData {
   mapsecNames: (string | null)[];
   /** sMenuInfoIcons: [width, height, tile offset] */
   menuInfoIcons: [number, number, number][];
+  /** sKeyboardChars (naming_screen.c): raw `__()` rows (no EOS), 4 per KEYBOARD_* page */
+  namingKeyboardChars: string[][];
 }
 
 export let menusData: MenusData;

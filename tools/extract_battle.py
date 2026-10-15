@@ -198,7 +198,7 @@ def item_effects(decomp, defines):
 
 
 def c_array_body(text, name):
-    m = re.search(rf"\b{name}\s*\[[^\]]*\](?:\[[^\]]*\])?\s*=\s*\{{", text)
+    m = re.search(rf"\b{name}\s*\[[^\]]*\](?:\[[^\]]*\])*\s*=\s*\{{", text)
     if not m:
         raise ValueError(f"array {name} not found")
     i, depth = m.end(), 1

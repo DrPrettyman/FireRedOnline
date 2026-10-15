@@ -9,6 +9,7 @@
   (data/text/abilities.h); moveDescriptions: gMoveDescriptionPointers (move_descriptions.c), indexed move - 1
 - mapsecNames: sMapNames (generated from data/region_map/region_map_sections.json), indexed mapsec - KANTO_MAPSEC_START
 - menuInfoIcons: sMenuInfoIcons (list_menu.c) as [width, height, tile offset]
+- namingKeyboardChars: sKeyboardChars (naming_screen.c) by KEYBOARD_* page, four raw `__()` rows each
 """
 
 import json
@@ -65,6 +66,14 @@ def mapsec_names(decomp, defines):
         if "name" in m:
             names[defines[m["id"]] - start] = m["name"] + "$"
     return names
+
+
+def naming_keyboard_chars(decomp):
+    """sKeyboardChars[KEYBOARD_*][row]: the raw `__("...")` rows (no EOS; the C pads them with 0, CHAR_SPACE)."""
+    text = (decomp / "src/naming_screen.c").read_text(encoding="utf-8")
+    enum = re.search(r"enum\s*\{\s*(KEYBOARD_LETTERS_LOWER[^}]*)\}", text).group(1)
+    ids = {name: i for i, name in enumerate(re.findall(r"\w+", enum))}
+    return by_index(designated_entries(c_array_body(text, "sKeyboardChars")), ids, lambda v: re.findall(r'__\("((?:\\.|[^"\\])*)"\)', v))
 
 
 def extract_menus(decomp, out):
@@ -126,6 +135,7 @@ def extract_menus(decomp, out):
         "tutorLearnsets": tutor_learnsets,
         "tmhmLearnsets": tmhm_learnsets,
         "evolutions": evolutions,
+        "namingKeyboardChars": naming_keyboard_chars(decomp),
     }
     (out / "menus.json").write_text(json.dumps(data, separators=(",", ":")))
     print(f"  {len([s for s in mon_icons if s])} mon icons, {len([s for s in item_icons if s])} item icons, "

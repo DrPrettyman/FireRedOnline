@@ -1,7 +1,12 @@
 // battle_script_commands.c, part 4: Cmd_trychoosesleeptalkmove (0xA9) .. Cmd_finishturn (0xF7).
 
+import { BeginFastPaletteFade, FAST_FADE_OUT_TO_BLACK, gPaletteFade } from '../gba/palette';
+import { gMain } from '../gba/main';
+import { FreeAllWindowBuffers } from '../gba/window';
+import { DoNamingScreen } from '../menus/namingScreen';
 import { random } from '../util/random';
 import { recordAbilityBattle } from './ai';
+import { BattleMainCB2 } from './battleCallbacks';
 import { ui } from './battleUi';
 import { BattleCreateYesNoCursorAt, BattleDestroyYesNoCursorAt, BattlePutTextOnWindow, HandleBattleWindow } from './battleWindow';
 import { adv, b, isItemMail, w } from './bsCommands1';
@@ -16,7 +21,7 @@ import {
   u16,
   u32,
 } from './controllers';
-import { bdata, g, gBattleMoves, gSpeciesInfo, mem, state } from './env';
+import { bdata, g, gBattleMoves, gSpeciesInfo, mem, pokemon, state } from './env';
 import { bit } from './globals';
 import { encodeBattleText } from './message';
 import {
@@ -1274,11 +1279,32 @@ export function Cmd_trygivecaughtmonnick(): void {
       }
       if (ui.joyNew('A')) {
         ui.playSE(K.SE_SELECT);
-        // The naming screen doesn't exist yet: YES behaves like NO (keep the species name).
-        mc[K.MULTIUSE_STATE] = 4;
+        if (mc[K.CURSOR_POSITION] === 0) {
+          mc[K.MULTIUSE_STATE]++;
+          BeginFastPaletteFade(FAST_FADE_OUT_TO_BLACK);
+        } else {
+          mc[K.MULTIUSE_STATE] = 4;
+        }
       } else if (ui.joyNew('B')) {
         ui.playSE(K.SE_SELECT);
         mc[K.MULTIUSE_STATE] = 4;
+      }
+      break;
+    case 2:
+      if (!gPaletteFade.active) {
+        const mon = g.enemyParty[g.battlerPartyIndexes[g.battlerAttacker ^ K.BIT_SIDE]]!;
+        g.battleStruct.caughtMonNick = [...mon.nickname, K.EOS];
+        FreeAllWindowBuffers();
+        DoNamingScreen(K.NAMING_SCREEN_CAUGHT_MON, g.battleStruct.caughtMonNick, mon.species, pokemon.gender(mon), mon.personality, BattleMainCB2);
+        mc[K.MULTIUSE_STATE]++;
+      }
+      break;
+    case 3:
+      if (gMain.callback2 === BattleMainCB2 && !gPaletteFade.active) {
+        const mon = g.enemyParty[g.battlerPartyIndexes[g.battlerAttacker ^ K.BIT_SIDE]]!;
+        const nick = g.battleStruct.caughtMonNick;
+        mon.nickname = nick.slice(0, nick.indexOf(K.EOS)); // SetMonData(MON_DATA_NICKNAME)
+        g.battlescriptCurrInstr = w(1);
       }
       break;
     case 4:

@@ -380,6 +380,18 @@ export function BlendPalettesUnfaded(selectedPalettes: number, coeff: number, co
   BlendPalettes(selectedPalettes, coeff, color);
 }
 
+/** MultiplyInvertedPaletteRGBComponents (field_effect.c): move entry i towards white by r/g/b sixteenths. */
+export function MultiplyInvertedPaletteRGBComponents(i: number, r: number, g: number, b: number): void {
+  const c = gPlttBufferUnfaded[i];
+  let red = r5(c);
+  let green = g5(c);
+  let blue = b5(c);
+  red += ((0x1f - red) * (r & 0xff)) >> 4;
+  green += ((0x1f - green) * (g & 0xff)) >> 4;
+  blue += ((0x1f - blue) * (b & 0xff)) >> 4;
+  gPlttBufferFaded[i] = (red | (green << 5) | (blue << 10)) & 0xffff;
+}
+
 // BlendPalettesGradually
 const tCoeff = 0, tCoeffTarget = 1, tCoeffDelta = 2, tDelay = 3, tDelayTimer = 4, tColor = 7, tId = 8;
 

@@ -17,7 +17,7 @@ export function CB2_ReturnToField(): void {
   fieldReturn.plain();
 }
 
-/** CB2_ReturnToFieldContinueScriptPlayMapMusic: scripts that open the party menu aren't wired up yet. */
+/** CB2_ReturnToFieldContinueScriptPlayMapMusic: the field host fades back in and the waiting script resumes. */
 export function CB2_ReturnToFieldContinueScriptPlayMapMusic(): void {
   fieldReturn.plain();
 }

@@ -17,8 +17,8 @@ from PIL import Image
 from extract import read_jasc
 
 # Graphics the ported code loads (battle UI, terrain, Pokémon/trainer pics and icons, balls, battle
-# anims, party menu, bag and item icons, summary screen and mon markings, the shop's buy menu, and the
-# field's tilesets and object event pics, which the buy menu's map view draws from VRAM).
+# anims, party menu, bag and item icons, summary screen and mon markings, the shop's buy menu, the naming
+# screen, and the field's tilesets and object event pics, which the buy menu's map view draws from VRAM).
 GFX_PREFIXES = (
     "graphics/battle_interface/",
     "graphics/battle_terrain/",
@@ -36,6 +36,7 @@ GFX_PREFIXES = (
     "graphics/summary_screen/",
     "graphics/misc/",
     "graphics/shop_menu/",
+    "graphics/naming_screen/",
     "graphics/object_events/",
     "data/tilesets/",
 )

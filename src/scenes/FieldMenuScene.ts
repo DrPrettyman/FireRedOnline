@@ -1,7 +1,8 @@
 // The GBA-layer screens opened from the field: the party menu and bag from the start menu
-// (CB2_PartyMenuFromStartMenu / CB2_BagMenuFromStartMenu) and the Poké Mart's buy menu and sell bag
-// (CB2_InitBuyMenu / CB2_GoToSellMenu). The overworld isn't a GBA screen, so its return points
-// (CB2_ReturnToFieldWithOpenMenu, CB2_ReturnToField) end this scene instead.
+// (CB2_PartyMenuFromStartMenu / CB2_BagMenuFromStartMenu), the Poké Mart's buy menu and sell bag
+// (CB2_InitBuyMenu / CB2_GoToSellMenu) and the naming screen (DoNamingScreen from a special). The
+// overworld isn't a GBA screen, so its return points (CB2_ReturnToFieldWithOpenMenu, CB2_ReturnToField,
+// CB2_ReturnToFieldContinueScriptPlayMapMusic) end this scene instead.
 
 import type { Assets } from '../data/assets';
 import { K } from '../battle/constants';
@@ -9,10 +10,11 @@ import { initBattleEnv, setTextStrings } from '../battle/env';
 import { loadGfx } from '../gba/gfx';
 import { gMain, SetMainCallback1, SetMainCallback2, SetVBlankCallback } from '../gba/main';
 import { initGbaText } from '../gba/window';
-import { fieldReturn } from '../menus/fieldCallbacks';
+import { CB2_ReturnToFieldContinueScriptPlayMapMusic, fieldReturn } from '../menus/fieldCallbacks';
 import { prepareMenus } from '../menus/host';
 import { CB2_BagMenuFromStartMenu } from '../menus/itemMenu';
 import { setObjectEventGraphicsInfo } from '../menus/objectEventGraphics';
+import { DoNamingScreen, namingScreenGfxSymbols } from '../menus/namingScreen';
 import { CB2_PartyMenuFromStartMenu } from '../menus/partyMenu';
 import { buyMenuGfxSymbols, CB2_GoToSellMenu, CB2_InitBuyMenu, LoadFieldTilesetsForShop, type ShopFieldView } from '../menus/shop';
 import type { PokemonData } from '../pokemon/Pokemon';
@@ -25,10 +27,26 @@ import { GbaHostScene } from './GbaHostScene';
 
 const TEXTURE = 'field_menu_screen';
 
+/** DoNamingScreen's arguments, for a naming screen that returns to the field. */
+export interface NamingScreenRequest {
+  /** NAMING_SCREEN_* */
+  templateNum: number;
+  /** destBuffer: holds the entered name (with EOS) when `onReturn` runs; untouched if it was left blank. */
+  dest: number[];
+  /** The species, or the player's gender for NAMING_SCREEN_PLAYER. */
+  monSpecies: number;
+  monGender: number;
+  monPersonality: number;
+  /** The return callback's own work before it goes back to the field (e.g. ChangePokemonNickname_CB's SetMonData). */
+  onReturn(): void;
+}
+
 export interface FieldMenuStart {
-  menu: 'party' | 'bag' | 'buy' | 'sell';
+  menu: 'party' | 'bag' | 'buy' | 'sell' | 'naming';
   /** For 'buy': what the buy menu's map view reads from the field. */
   shopField?: ShopFieldView;
+  /** For 'naming' */
+  naming?: NamingScreenRequest;
   state: GameState;
   pokemon: PokemonData;
   charmap: Charmap;
@@ -61,13 +79,25 @@ export class FieldMenuScene extends GbaHostScene {
       await loadGfx(buyMenuGfxSymbols(start.shopField!));
       LoadFieldTilesetsForShop(start.shopField!);
     }
+    const naming = start.naming;
+    if (naming) {
+      setObjectEventGraphicsInfo(assets.sprites);
+      await loadGfx(namingScreenGfxSymbols(naming.templateNum, naming.monSpecies, naming.monPersonality));
+    }
 
     fieldReturn.withOpenMenu = () => this.exit(true);
     fieldReturn.plain = () => this.exit(false);
     gMain.inBattle = false;
     SetMainCallback1(null);
-    const entry = { party: CB2_PartyMenuFromStartMenu, bag: CB2_BagMenuFromStartMenu, buy: CB2_InitBuyMenu, sell: CB2_GoToSellMenu };
-    SetMainCallback2(entry[start.menu]);
+    if (naming) {
+      DoNamingScreen(naming.templateNum, naming.dest, naming.monSpecies, naming.monGender, naming.monPersonality, () => {
+        naming.onReturn();
+        CB2_ReturnToFieldContinueScriptPlayMapMusic();
+      });
+    } else {
+      const entry = { party: CB2_PartyMenuFromStartMenu, bag: CB2_BagMenuFromStartMenu, buy: CB2_InitBuyMenu, sell: CB2_GoToSellMenu };
+      SetMainCallback2(entry[start.menu as keyof typeof entry]);
+    }
     this.startHost();
   }
 

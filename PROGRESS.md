@@ -48,7 +48,7 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] Input module with all GBA buttons (A, B, Start, Select, L, R), sampled per logic tick
 - [x] Text engine: port of RenderText (speed + A/B speed-up, all FC control codes, \n \l \p, placeholders)
 - [x] Message box (dialogue frame, down-arrow indicator)
-- [~] Game state: flags, vars, names, text speed, trainer id, money, party, bag, Pokédex seen/caught (in memory only; names are placeholders until naming screen)
+- [~] Game state: flags, vars, names, text speed, trainer id, money, party, bag, Pokédex seen/caught (in memory only; player/rival names are placeholders until Oak's speech calls the naming screen)
 - [x] Pokémon creation: CreateMon/CreateBoxMon port (personality, IVs, nature, ability, initial moveset, stats); GBA RNG (random.c)
 - [x] Bag: AddBagItem/RemoveBagItem/CheckBagHasItem/CheckBagHasSpace incl. TM case / berry pouch handling
 - [~] Script interpreter: flow/branching, flags/vars, msgbox via std scripts, text colour, movements, object add/remove/move, setmetatile, warps, delay. Unimplemented commands log once to the console
@@ -61,7 +61,7 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
   MAP_DYNAMIC warps and `setdynamicwarp` (gSaveBlock1Ptr->dynamicWarp)
 - [x] Poké Mart (shop.c + buy_menu_helpers.c): `pokemart`, BUY/SELL/SEE YA! field menu, buy menu with the map view
   (field tiles + object sprites on the GBA layer), regular and TM layouts, quantity box, YES/NO; SELL via the bag
-- [~] Specials (`special X` / `specialvar`): table in `script/specials.ts`; HealPlayerParty, GetPokedexCount, EnableNationalPokedex, GetQuestLogState, GetPartyMonSpecies, BufferMonNickname, ChangePokemonNickname (stub), plus no-ops for audio/quest log/help/fame checker. Unknown specials log once
+- [~] Specials (`special X` / `specialvar`): table in `script/specials.ts`; HealPlayerParty, GetPokedexCount, EnableNationalPokedex, GetQuestLogState, GetPartyMonSpecies, BufferMonNickname, ChangePokemonNickname (naming screen), plus no-ops for audio/quest log/help/fame checker. Unknown specials log once
 - [x] Items: additem/removeitem/checkitem/checkitemspace/checkitemtype, giveitem/giveitem_msg through the std scripts,
   item balls (`finditem` → Std_FindItem), hidden items (EventScript_HiddenItemScript, incl. hidden coins); coins
   (checkcoins/addcoins/removecoins)
@@ -103,14 +103,18 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] Old Man's catching tutorial (StartOldManTutorialBattle)
 - [ ] Battle: move/status animations, evolution scene, battle transitions
 - [ ] Audio playback
-- [ ] Title screen / intro / Oak's speech / naming (ChangePokemonNickname keeps the name for now)
+- [x] Naming screen (naming_screen.c): every template (player, rival, PC box, nickname, caught mon); opened by
+  ChangePokemonNickname from scripts and by the battle's nickname prompt after a catch
+- [ ] Title screen / intro / Oak's speech (the player and rival naming templates are ready for it)
 
 ## Known deviations from the decomp
 
 Things that are placeholders or approximations, so they aren't mistaken for ports. Remove entries as they get done properly.
 
 - **Placeholders (not in the decomp):**
-  - `ChangePokemonNickname`: keeps the name and fades back in instead of opening the naming screen.
+  - Naming screen: the help context, SeedRngAndSetTrainerId after naming the player and the REVISION >= 0xA
+    bad-word check aren't ported. The "sent to PC" message (caught mon, full party) uses the default box names
+    and never takes the box-full branch. `ChangeBoxPokemonNickname` isn't ported (no PC boxes).
   - Pokémon Center heal: the healing machine (`dofieldeffect FLDEFF_POKECENTER_HEAL`) and the nurse's bow
     (`nurse_joy_bow`) are skipped; the heal itself happens.
   - White-out after the Trainer Tower: its challenge state isn't tracked, so `spokeToOwner` reads as FALSE.
@@ -198,8 +202,12 @@ Places where we choose to differ from the GBA on purpose (not placeholders). Kee
 
 State as of the last log entry:
 - **Playable:** new game in Player's House 2F → Pallet Town → Oak's trigger → lab intro → choose a starter
-  (picture box, YES/NO, nickname prompt) → rival picks → **the real rival battle** (Oak's tutorial narration,
-  FIGHT/move menus, AI opponent, exp + level-up box) → rival leaves. Mom heals the party. Route 1 clerk Potion.
+  (picture box, YES/NO, nickname prompt → naming screen) → rival picks → **the real rival battle** (Oak's tutorial
+  narration, FIGHT/move menus, AI opponent, exp + level-up box) → rival leaves. Mom heals the party. Route 1 clerk Potion.
+- **Naming screen:** `DoNamingScreen` (`menus/namingScreen.ts`) runs on any GBA host. From a script, use
+  `ScriptHost.doNamingScreen` (FieldMenuScene `naming`). Oak's speech (not ported) should call it with
+  NAMING_SCREEN_PLAYER (monSpecies = the player's gender) and NAMING_SCREEN_RIVAL, preloading
+  `namingScreenGfxSymbols` after `setObjectEventGraphicsInfo` (the icons are object event graphics).
 - **Battle architecture:** `src/gba` emulates the GBA video hardware; `src/battle` is a near line-for-line port of
   battle_main.c, battle_script_commands.c, battle_util.c, the controllers, battle_interface.c, battle_gfx_sfx_util.c,
   pokeball.c etc. on top of it. `BattleScene` runs CB2_InitBattle → CB2_HandleStartBattle → BattleMainCB1/CB2 +
@@ -758,3 +766,22 @@ State as of the last log entry:
   Viridian Pokémon Center sign by walking into it; Pokémon Center PC (flicker on, menu SOMEONE'S PC / PLAYER's PC /
   LOG OFF, storage stub returns to the menu, LOG OFF turns it off); bookshelf (normal frame). Oak's Pallet trigger →
   lab intro still runs to completion.
+
+### Naming screen (user request)
+- Ported naming_screen.c as `menus/namingScreen.ts` (DoNamingScreen): keyboard pages and the page swap animation,
+  cursor/button flashing (MultiplyInvertedPaletteRGBComponents, now in `gba/palette.ts`), input arrow and
+  underscores, gender symbol, the player/rival/PC/mon icons, the "sent to PC" message for a caught mon with a full
+  party. Like the C, gKeyRepeatStartDelay stays at 16 afterwards (`gba/main.ts` now lets it be set), and the
+  freed struct stays readable for the sprite callbacks / VBlankCB_NamingScreen that outlive the screen.
+- `gba/menu.ts`: InitStandardTextBoxWindows, InitTextBoxGfxAndPrinters, LoadStdWindowFrameGfx, DrawDialogueFrame,
+  Menu_LoadStdPal (new_menu_helpers.c).
+- Extractor: `graphics/naming_screen/` gfx; `src/keyboard_text.c` strings; `menus.json` `namingKeyboardChars`
+  (sKeyboardChars; `c_array_body` now takes any number of dimensions); naming_screen.h / pokemon_storage_system.h
+  defines.
+- Callers: `ChangePokemonNickname` (FieldMenuScene `naming`, ScriptHost `doNamingScreen`: field message box
+  cleared, CB2_ReturnToFieldContinueScriptPlayMapMusic fades back in); `Cmd_trygivecaughtmonnick` YES → fast fade
+  → NAMING_SCREEN_CAUGHT_MON → BattleMainCB2 (BattleScene preloads the naming gfx and the wild mon's icon).
+- Verified headless: player screen (typing, SELECT through UPPER/lower/others, B delete, START → OK, name written),
+  `EventScript_ChangePokemonNickname` on the starter (icon, "BULBASAUR's nickname?", ♂, nickname set, old name in
+  STR_VAR_3, field fades back in), Master Ball catch → YES → "PIDGEY's nickname?" (♀) → party mon named and back
+  to the field, rival and PC box icons, blank entry leaves the buffer alone, party-full "transferred to Someone's PC".

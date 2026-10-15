@@ -247,10 +247,29 @@ export const SPECIALS: Record<string, Special> = {
     return isNationalDexEnabled(state) ? 1 : 0;
   },
 
-  /** ChangePokemonNickname: opens the naming screen, which doesn't exist yet. Keep the name and fade back in. */
-  ChangePokemonNickname(env) {
-    env.warnOnce('ChangePokemonNickname', '[special] naming screen not implemented; keeping the current name');
-    env.setWaitState(env.host.fadeScreen(env.state.defines.require('FADE_FROM_BLACK')));
+  /**
+   * ChangePokemonNickname (field_specials.c): the naming screen for party slot VAR_0x8004, writing into
+   * gStringVar2; ChangePokemonNickname_CB stores it as the nickname. A blank entry keeps the old name.
+   */
+  ChangePokemonNickname({ state, host, setWaitState }) {
+    const mon = state.party[state.getVar('VAR_0x8004')];
+    const d = state.defines;
+    state.stringVars[2] = [...mon.nickname];
+    const dest = [...mon.nickname, d.require('EOS')];
+    setWaitState(
+      host.doNamingScreen({
+        templateNum: d.require('NAMING_SCREEN_NICKNAME'),
+        dest,
+        monSpecies: mon.species,
+        monGender: state.pokemon.gender(mon),
+        monPersonality: mon.personality,
+        onReturn: () => {
+          const name = dest.slice(0, dest.indexOf(d.require('EOS')));
+          state.stringVars[1] = name;
+          mon.nickname = [...name];
+        },
+      }),
+    );
   },
 
   /** GetPartyMonSpecies: MON_DATA_SPECIES_OR_EGG of party slot VAR_0x8004. */
