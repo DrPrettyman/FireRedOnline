@@ -19,7 +19,7 @@ from extract import read_jasc
 # Graphics the ported code loads (battle UI, terrain, Pokémon/trainer pics and icons, balls, battle
 # anims, party menu, bag and item icons, summary screen and mon markings, the shop's buy menu, the naming
 # screen, the evolution scene, the field's tilesets and object event pics, which the buy menu's map view draws from VRAM,
-# field effect pics and door animation tiles).
+# field effect pics, door animation tiles and the cave entrance transition).
 GFX_PREFIXES = (
     "graphics/battle_interface/",
     "graphics/battle_terrain/",
@@ -42,6 +42,7 @@ GFX_PREFIXES = (
     "graphics/object_events/",
     "graphics/field_effects/",
     "graphics/door_anims/",
+    "graphics/cave_transition/",
     "data/tilesets/",
 )
 # Footprints are 1bpp and unused so far.
