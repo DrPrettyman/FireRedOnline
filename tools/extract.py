@@ -513,7 +513,7 @@ def extract_text_assets(decomp, out):
     # Dialogue frame (menu_message) + down arrow, rendered with the text window palette (stdpal_0).
     pal = read_jasc(decomp / "graphics/text_window/stdpal_0.pal")
 
-    def render_indexed(src_path, dst_name):
+    def render_indexed(src_path, dst_name, pal=pal):
         src = Image.open(src_path)
         px = src.load()
         dst = Image.new("RGBA", src.size, (0, 0, 0, 0))
@@ -526,6 +526,8 @@ def extract_text_assets(decomp, out):
         dst.save(td / dst_name, optimize=True)
 
     render_indexed(decomp / "graphics/text_window/menu_message.png", "dialogue_frame.png")
+    # LoadSignpostWindowFrameGfx: gSignpostWindow_Gfx with GetTextWindowPalette(1) (stdpal_1).
+    render_indexed(decomp / "graphics/text_window/signpost.png", "signpost_frame.png", read_jasc(decomp / "graphics/text_window/stdpal_1.pal"))
     # User-selectable std window frames (options "FRAME" setting); each has its own palette.
     for n in range(1, 11):
         png = decomp / f"graphics/text_window/type{n}.png"

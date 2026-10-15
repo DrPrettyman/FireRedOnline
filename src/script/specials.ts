@@ -1,5 +1,8 @@
+import { moveName } from '../battle/message';
 import { adjustFriendship } from '../battle/pokemonBattle';
+import { ItemIdToBattleMoveId } from '../menus/partyMenu';
 import type { GameState } from '../state/GameState';
+import { DELTA } from '../world/direction';
 import { animateElevator, getElevatorFloor, initElevatorFloorSelectMenuPos } from '../world/elevator';
 import { initRoamer } from '../world/roamer';
 import { isPoisoned } from '../world/stepCounters';
@@ -15,6 +18,8 @@ export interface SpecialEnv {
   /** The special left the field (SetMainCallback2), so the script never resumes. */
   endScript(): void;
   warnOnce(key: string, message: string): void;
+  /** DisableMsgBoxWalkaway (script.c) */
+  disableMsgBoxWalkaway(): void;
 }
 
 /** A gSpecials entry (data/specials.inc). The return value is stored by `specialvar`. */
@@ -29,13 +34,92 @@ const NO_OP = [
   'SetFlavorTextFlagFromSpecialVars', // fame checker
   'UpdatePickStateFromSpecialVar8005',
   'SetUnlockedPokedexFlags', // gcnLinkFlags, only used for GameCube link
-  'DisableMsgBoxWalkaway',
   'Script_FadeOutMapMusic', // audio: its waitstate ends at once
   'InitUnionRoom', // wireless only (and stubbed out from REVISION 0xA): CableClub_OnResume in every Pokémon Center
 ];
 
 export const SPECIALS: Record<string, Special> = {
   ...Object.fromEntries(NO_OP.map((name) => [name, () => {}])),
+
+  DisableMsgBoxWalkaway({ disableMsgBoxWalkaway }) {
+    disableMsgBoxWalkaway();
+  },
+
+  /** SetHiddenItemFlag: FlagSet(gSpecialVar_0x8004), the flag GetInteractedBackgroundEventScript stored. */
+  SetHiddenItemFlag({ state }) {
+    state.setFlag(state.getVar('VAR_0x8004'));
+  },
+
+  /** BufferTMHMMoveName: STR_VAR_1 = the move of TM/HM item VAR_0x8004; returns whether it is one. */
+  BufferTMHMMoveName({ state }) {
+    const item = state.getVar('VAR_0x8004');
+    const d = state.defines;
+    if (item < d.require('ITEM_TM01') || item > d.require('ITEM_HM08')) return 0;
+    state.stringVars[0] = moveName(ItemIdToBattleMoveId(item)).filter((b) => b !== 0xff);
+    return 1;
+  },
+
+  /** CheckAddCoins: whether VAR_RESULT (the coins checkcoins read) + VAR_0x8006 fits under MAX_COINS. */
+  CheckAddCoins({ state }) {
+    return state.getVar('VAR_RESULT') + state.getVar('VAR_0x8006') > state.defines.require('MAX_COINS') ? 0 : 1;
+  },
+
+  /**
+   * DoPicboxCancel (EventScript_CancelMessageBox): PicboxCancel tears the mon pic box down at once. Its
+   * empty text printer on window 0 only stops the message, which the script's `release` hides anyway.
+   */
+  DoPicboxCancel({ host }) {
+    host.cancelMonPic();
+  },
+
+  /** AnimatePcTurnOn: Task_AnimatePcTurnOn flickers the PC (on, off, on, off, on) every 6 frames. */
+  AnimatePcTurnOn({ state, host }) {
+    let tState = 0;
+    let tTimer = 0;
+    host.startFieldTask({
+      tick() {
+        if (tTimer === 6) {
+          setPcMetatile(state, host, (tState & 1) !== 0);
+          tTimer = 0;
+          tState++;
+          if (tState === 5) return true;
+        }
+        tTimer++;
+        return false;
+      },
+    });
+  },
+
+  /** AnimatePcTurnOff */
+  AnimatePcTurnOff({ state, host }) {
+    setPcMetatile(state, host, true);
+  },
+
+  /** CreatePCMenu (script_menu.c): VAR_RESULT = the choice, or SCR_MENU_CANCEL, once the menu closes. */
+  CreatePCMenu({ state, host, setWaitState }) {
+    const menu = host.openPcMenu();
+    state.setVar('VAR_RESULT', menu.result);
+    setWaitState(() => {
+      if (!menu.tick()) return false;
+      state.setVar('VAR_RESULT', menu.result);
+      return true;
+    });
+  },
+
+  /** PlayerPC (player_pc.c): the item storage menus aren't ported, so it goes straight back to the PC menu. */
+  PlayerPC({ warnOnce }) {
+    warnOnce('PlayerPC', '[special] PlayerPC (item storage) not implemented');
+  },
+
+  /** ShowPokemonStorageSystemPC (pokemon_storage_system.c): not ported, back to the PC menu. */
+  ShowPokemonStorageSystemPC({ warnOnce }) {
+    warnOnce('ShowPokemonStorageSystemPC', '[special] Pokémon Storage System not implemented');
+  },
+
+  /** HallOfFamePCBeginFade (hof_pc.c): the Hall of Fame screen isn't ported (only after the credits). */
+  HallOfFamePCBeginFade({ warnOnce }) {
+    warnOnce('HallOfFamePCBeginFade', '[special] Hall of Fame PC not implemented');
+  },
 
   /** EnterSafariMode (safari_zone.c; GAME_STAT_ENTERED_SAFARI_ZONE isn't kept) */
   EnterSafariMode({ state }) {
@@ -201,7 +285,23 @@ export const SPECIALS: Record<string, Special> = {
   },
 };
 
-/** IsNationalPokedexEnabled */
+/**
+ * PcTurnOnUpdateMetatileId / AnimatePcTurnOff: the PC is in front of the player (or diagonally above,
+ * facing sideways); VAR_0x8004 picks a Pokémon Center PC (0) or the player's (1, 2).
+ */
+function setPcMetatile(state: GameState, host: ScriptHost, off: boolean): void {
+  const d = state.defines;
+  const facing = host.player.facing;
+  const dx = facing === 'up' || facing === 'down' ? 0 : DELTA[facing].dx;
+  const dy = facing === 'down' ? 0 : -1;
+  const kind = state.getVar('VAR_0x8004');
+  let metatile = 0;
+  if (kind === 0) metatile = d.require(off ? 'METATILE_Building_PCOff' : 'METATILE_Building_PCOn');
+  else if (kind === 1 || kind === 2) metatile = d.require(off ? 'METATILE_GenericBuilding1_PlayersPCOff' : 'METATILE_GenericBuilding1_PlayersPCOn');
+  const { x, y } = host.playerLocal();
+  host.setMetatile(x + dx, y + dy, metatile, true);
+}
+
 /** HealPlayerParty: full HP, PP (with PP Ups) and no status. */
 export function healPlayerParty(state: GameState): void {
   for (const mon of state.party) {
@@ -211,6 +311,7 @@ export function healPlayerParty(state: GameState): void {
   }
 }
 
+/** IsNationalPokedexEnabled */
 export function isNationalDexEnabled(state: GameState): boolean {
   return state.nationalDexEnabled && state.getVar('VAR_NATIONAL_DEX') === 0x6258 && state.getFlag('FLAG_SYS_NATIONAL_DEX');
 }

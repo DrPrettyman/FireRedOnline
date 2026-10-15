@@ -115,6 +115,7 @@ export class Assets {
     return loadImages(scene, [
       ...[...images].map((img): [string, string] => [fontTextureKey(img), `${GEN}/text/${img}.png`]),
       [MESSAGE_TEXTURES.frame, `${GEN}/text/dialogue_frame.png`],
+      [MESSAGE_TEXTURES.signpostFrame, `${GEN}/text/signpost_frame.png`],
       [MESSAGE_TEXTURES.arrows, `${GEN}/text/down_arrows.png`],
       ...Array.from({ length: 10 }, (_, i): [string, string] => [userFrameTexture(i + 1), `${GEN}/text/frame_type${i + 1}.png`]),
       [STD_FRAME_TEXTURE, `${GEN}/text/frame_std.png`],

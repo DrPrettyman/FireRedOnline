@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { spriteTextureKey, type Assets } from '../data/assets';
 import type { MapData, ObjectEventData, WarpEventData } from '../data/types';
 import { initBattleEnv } from '../battle/env';
+import { loadMenusData } from '../menus/data';
+import { expandPlaceholders } from '../text/placeholders';
 import { FieldEffects } from '../entities/FieldEffects';
 import { FieldPoisonEffect } from '../entities/FieldPoisonEffect';
 import { NpcBrain } from '../entities/NpcBrain';
@@ -20,6 +22,7 @@ import { MessageBox } from '../text/MessageBox';
 import { Behaviors } from '../world/behaviors';
 import { DELTA, type Direction } from '../world/direction';
 import { MAPGRID_COLLISION_MASK, TILE, type MapChunk } from '../world/MapChunk';
+import type { BgEventData } from '../data/types';
 import { WildEncounters } from '../world/WildEncounters';
 import { World } from '../world/World';
 import { StartMenu } from '../ui/StartMenu';
@@ -132,6 +135,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   private accumulator = 0;
   private busy = true;
   private turnFrames = 0;
+  /** Task_QuestLogPlayback_OpenStartMenu: START cancelled a walked-into sign; open the menu once the controls are free. */
+  private startMenuWhenFree = false;
   private wasMoving = false;
   private pendingWarp?: WarpEventData;
   private hud!: Phaser.GameObjects.Text;
@@ -165,6 +170,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     await this.assets.loadTextTextures(this);
     // The field shares pokemon.c functions with the battle engine (AdjustFriendship), which reads its tables.
     initBattleEnv(await sharedBattleData(), this.assets.scripts.defines, this.state.pokemon, this.state, this.charmap);
+    await loadMenusData('gen'); // sTMHMMoves, for BufferTMHMMoveName
     await this.assets.loadFieldEffectTextures(this);
     this.fieldEffects = new FieldEffects(this, this.assets.emoticons, this.field);
     this.trainerSee = this.createTrainerSeeHost();
@@ -219,6 +225,14 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
 
   private tick(): void {
     this.buttons.sample();
+    // FieldGetPlayerInput: QuestLogOverrideJoyVars replays the key that closed the last script's message.
+    if (!this.scripts.running) {
+      const replay = this.scripts.takeRegisteredInput();
+      if (replay) this.buttons.override(replay);
+    }
+    // FieldInput_HandleCancelSignpost (pressedStartButton needs the player standing on a tile)
+    const startPressed = this.buttons.pressed('START') && !this.player.isMoving;
+    if (this.scripts.handleCancelSignpost(this.heldDirection(), this.player.facing, startPressed)) this.startMenuWhenFree = true;
     // Like the GBA, field input is only considered if no script was running at the start of the
     // frame, so the A press that dismisses a message can't also start a new interaction.
     const scriptAtFrameStart = this.scripts.running;
@@ -246,6 +260,12 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     // (on the GBA, TryStartCoordEventScript makes ProcessPlayerFieldInput return before moving).
     const blocked = this.scripts.running || this.overlay !== undefined;
     if (!this.busy && !scriptAtFrameStart && !blocked) {
+      this.scripts.msgSetNotSignpost(); // ResetFacingNpcOrSignpostVars
+      if (this.startMenuWhenFree) {
+        this.startMenuWhenFree = false;
+        this.openStartMenu();
+        return;
+      }
       // ProcessPlayerFieldInput checks for trainers first, on every frame the controls are free (mid-step too).
       const approach = checkForTrainersWantingBattle(this.trainerSee);
       if (approach) this.trainerApproach = approach;
@@ -273,14 +293,14 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   }
 
   private handleInput(): void {
-    // ProcessPlayerFieldInput checks START before movement.
+    const dir = this.heldDirection();
+    // ProcessPlayerFieldInput: walking into a sign, then an A-press interaction, then START, all before movement.
+    if (dir && dir === this.player.facing && this.tryWalkIntoSignpost()) return;
+    if (this.buttons.pressed('A') && this.interact()) return;
     if (this.buttons.pressed('START')) {
       this.openStartMenu();
       return;
     }
-    // ProcessPlayerFieldInput tries an A-press interaction before movement, whatever is held.
-    if (this.buttons.pressed('A') && this.interact()) return;
-    const dir = this.heldDirection();
     if (!dir) {
       this.turnFrames = 0;
       return;
@@ -359,9 +379,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
 
   /**
    * ProcessPlayerFieldInput for a completed step (tookStep / checkStandardWildEncounter):
-   * TryStartStepBasedScript (step warps, coord events, the repel counter), then CheckStandardWildEncounter.
-   * Not ported: the other step counters (happiness, poison, egg hatching, VS Seeker, Safari Zone)
-   * and TrySetUpWalkIntoSignpostScript.
+   * TryStartStepBasedScript (step warps, coord events, step counters, the repel counter), then
+   * TrySetUpWalkIntoSignpostScript and CheckStandardWildEncounter.
    */
   private processStep(x: number, y: number): void {
     const tile = this.world.tileAt(x, y);
@@ -378,7 +397,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       this.startFieldScript('EventScript_RepelWoreOff');
       return;
     }
-    if (!forced) this.wild.tryStandardWildEncounter(tile);
+    if (forced) return;
+    const dir = this.heldDirection();
+    if ((!dir || dir === this.player.facing) && this.tryWalkIntoSignpost()) return;
+    this.wild.tryStandardWildEncounter(tile);
   }
 
   /** TryStartStepCountScript */
@@ -412,38 +434,120 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     return this.scripts.start(script);
   }
 
-  /** TryStartInteractionScript: NPC in front (or across a counter), then bg events. */
+  /**
+   * TryStartInteractionScript / GetInteractionScript: the object in front (or across a counter), then a bg
+   * event, then the metatile. GetInteractedWaterScript (Surf, Waterfall) isn't ported: no field moves yet.
+   */
   private interact(): boolean {
-    const { dx, dy } = DELTA[this.player.facing];
+    const dir = this.player.facing;
+    const { dx, dy } = DELTA[dir];
     let tx = this.player.tileX + dx;
     let ty = this.player.tileY + dy;
+    const behavior = this.world.tileAt(tx, ty).behavior;
     let npc = this.npcAt(tx, ty);
-    if (!npc && this.behaviors.is(this.world.tileAt(tx, ty).behavior, 'COUNTER')) {
-      tx += dx;
-      ty += dy;
-      npc = this.npcAt(tx, ty);
-    }
+    if (!npc && this.behaviors.is(behavior, 'COUNTER')) npc = this.npcAt(tx + dx, ty + dy);
     if (npc) {
       const script = npc.brain.data.script;
       if (script && script !== '0x0' && script !== '0') {
         this.selectedObject = npc.brain.obj;
         this.scripts.npcTextColor = textColorFromId(npc.brain.obj.info.textColor, this.defines);
         this.state.setVar('VAR_LAST_TALKED', npc.localId);
-        this.state.setVar('VAR_FACING', directionId(this.player.facing, this.defines));
+        this.state.setVar('VAR_FACING', directionId(dir, this.defines));
         return this.scripts.start(script);
       }
-      return false;
     }
+    const script = this.interactedBackgroundEventScript(behavior, dir) ?? this.interactedMetatileScript(behavior, dir);
+    if (!script) return false;
+    this.selectedObject = undefined;
+    this.scripts.npcTextColor = 'neutral';
+    return this.scripts.start(script);
+  }
+
+  /** GetInFrontOfPlayerPosition: the tile in front, at the player's elevation unless they stand on elevation 0. */
+  private inFrontOfPlayer(): { x: number; y: number; elevation: number } {
+    const { dx, dy } = DELTA[this.player.facing];
+    const elevation = this.world.tileAt(this.player.tileX, this.player.tileY).elevation !== 0 ? this.player.currentElevation : 0;
+    return { x: this.player.tileX + dx, y: this.player.tileY + dy, elevation };
+  }
+
+  /** GetBackgroundEventAtPosition: the current map's first bg event there at this elevation (or at 0). */
+  private bgEventAt(x: number, y: number, elevation: number): BgEventData | undefined {
     const cur = this.world.current;
-    const fx = this.player.tileX + dx - cur.originX;
-    const fy = this.player.tileY + dy - cur.originY;
-    const bg = cur.data.bgEvents.find((e) => e.x === fx && e.y === fy);
-    if (bg?.type === 'sign' && bg.script && signFacingOk(String(bg.player_facing_dir ?? ''), this.player.facing)) {
-      this.selectedObject = undefined;
-      this.scripts.npcTextColor = 'neutral';
-      return this.scripts.start(bg.script);
+    const lx = x - cur.originX;
+    const ly = y - cur.originY;
+    return cur.data.bgEvents.find((e) => e.x === lx && e.y === ly && (e.elevation === elevation || e.elevation === 0));
+  }
+
+  /** GetInteractedBackgroundEventScript: signs (by the way the player faces) and hidden items. */
+  private interactedBackgroundEventScript(behavior: number, dir: Direction): string | undefined {
+    const pos = this.inFrontOfPlayer();
+    const bg = this.bgEventAt(pos.x, pos.y, pos.elevation);
+    if (!bg) return undefined;
+    if (bg.type === 'hidden_item') {
+      if (bg.underfoot) return undefined;
+      const flag = this.defines.require(String(bg.flag));
+      this.state.setVar('VAR_0x8005', this.defines.require(String(bg.item)));
+      this.state.setVar('VAR_0x8004', flag);
+      this.state.setVar('VAR_0x8006', Number(bg.quantity));
+      if (this.state.getFlag(flag)) return undefined;
+      this.state.setVar('VAR_FACING', directionId(dir, this.defines));
+      return 'EventScript_HiddenItemScript';
     }
-    return false;
+    if (!bg.script || bg.script === '0x0') return 'EventScript_TestSignpostMsg';
+    const signpostType = this.facingSignpostType(behavior, dir);
+    if (!signFacingOk(String(bg.player_facing_dir ?? ''), dir)) return undefined;
+    if (signpostType !== 'NA') this.scripts.msgSetSignpost();
+    this.state.setVar('VAR_FACING', directionId(dir, this.defines));
+    return bg.script;
+  }
+
+  /** GetInteractedMetatileScript: PCs, bookshelves and the other flavour-text metatiles. */
+  private interactedMetatileScript(behavior: number, dir: Direction): string | undefined {
+    this.state.setVar('VAR_FACING', directionId(dir, this.defines));
+    const name = Object.keys(METATILE_SCRIPTS).find((mb) => this.behaviors.is(behavior, mb));
+    if (!name) return undefined;
+    const [script, needsNorth, signpost] = METATILE_SCRIPTS[name];
+    if (needsNorth && dir !== 'up') return undefined;
+    if (signpost) this.scripts.msgSetSignpost();
+    return script;
+  }
+
+  /** GetFacingSignpostType */
+  private facingSignpostType(behavior: number, dir: Direction): 'POKECENTER' | 'POKEMART' | 'INDIGO_1' | 'INDIGO_2' | 'SCRIPTED' | 'NA' {
+    const b = this.behaviors;
+    if (dir === 'up' && b.is(behavior, 'POKEMON_CENTER_SIGN')) return 'POKECENTER';
+    if (dir === 'up' && b.is(behavior, 'POKEMART_SIGN')) return 'POKEMART';
+    if (b.is(behavior, 'INDIGO_PLATEAU_SIGN_1')) return 'INDIGO_1';
+    if (b.is(behavior, 'INDIGO_PLATEAU_SIGN_2')) return 'INDIGO_2';
+    if (b.is(behavior, 'SIGNPOST')) return 'SCRIPTED';
+    return 'NA';
+  }
+
+  /** TrySetUpWalkIntoSignpostScript: holding up or down into a sign shows it without pressing A. */
+  private tryWalkIntoSignpost(): boolean {
+    if (this.buttons.held('LEFT') || this.buttons.held('RIGHT')) return false;
+    const dir = this.player.facing;
+    if (dir === 'left' || dir === 'right') return false;
+    const pos = this.inFrontOfPlayer();
+    const type = this.facingSignpostType(this.world.tileAt(pos.x, pos.y).behavior, dir);
+    let script: string;
+    if (type === 'POKECENTER') script = 'EventScript_PokecenterSign';
+    else if (type === 'POKEMART') script = 'EventScript_PokemartSign';
+    else if (type === 'INDIGO_1') script = 'EventScript_Indigo_UltimateGoal';
+    else if (type === 'INDIGO_2') script = 'EventScript_Indigo_HighestAuthority';
+    else {
+      // GetSignpostScriptAtMapPosition
+      const bg = this.bgEventAt(pos.x, pos.y, pos.elevation);
+      if (!bg || bg.type === 'hidden_item') return false;
+      if (type !== 'SCRIPTED') return false;
+      script = bg.script && bg.script !== '0x0' ? bg.script : 'EventScript_TestSignpostMsg';
+    }
+    // SetUpWalkIntoSignScript
+    this.state.setVar('VAR_FACING', directionId(dir, this.defines));
+    if (!this.startFieldScript(script)) return false;
+    this.scripts.setWalkingIntoSignVars();
+    this.scripts.msgSetSignpost();
+    return true;
   }
 
   /** TryStartCoordEventScript */
@@ -922,6 +1026,41 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     if (!box) return undefined;
     box.hide();
     return () => box.gone;
+  }
+
+  cancelMonPic(): void {
+    this.monPic?.cancel();
+    this.monPic = undefined;
+  }
+
+  /**
+   * CreatePCMenuWindow: a std-framed window at (0, 0), 13 tiles wide (14 with the Pokédex: GetStringTilesWide
+   * of gText_SPc is 0, since GetStringWidth gives up on the {PLAYER} placeholder), 16 px rows.
+   */
+  openPcMenu(): { tick(): boolean; result: number } {
+    const strings = this.assets.strings;
+    const encode = (label: string) => this.charmap.encode(strings[label]);
+    const hasDex = this.state.getFlag('FLAG_SYS_POKEDEX_GET');
+    const gameClear = this.state.getFlag('FLAG_SYS_GAME_CLEAR');
+    const items = [
+      encode(this.state.getFlag('FLAG_SYS_NOT_SOMEONES_PC') ? 'gText_BillSPc' : 'gText_SomeoneSPc'),
+      expandPlaceholders(encode('gText_SPc'), this.charmap, this.state), // Menu_PrintFormatIntlPlayerName
+    ];
+    if (gameClear || hasDex) items.push(encode('gText_ProfOakSPc'));
+    if (gameClear) items.push(encode('gText_HallOfFame_2'));
+    items.push(encode('gText_LogOff'));
+    return new MultichoiceMenu(this, this.fonts, this.buttons, {
+      left: 0,
+      top: 0,
+      items,
+      ignoreBPress: false,
+      initPos: 0,
+      cursor: this.charmap.encode(this.assets.strings.gText_SelectorArrow2),
+      frameType: this.state.optionsWindowFrameType + 1,
+      delay: 0,
+      fadeActive: () => this.screenFade.active,
+      layout: { width: hasDex ? 14 : 13, height: items.length * 2, rowHeight: 16 },
+    });
   }
 
   fadeScreen(mode: number): Wait {
@@ -1467,6 +1606,45 @@ function onScreen(x: number, y: number, px: number, py: number): boolean {
 function sameSpawn(a: ObjectEventData, b: ObjectEventData): boolean {
   return a.x === b.x && a.y === b.y && a.graphics_id === b.graphics_id && a.movement_type === b.movement_type;
 }
+
+/**
+ * GetInteractedMetatileScript's behaviors (MB_* without the prefix): [script, player must face north,
+ * MsgSetSignpost]. IsPolishedWindow and IsBeautifulSkyWindow are always FALSE in FRLG, so they're left out.
+ */
+const METATILE_SCRIPTS: Record<string, [string, boolean, boolean]> = {
+  PC: ['EventScript_PC', false, false],
+  REGION_MAP: ['EventScript_WallTownMap', false, false],
+  BOOKSHELF: ['EventScript_Bookshelf', false, false],
+  POKEMART_SHELF: ['EventScript_PokeMartShelf', false, false],
+  FOOD: ['EventScript_Food', false, false],
+  IMPRESSIVE_MACHINE: ['EventScript_ImpressiveMachine', false, false],
+  BLUEPRINTS: ['EventScript_Blueprints', false, false],
+  VIDEO_GAME: ['EventScript_VideoGame', false, false],
+  BURGLARY: ['EventScript_Burglary', false, false],
+  COMPUTER: ['EventScript_Computer', false, false],
+  TRAINER_TOWER_MONITOR: ['TrainerTower_EventScript_ShowTime', false, false],
+  TELEVISION: ['EventScript_PlayerFacingTVScreen', true, false],
+  CABINET: ['EventScript_Cabinet', false, false],
+  KITCHEN: ['EventScript_Kitchen', false, false],
+  DRESSER: ['EventScript_Dresser', false, false],
+  SNACKS: ['EventScript_Snacks', false, false],
+  PAINTING: ['EventScript_Painting', false, false],
+  POWER_PLANT_MACHINE: ['EventScript_PowerPlantMachine', false, false],
+  TELEPHONE: ['EventScript_Telephone', false, false],
+  ADVERTISING_POSTER: ['EventScript_AdvertisingPoster', false, false],
+  FOOD_SMELLS_TASTY: ['EventScript_TastyFood', false, false],
+  TRASH_BIN: ['EventScript_TrashBin', false, false],
+  CUP: ['EventScript_Cup', false, false],
+  BLINKING_LIGHTS: ['EventScript_BlinkingLights', false, false],
+  NEATLY_LINED_UP_TOOLS: ['EventScript_NeatlyLinedUpTools', false, false],
+  CABLE_CLUB_WIRELESS_MONITOR: ['CableClub_EventScript_ShowWirelessCommunicationScreen', true, false],
+  QUESTIONNAIRE: ['EventScript_Questionnaire', false, false],
+  BATTLE_RECORDS: ['CableClub_EventScript_ShowBattleRecords', true, false],
+  INDIGO_PLATEAU_SIGN_1: ['EventScript_Indigo_UltimateGoal', false, true],
+  INDIGO_PLATEAU_SIGN_2: ['EventScript_Indigo_HighestAuthority', false, true],
+  POKEMART_SIGN: ['EventScript_PokemartSign', true, true],
+  POKEMON_CENTER_SIGN: ['EventScript_PokecenterSign', true, true],
+};
 
 /** bg event player_facing_dir: BG_EVENT_PLAYER_FACING_ANY / _NORTH / _SOUTH / _EAST / _WEST. */
 function signFacingOk(req: string, facing: Direction): boolean {

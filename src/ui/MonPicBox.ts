@@ -39,6 +39,14 @@ export class MonPicBox {
     if (this.state === 'shown') this.state = 'hiding-sprite';
   }
 
+  /** PicboxCancel: tear the box down at once. */
+  cancel(): void {
+    if (this.state === 'gone') return;
+    if (this.state !== 'hiding-window') this.sprite?.destroy();
+    this.win.destroy();
+    this.state = 'gone';
+  }
+
   /** PicboxWait: true once the box is fully gone. */
   get gone(): boolean {
     return this.state === 'gone';

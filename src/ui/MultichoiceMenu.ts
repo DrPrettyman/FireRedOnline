@@ -30,6 +30,11 @@ export interface MultichoiceOptions {
   delay: number;
   /** gPaletteFade.active: input waits for a field fade to finish. */
   fadeActive(): boolean;
+  /**
+   * A window of a fixed size at `left`/`top` with `rowHeight` px rows, for menus that draw their own
+   * window and hand it to CreateMCMenuInputHandlerTask (CreatePCMenu).
+   */
+  layout?: { width: number; height: number; rowHeight: number };
 }
 
 /** GetMCWindowHeight */
@@ -55,18 +60,22 @@ export class MultichoiceMenu {
     private opts: MultichoiceOptions,
   ) {
     const count = opts.items.length;
-    let strWidth = 0;
-    for (const item of opts.items) strWidth = Math.max(strWidth, stringWidth(fonts, FONT_NORMAL, item, 0));
-    const width = Math.trunc((strWidth + 9) / 8) + 1;
-    const left = opts.left + width > 28 ? 28 - width : opts.left;
-    const height = GetMCWindowHeight(count);
+    let left = opts.left;
+    let { width, height, rowHeight } = opts.layout ?? { width: 0, height: 0, rowHeight: 14 };
+    if (!opts.layout) {
+      let strWidth = 0;
+      for (const item of opts.items) strWidth = Math.max(strWidth, stringWidth(fonts, FONT_NORMAL, item, 0));
+      width = Math.trunc((strWidth + 9) / 8) + 1;
+      if (left + width > 28) left = 28 - width;
+      height = GetMCWindowHeight(count);
+    }
     // CreateWindowFromRect: the window's interior starts one tile in, inside the frame
     this.win = new MenuWindow(scene, { left: left + 1, top: opts.top + 1, width, height }, fonts, input, opts.frameType);
     // MultichoiceList_PrintItems(windowId, FONT_NORMAL, 8, 2, 14, count, list, 0, 2)
-    opts.items.forEach((item, i) => this.win.print(item, 8, 14 * i + 2, FONT_NORMAL));
+    opts.items.forEach((item, i) => this.win.print(item, 8, rowHeight * i + 2, FONT_NORMAL));
     // Menu_InitCursor(windowId, FONT_NORMAL, 0, 2, 14, count, initPos); Menu_ProcessInput wraps for more than 3
     const initPos = opts.initPos >= 0 && opts.initPos < count ? opts.initPos : 0;
-    this.menu = new Menu(this.win, input, opts.cursor, count, { left: 0, top: 2, rowHeight: 14, wrap: count > 3 }, initPos);
+    this.menu = new Menu(this.win, input, opts.cursor, count, { left: 0, top: 2, rowHeight, wrap: count > 3 }, initPos);
     this.delay = opts.delay;
     this.win.flush();
   }

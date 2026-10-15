@@ -43,6 +43,12 @@ export class Input {
     this.heldNow = new Set(BUTTONS.filter((b) => this.keys[b].some((k) => k.isDown)));
   }
 
+  /** For this tick, `b` is the only button held, and newly pressed (QuestLogOverrideJoyVars). */
+  override(b: Button): void {
+    this.heldNow = new Set([b]);
+    this.heldPrev = new Set();
+  }
+
   held(b: Button): boolean {
     return this.heldNow.has(b);
   }

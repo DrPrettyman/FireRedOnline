@@ -22,12 +22,16 @@ const WIN = { left: 2, top: 15, width: 26, height: 4 };
 
 export const MESSAGE_TEXTURES = {
   frame: 'text_dialogue_frame',
+  signpostFrame: 'text_signpost_frame',
   arrows: 'text_down_arrows',
 };
 
 /** The field message box (field_message_box.c + WindowFunc_DrawDialogueFrame). */
 export class MessageBox {
   private frame: Phaser.GameObjects.Image;
+  private signpostFrame: Phaser.GameObjects.Image;
+  /** Which frame the last message loaded (LoadStdWindowFrameGfx or LoadSignpostWindowFrameGfx). */
+  private signpost = false;
   private window: TextWindow;
   private printer?: TextPrinter;
   private arrowSheet: ImageData;
@@ -41,13 +45,18 @@ export class MessageBox {
     private state: GameState,
   ) {
     this.arrowSheet = imageDataOf(scene, MESSAGE_TEXTURES.arrows);
-    this.frame = drawDialogueFrame(scene);
+    this.frame = drawDialogueFrame(scene, false);
+    this.signpostFrame = drawDialogueFrame(scene, true);
     this.window = new TextWindow(scene, WIN.left * 8, WIN.top * 8, WIN.width * 8, WIN.height * 8, fonts.windowPalette);
     this.setVisible(false);
   }
 
-  /** ShowFieldMessage: expand placeholders, draw the frame, start printing. */
-  show(raw: number[], color: TextColor = 'neutral'): void {
+  /**
+   * ShowFieldMessage: expand placeholders, draw the frame, start printing. Task_DrawFieldMessageBox
+   * loads the signpost frame instead of the dialogue frame while IsMsgSignpost().
+   */
+  show(raw: number[], color: TextColor = 'neutral', signpost = false): void {
+    this.signpost = signpost;
     const speed = TEXT_SPEED[this.state.textSpeed];
     const [fontId, fg] =
       color === 'male' ? [FONT_MALE, TEXT_COLOR_BLUE] : color === 'female' ? [FONT_FEMALE, TEXT_COLOR_RED] : [FONT_NORMAL, TEXT_COLOR_DARK_GRAY];
@@ -86,23 +95,28 @@ export class MessageBox {
 
   private setVisible(v: boolean): void {
     this.visible = v;
-    this.frame.setVisible(v);
+    this.frame.setVisible(v && !this.signpost);
+    this.signpostFrame.setVisible(v && this.signpost);
     this.window.setVisible(v);
   }
 }
 
-/** Build the dialogue frame once into a canvas: 30x6 tiles around the text window. */
-function drawDialogueFrame(scene: Phaser.Scene): Phaser.GameObjects.Image {
-  const src = scene.textures.get(MESSAGE_TEXTURES.frame).getSourceImage() as HTMLImageElement;
+/**
+ * Build a dialogue frame once into a canvas: 30x6 tiles around the text window
+ * (WindowFunc_DrawDialogueFrame, whose signpost layout mirrors the side rows the other way round).
+ */
+function drawDialogueFrame(scene: Phaser.Scene, signpost: boolean): Phaser.GameObjects.Image {
+  const src = scene.textures.get(signpost ? MESSAGE_TEXTURES.signpostFrame : MESSAGE_TEXTURES.frame).getSourceImage() as HTMLImageElement;
+  const sheetCols = src.width / 8;
   const cols = WIN.width + 4;
   const rows = WIN.height + 2;
-  const key = 'text_dialogue_frame_composed';
+  const key = signpost ? 'text_signpost_frame_composed' : 'text_dialogue_frame_composed';
   const tex = scene.textures.exists(key) ? (scene.textures.get(key) as Phaser.Textures.CanvasTexture) : scene.textures.createCanvas(key, cols * 8, rows * 8)!;
   const ctx = tex.context;
   ctx.clearRect(0, 0, cols * 8, rows * 8);
   const tile = (n: number, col: number, row: number, vflip = false) => {
-    const sx = (n % 6) * 8;
-    const sy = Math.floor(n / 6) * 8;
+    const sx = (n % sheetCols) * 8;
+    const sy = Math.floor(n / sheetCols) * 8;
     ctx.save();
     if (vflip) {
       ctx.translate(0, row * 8 + 8);
@@ -129,8 +143,8 @@ function drawDialogueFrame(scene: Phaser.Scene): Phaser.GameObjects.Image {
   edgeRow(0, [0, 1, 2, 3, 4], false);
   sideRow(1, [5, 6, 8, 9], false);
   sideRow(2, [10, 11, 12, 13], false);
-  sideRow(3, [10, 11, 12, 13], true);
-  sideRow(4, [5, 6, 8, 9], true);
+  sideRow(3, signpost ? [5, 6, 8, 9] : [10, 11, 12, 13], true);
+  sideRow(4, signpost ? [10, 11, 12, 13] : [5, 6, 8, 9], true);
   edgeRow(5, [0, 1, 2, 3, 4], true);
   tex.refresh();
   return scene.add

@@ -62,14 +62,20 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] Poké Mart (shop.c + buy_menu_helpers.c): `pokemart`, BUY/SELL/SEE YA! field menu, buy menu with the map view
   (field tiles + object sprites on the GBA layer), regular and TM layouts, quantity box, YES/NO; SELL via the bag
 - [~] Specials (`special X` / `specialvar`): table in `script/specials.ts`; HealPlayerParty, GetPokedexCount, EnableNationalPokedex, GetQuestLogState, GetPartyMonSpecies, BufferMonNickname, ChangePokemonNickname (stub), plus no-ops for audio/quest log/help/fame checker. Unknown specials log once
-- [~] Items: additem/removeitem/checkitem/checkitemspace/checkitemtype, giveitem/giveitem_msg through the std scripts. Not yet: hidden items, item balls (finditem) untested
+- [x] Items: additem/removeitem/checkitem/checkitemspace/checkitemtype, giveitem/giveitem_msg through the std scripts,
+  item balls (`finditem` → Std_FindItem), hidden items (EventScript_HiddenItemScript, incl. hidden coins); coins
+  (checkcoins/addcoins/removecoins)
 - [x] Buffer commands (species/lead mon/party nick/item/item plural/number/std string/string); `waitstate`
 - [x] givemon, getpartysize, showmonpic/hidemonpic (picture box), fadescreen (palette-fade timing)
 - [x] White-out (CB2_WhiteOut → DoWhiteOut → FieldCB_RushInjuredPokemonToCenter) and `setrespawn`
 - [x] trainerbattle: every mode (BattleSetup_ConfigureTrainerBattle + the trainer_battle.inc scripts and their specials, gotobeatenscript, rematch checks against vs_seeker.c sRematches), started by talking or by trainer sight
 - [x] Text colour through VAR_TEXT_COLOR / VAR_PREV_TEXT_COLOR (ContextNpcGetTextColor), VAR_LAST_TALKED
 - [x] Movement emotes (`emote_*` → FLDEFF_*_ICON, `entities/FieldEffects.ts`); other field effects in movement scripts not yet
-- [ ] Interacting with metatiles (PCs, bookshelves, TVs via behavior scripts)
+- [~] Interactions (GetInteractionScript): bg events with the elevation check, hidden items, metatile scripts (PCs,
+  bookshelves, TVs, Poké Mart/Center signs, ...), walk-into signs (TrySetUpWalkIntoSignpostScript) and walking
+  away from them, the signpost message frame, and closing a script's last message with a direction/L/R/START/SELECT
+  (replayed as field input). PC: CreatePCMenu + AnimatePcTurnOn/Off; the item PC, Pokémon Storage System and Hall
+  of Fame PC aren't ported. Not yet: GetInteractedWaterScript (Surf/Waterfall)
 - [~] Start menu shell: items by flags, wrap-around cursor, remembered position, B/START close. POKéMON and BAG open the real screens; the other entries (except EXIT) show a "not implemented" notice
 - [ ] Start menu help/description window
 - [ ] Door animations (`opendoor`/`closedoor`/`waitdooranim` are no-ops), tile animations, field effects
@@ -119,7 +125,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     Pokédude/Teachy TV demos are not ported. Evolution (Rare Candy, stones) doesn't happen; a stone is still used up.
   - Item use: the item-use animation (pokemon_special_anim.c) is skipped. Bag uses that need overworld systems
     (bike, rods, Escape Rope, Itemfinder, VS Seeker, Town Map, Fame Checker, Teachy TV, mail, TM case, berry pouch,
-    registered SELECT items) log "not implemented" and return to the bag. Coins and berry powder read as 0; PC
+    registered SELECT items) log "not implemented" and return to the bag. Berry powder reads as 0; PC
     storage is never full for Poké Balls; the item PC / Pokémon storage give flows aren't ported.
   - Bag/party run in their own scene (FieldMenuScene) when opened from the field; the field side fades with the
     overworld's ScreenFade.
@@ -130,7 +136,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - Poké Mart: no quest log transaction history (RecordItemTransaction / RecordTransactionForQuestLog) or
     GAME_STAT_SHOPPED; no SE_SHOP. The decoration marts (`pokemartdecoration*`) aren't ported (unused in FRLG).
     Selling the TM case / berry pouch logs "not implemented" (those screens don't exist).
-  - Field steps: TrySetUpWalkIntoSignpostScript isn't ported. Eggs count down egg cycles, but the daycare (breeding,
+  - Field steps: eggs count down egg cycles, but the daycare (breeding,
     its mons' steps) and the hatching scene (`special EggHatch`) aren't ported. A finished VS Seeker charge would
     start EventScript_VsSeekerChargingDone, whose specials aren't ported; only the (unported) VS Seeker starts one.
   - Safari Zone: BAIT/ROCK throw animations are skipped like every battle animation. The Safari Zone's own field
@@ -140,6 +146,10 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - Multichoice: the cable club menus' help descriptions (MultiChoicePrintHelpDescription) aren't drawn (no
     link play); the quest log's QL_AvoidDisplay bit of ignoreBPress is ignored.
   - Elevators: SE_ELEVATOR / SE_DING_DONG are silent; UpdateEscapeWarp isn't kept on warps.
+  - PC: PlayerPC (item storage), ShowPokemonStorageSystemPC and HallOfFamePCBeginFade log "not implemented" and go
+    straight back to the PC menu. Facing water does nothing (GetInteractedWaterScript waits for Surf).
+  - Interaction metatiles whose scripts need unported screens/specials (Town Map, Trainer Tower clock, cable club
+    monitors, questionnaire/easy chat) start their scripts and hit the unimplemented-special warnings.
   - No-op specials (`NO_OP` in `script/specials.ts`): audio, quest log, help system, fame checker, GameCube link flags.
   - Player names are "PLAYER"/"RIVAL" until Oak's intro exists.
 - **Approximations:**
@@ -233,9 +243,15 @@ State as of the last log entry:
   (the field's or the GBA layer's). Specials can start field tasks that outlive them (`ScriptHost.startFieldTask`,
   run after the script each frame like RunTasks); `world/elevator.ts` uses that. Test: walk into the Celadon Dept.
   Store elevator from 1F (`?start=after-rival&map=CeladonCity_DepartmentStore_1F&x=6&y=2`, Up), panel at (4,1).
+- **Interactions:** `OverworldScene.interact` is GetInteractionScript (object → bg event → metatile via
+  `METATILE_SCRIPTS`); `tryWalkIntoSignpost` runs after a step (before the wild check) and when holding toward the
+  facing direction. The signpost / walk-away / last-message-dismiss state (script.c statics) lives in ScriptEngine
+  (`msgSetSignpost`, `handleCancelSignpost`, `takeRegisteredInput`); MessageBox draws the signpost frame when told.
+  Tests: Viridian Forest item ball (`?start=after-rival&map=ViridianForest&x=5&y=42`, face up, A), hidden Potion
+  (x=3 y=23), Pallet town sign (x=9 y=13, hold up), Viridian PC (`map=ViridianCity_PokemonCenter_1F&x=11&y=2`).
 - **Next blockers on the main path:** Silph Co.'s elevator uses `special ListMenu` (scrolling floor list, not
-  ported); in battle: move animations (battle_anim
-  scripts), evolution scene.
+  ported); PC storage (a 7th mon has nowhere to go); in battle: move animations (battle_anim scripts), evolution
+  scene; field moves (Cut for Vermilion's gym).
 - **GBA screens:** `src/gba/main.ts` is gMain (callbacks, ReadKeys with key repeat). `GbaHostScene` runs the
   main loop; `BattleScene` and `FieldMenuScene` extend it. Screens hand over with SetMainCallback2 like the C
   (battle → CB2_BagMenuFromBattle → ... → ReshowBattleScreenAfterMenu → BattleMainCB2). Graphics are fetched
@@ -718,3 +734,27 @@ State as of the last log entry:
   (3x2, no wrap, EXIT = 5), Celadon elevator: enter from 1F → "Now on: 1F", cursor on 1F → 5F: shake and window
   scroll, VAR_ELEVATOR_FLOOR 8, exit mat → 5F; entering from 5F shows "Now on: 5F" with the cursor on 5F; exit
   from 1F returns to 1F.
+
+### Field interactions: item balls, hidden items, PCs, signs (main path: Viridian Forest)
+- `OverworldScene.interact` now follows GetInteractionScript: an object without a script falls through to bg events;
+  GetBackgroundEventAtPosition's elevation check (GetInFrontOfPlayerPosition's elevation); hidden items
+  (VAR_0x8004/5/6 + EventScript_HiddenItemScript, underfoot ones skipped); `player_facing_dir` and MsgSetSignpost
+  for signs on sign metatiles; GetInteractedMetatileScript as a table (`METATILE_SCRIPTS`). Water isn't ported.
+- Signs: TrySetUpWalkIntoSignpostScript / SetUpWalkIntoSignScript (after a step and when pushing against one),
+  FieldInput_HandleCancelSignpost (walking away or START cancels with EventScript_CancelMessageBox; START then opens
+  the start menu), `signmsg`/`normalmsg`, DisableMsgBoxWalkaway, ResetFacingNpcOrSignpostVars' MsgSetNotSignpost on
+  every free frame. ProcessPlayerFieldInput order fixed: walk-into sign, then A, then START.
+- WaitForAorBPress: when the next command is release(all), a held direction other than VAR_FACING, L, R, START or
+  SELECT closes the message; QuestLogOverrideJoyVars replays it as the next field frame's input (`Input.override`).
+- Signpost frame: extract.py renders graphics/text_window/signpost.png with stdpal_1 (`text/signpost_frame.png`);
+  MessageBox composes it with WindowFunc_DrawDialogueFrame's signpost row order.
+- Specials: SetHiddenItemFlag, BufferTMHMMoveName (overworld now loads menus.json for sTMHMMoves), CheckAddCoins,
+  DoPicboxCancel (MonPicBox.cancel = PicboxCancel), AnimatePcTurnOn (field task) / AnimatePcTurnOff, CreatePCMenu
+  (MultichoiceMenu with a fixed layout: 13/14 tiles, 16 px rows); PlayerPC / ShowPokemonStorageSystemPC /
+  HallOfFamePCBeginFade are stubs. GameState gained `coins` (AddCoins/RemoveCoins); the Coin Case reads it.
+- Verified headless: Viridian Forest Poké Ball item ball (removed, flag set, in the bag) and hidden Potion (no repeat);
+  Pallet Town sign by walking into it (signpost frame, cancelled by pressing Left, re-shown by tapping Up, walked
+  away from with Down), A-pressed sign closed by tapping Left after printing (player turns left; ignored mid-print);
+  Viridian Pokémon Center sign by walking into it; Pokémon Center PC (flicker on, menu SOMEONE'S PC / PLAYER's PC /
+  LOG OFF, storage stub returns to the menu, LOG OFF turns it off); bookshelf (normal frame). Oak's Pallet trigger →
+  lab intro still runs to completion.

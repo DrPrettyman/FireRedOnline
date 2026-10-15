@@ -61,6 +61,21 @@ export class GameState {
   removeMoney(amount: number): void {
     this.money = Math.max(this.money - amount, 0);
   }
+  /** gSaveBlock1Ptr->coins (coins.c), at most MAX_COINS. */
+  coins = 0;
+  /** AddCoins: false if already at MAX_COINS; otherwise adds, capped. */
+  addCoins(amount: number): boolean {
+    const max = this.defines.require('MAX_COINS');
+    if (this.coins >= max) return false;
+    this.coins = Math.min(this.coins + amount, max);
+    return true;
+  }
+  /** RemoveCoins: false if there aren't enough. */
+  removeCoins(amount: number): boolean {
+    if (this.coins < amount) return false;
+    this.coins -= amount;
+    return true;
+  }
   /** gPlayerParty: up to PARTY_SIZE mons, no gaps. */
   party: Pokemon[] = [];
   readonly bag: Bag;

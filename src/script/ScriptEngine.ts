@@ -1,5 +1,5 @@
 import type { ObjectEvent } from '../entities/ObjectEvent';
-import type { Input } from '../input/Input';
+import type { Button, Input } from '../input/Input';
 import type { Pokemon } from '../pokemon/Pokemon';
 import type { GameState } from '../state/GameState';
 import type { Charmap } from '../text/charmap';
@@ -83,6 +83,10 @@ export interface ScriptHost {
   showMonPic(species: number, x: number, y: number): void;
   /** ScriptMenu_HidePokemonPic: a wait that ends once the box is gone, or undefined if none is shown. */
   hideMonPic(): Wait | undefined;
+  /** PicboxCancel: remove the picture box at once. */
+  cancelMonPic(): void;
+  /** CreatePCMenuWindow + CreateMCMenuInputHandlerTask */
+  openPcMenu(): { tick(): boolean; result: number };
   /** FadeScreen: returns a wait for IsPaletteNotActive. */
   fadeScreen(mode: number): Wait;
   /** StartTrainerBattle: `done` ends when the battle is over (screen still black), with the outcome. */
@@ -190,6 +194,17 @@ export class ScriptEngine {
   private waitState?: Wait;
   private battle?: TrainerBattle;
   private specialEnv: SpecialEnv;
+  /** sMsgIsSignpost (script.c): the message box uses the signpost frame. */
+  private msgIsSignpost = false;
+  /** sMsgBoxIsCancelable: a walked-into sign's message can be walked away from. */
+  private msgBoxIsCancelable = false;
+  /** sMsgBoxWalkawayDisabled (DisableMsgBoxWalkaway) */
+  private msgBoxWalkawayDisabled = false;
+  /** gWalkAwayFromSignInhibitTimer */
+  private walkAwayFromSignInhibitTimer = 0;
+  /** sQuestLogInput / sQuestLogInputIsDpad: the key that dismissed a script's last message, replayed as field input. */
+  private registeredInput?: Button;
+  private registeredInputIsDpad = false;
 
   constructor(
     private data: ScriptsData,
@@ -212,6 +227,7 @@ export class ScriptEngine {
       endScript: () => {
         if (this.ctx) this.ctx.done = true;
       },
+      disableMsgBoxWalkaway: () => (this.msgBoxWalkawayDisabled = true),
       warnOnce: (key, message) => {
         if (this.warned.has(key)) return;
         this.warned.add(key);
@@ -236,6 +252,9 @@ export class ScriptEngine {
       return false;
     }
     this.ctx = new ScriptContext(pc, label);
+    this.msgBoxIsCancelable = false; // ClearMsgBoxCancelableState
+    this.msgBoxWalkawayDisabled = false; // EnableMsgBoxWalkaway
+    this.registeredInputIsDpad = false; // ClearQuestLogInputIsDpadFlag
     // ResetContextNpcTextColor (via ResetFacingNpcOrSignpostVars on field input)
     // Approximation: the GBA does this in ProcessPlayerFieldInput before any interaction, not per script.
     this.state.setVar('VAR_TEXT_COLOR', this.defines.require('NPC_TEXT_COLOR_DEFAULT'));
@@ -391,7 +410,78 @@ export class ScriptEngine {
 
   private showMessage(ctx: ScriptContext, token: string): void {
     const bytes = this.stringFor(ctx, token);
-    if (bytes) this.messageBox.show(bytes, this.contextTextColor());
+    if (bytes) this.messageBox.show(bytes, this.contextTextColor(), this.msgIsSignpost);
+  }
+
+  /** MsgSetSignpost */
+  msgSetSignpost(): void {
+    this.msgIsSignpost = true;
+  }
+
+  /** ResetFacingNpcOrSignpostVars' MsgSetNotSignpost, on every frame the field controls are free. */
+  msgSetNotSignpost(): void {
+    this.msgIsSignpost = false;
+  }
+
+  /** SetWalkingIntoSignVars */
+  setWalkingIntoSignVars(): void {
+    this.walkAwayFromSignInhibitTimer = 6;
+    this.msgBoxIsCancelable = true;
+  }
+
+  /**
+   * FieldInput_HandleCancelSignpost: while a walked-into sign's script runs, a direction other than the
+   * player's facing (or START) cancels it with EventScript_CancelMessageBox. Returns true if START did, so
+   * the caller opens the start menu once the controls are free (Task_QuestLogPlayback_OpenStartMenu).
+   */
+  handleCancelSignpost(dpad: Direction | undefined, facing: Direction, pressedStart: boolean): boolean {
+    if (!this.ctx) return false;
+    if (this.walkAwayFromSignInhibitTimer !== 0) {
+      this.walkAwayFromSignInhibitTimer--;
+      return false;
+    }
+    if (!this.msgBoxIsCancelable) return false;
+    if (dpad !== undefined && dpad !== facing) {
+      if (this.msgBoxWalkawayDisabled) return false;
+      this.registeredInput = DPAD_BUTTONS[dpad]; // RegisterQuestLogInput
+      this.start('EventScript_CancelMessageBox');
+      return false;
+    }
+    if (pressedStart) {
+      this.start('EventScript_CancelMessageBox');
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * QuestLogOverrideJoyVars (FieldGetPlayerInput, once the script has ended): the key that dismissed the
+   * last message, to be treated as this frame's only held and new key.
+   */
+  takeRegisteredInput(): Button | undefined {
+    if (this.ctx || !this.registeredInputIsDpad) return undefined;
+    const b = this.registeredInput;
+    this.registeredInput = undefined; // ClearQuestLogInput
+    return b;
+  }
+
+  /** ScriptContext_NextCommandEndsScript: the next command (or the one a `return` goes back to) is release(all). */
+  private nextCommandEndsScript(ctx: ScriptContext): boolean {
+    let op = this.data.code[ctx.pc]?.[0];
+    if (op === 'return') op = this.data.code[ctx.stack[ctx.stack.length - 1] ?? -1]?.[0];
+    return op === 'release' || op === 'releaseall';
+  }
+
+  /** ScriptContext_GetQuestLogInput: the input that may dismiss a script's last message besides A/B. */
+  private questLogInput(): Button | undefined {
+    const inp = this.input;
+    const facing = this.state.getVar('VAR_FACING');
+    for (const [dir, b] of Object.entries(DPAD_BUTTONS) as [Direction, Button][]) {
+      if (inp.held(b) && facing !== directionId(dir, this.defines)) return b;
+    }
+    if (inp.pressed('L')) return 'L';
+    for (const b of ['R', 'START', 'SELECT'] as const) if (inp.held(b)) return b;
+    return undefined;
   }
 
   /**
@@ -605,8 +695,21 @@ export class ScriptEngine {
     waitmessage(this: ScriptEngine, ctx: ScriptContext) {
       ctx.wait = () => !this.messageBox.isPrinting;
     },
+    /**
+     * ScrCmd_waitbuttonpress: WaitForAorBPress. Before a release, a held direction (other than the way the
+     * player faced), L, R, START or SELECT also closes the message, and is then replayed as field input.
+     */
     waitbuttonpress(this: ScriptEngine, ctx: ScriptContext) {
-      ctx.wait = () => this.input.pressedAorB();
+      ctx.wait = () => {
+        if (this.input.pressedAorB()) return true;
+        if (!this.nextCommandEndsScript(ctx)) return false;
+        const b = this.questLogInput();
+        if (b === undefined) return false;
+        this.registeredInput = b; // RegisterQuestLogInput
+        this.msgBoxIsCancelable = false; // ClearMsgBoxCancelableState
+        this.registeredInputIsDpad = true; // SetQuestLogInputIsDpadFlag (any key but A/B)
+        return true;
+      };
     },
     closemessage(this: ScriptEngine) {
       this.messageBox.hide();
@@ -616,8 +719,12 @@ export class ScriptEngine {
       this.state.setVar('VAR_PREV_TEXT_COLOR', this.state.getVar('VAR_TEXT_COLOR'));
       this.state.setVar('VAR_TEXT_COLOR', this.defines.require(a[0]));
     },
-    signmsg() {},
-    normalmsg() {},
+    signmsg(this: ScriptEngine) {
+      this.msgSetSignpost();
+    },
+    normalmsg(this: ScriptEngine) {
+      this.msgSetNotSignpost();
+    },
     /** ScriptMenu_YesNo: VAR_RESULT = TRUE for YES, FALSE for NO or B. Position args are ignored in FRLG. */
     yesnobox(this: ScriptEngine, ctx: ScriptContext) {
       const menu = this.host.openYesNo();
@@ -806,6 +913,18 @@ export class ScriptEngine {
     /** GetPocketByItemId */
     checkitemtype(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
       this.state.setVar('VAR_RESULT', this.state.pokemon.itemPocket(this.state.value(a[0])));
+    },
+
+    // ------------------------------------------------ coins
+    checkcoins(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.state.setVar(a[0], this.state.coins);
+    },
+    /** ScrCmd_addcoins: VAR_RESULT is FALSE on success */
+    addcoins(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.state.setVar('VAR_RESULT', this.state.addCoins(this.state.value(a[0])) ? 0 : 1);
+    },
+    removecoins(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.state.setVar('VAR_RESULT', this.state.removeCoins(this.state.value(a[0])) ? 0 : 1);
     },
 
     // ------------------------------------------------ string buffers
@@ -1152,7 +1271,7 @@ export class ScriptEngine {
   /** ShowFieldMessage */
   private showFieldMessage(label?: string): void {
     const raw = label && this.strings[label];
-    this.messageBox.show(raw ? this.charmap.encode(raw) : this.charmap.encode('$'), this.contextTextColor());
+    this.messageBox.show(raw ? this.charmap.encode(raw) : this.charmap.encode('$'), this.contextTextColor(), this.msgIsSignpost);
   }
 
   /** FlagGet(TRAINER_FLAGS_START + trainer) */
@@ -1193,6 +1312,8 @@ export function textColorFromId(c: number, defines: Defines): TextColor {
   if (c === defines.require('NPC_TEXT_COLOR_FEMALE')) return 'female';
   return 'neutral';
 }
+
+const DPAD_BUTTONS: Record<Direction, Button> = { up: 'UP', down: 'DOWN', left: 'LEFT', right: 'RIGHT' };
 
 const DIR_NAMES: [string, Direction][] = [
   ['DIR_SOUTH', 'down'],

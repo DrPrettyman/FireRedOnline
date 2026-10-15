@@ -96,8 +96,7 @@ function ItemIdFieldFuncIs(itemId: number, name: string): boolean {
 const inField = (taskId: number) => gTasks[taskId].data[3] !== 0;
 
 function FieldUseFunc_CoinCase(taskId: number): void {
-  // GetCoins: coins aren't tracked yet, and there's no way to get any
-  gStringVar1.set(ConvertIntToDecimalStringN(0, STR_CONV_MODE_LEFT_ALIGN, 4));
+  gStringVar1.set(ConvertIntToDecimalStringN(state.coins, STR_CONV_MODE_LEFT_ALIGN, 4)); // GetCoins
   ExpandToStringVar4(text('gText_CoinCase'));
   if (!inField(taskId)) DisplayItemMessageInBag(taskId, K.FONT_NORMAL, gStringVar4, Task_ReturnToBagFromContextMenu);
 }
