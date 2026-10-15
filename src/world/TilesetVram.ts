@@ -204,6 +204,11 @@ export const tilesetVram = {
     return stores.has(name);
   },
 
+  /** A tileset's tiles as VRAM holds them now (animated frames included), or undefined if not loaded. */
+  tiles(name: string): Uint8Array | undefined {
+    return stores.get(name)?.tiles;
+  },
+
   /** A tile's current 4bpp data (tests). */
   tileData(name: string, tile: number): Uint8Array | undefined {
     const store = stores.get(name);
