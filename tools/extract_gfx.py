@@ -17,7 +17,8 @@ from PIL import Image
 from extract import read_jasc
 
 # Graphics the ported code loads (battle UI, terrain, Pokémon/trainer pics and icons, balls, battle
-# anims, party menu, bag and item icons, summary screen and mon markings).
+# anims, party menu, bag and item icons, summary screen and mon markings, the shop's buy menu, and the
+# field's tilesets and object event pics, which the buy menu's map view draws from VRAM).
 GFX_PREFIXES = (
     "graphics/battle_interface/",
     "graphics/battle_terrain/",
@@ -34,6 +35,9 @@ GFX_PREFIXES = (
     "graphics/help_system/",
     "graphics/summary_screen/",
     "graphics/misc/",
+    "graphics/shop_menu/",
+    "graphics/object_events/",
+    "data/tilesets/",
 )
 # Footprints are 1bpp and unused so far.
 SKIP_SUFFIXES = ("footprint.1bpp",)
@@ -43,11 +47,16 @@ INCBIN = re.compile(r"(\w+)\s*\[[^\]]*\]\s*=\s*INCBIN_U(?:8|16|32)\(((?:\s*\"[^\
 INCBIN_ARRAY = re.compile(r"(\w+)\s*\[[^\]]*\](?:\[[^\]]*\])+\s*=\s*\{((?:\s*INCBIN_U(?:8|16|32)\([^)]*\)\s*,?)+)\s*\}")
 
 
+# The Makefile's graphics rule files (object event pics need spritesheet_rules.mk's -mwidth/-mheight,
+# tilesets tileset_rules.mk's -num_tiles).
+RULE_FILES = ("graphics_file_rules.mk", "spritesheet_rules.mk", "tileset_rules.mk")
+
+
 class MakeRules:
-    """The subset of graphics_file_rules.mk that changes what a file converts to."""
+    """The subset of the graphics rule files that changes what a file converts to."""
 
     def __init__(self, decomp):
-        text = (decomp / "graphics_file_rules.mk").read_text().replace("\\\n", " ")
+        text = "\n".join((decomp / f).read_text() for f in RULE_FILES).replace("\\\n", " ")
         self.vars = dict(re.findall(r"^(\w+)\s*:=\s*(\S+)", text, re.M))
         self.flags = {}  # target -> gbagfx flags
         self.cats = {}  # target -> [deps]

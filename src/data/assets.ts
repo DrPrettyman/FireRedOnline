@@ -5,7 +5,7 @@ import { fontTextureKey, type FontsData } from '../text/Font';
 import { MESSAGE_TEXTURES } from '../text/MessageBox';
 import { STD_FRAME_TEXTURE, userFrameTexture } from '../ui/MenuWindow';
 import { TilesetPair } from '../world/TilesetPair';
-import type { Constants, ItemInfo, MapData, MoveInfo, PokemonTables, SpeciesInfo, SpriteInfo, TilesetIndex, WildEncounterData } from './types';
+import type { Constants, ItemInfo, MapData, MoveInfo, PokemonTables, SpeciesInfo, SpriteInfo, TilesetIndex, TilesetSymbols, WildEncounterData } from './types';
 
 const GEN = 'gen';
 
@@ -80,6 +80,12 @@ export class Assets {
       this.maps.set(name, p);
     }
     return p;
+  }
+
+  /** The GBA-native symbols of a pair's primary and secondary tilesets (CopyMapTilesetsToVram's sources). */
+  tilesetSymbols(key: string): { primary: TilesetSymbols; secondary: TilesetSymbols } {
+    const info = this.tilesets.pairs[key];
+    return { primary: this.tilesets.symbols[info.primary], secondary: this.tilesets.symbols[info.secondary] };
   }
 
   tilesetPair(key: string): TilesetPair {

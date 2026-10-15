@@ -4,10 +4,12 @@ import type { Pokemon } from '../pokemon/Pokemon';
 import type { GameState } from '../state/GameState';
 import type { Charmap } from '../text/charmap';
 import type { MessageBox, TextColor } from '../text/MessageBox';
+import { SCR_MENU_UNSET } from '../ui/MultichoiceMenu';
 import type { YesNoMenu } from '../ui/YesNoMenu';
 import { parseDirection, type Direction } from '../world/direction';
 import type { Defines } from './Defines';
 import { MovementRunner, towards, type Instruction } from './MovementRunner';
+import type { FieldTask } from '../world/elevator';
 import { SPECIALS, type SpecialEnv } from './specials';
 
 export interface ScriptsData {
@@ -21,6 +23,8 @@ export interface ScriptsData {
   healLocations: HealLocation[];
   /** ComputeWhiteOutMoneyLoss tables (overworld.c). */
   whiteOut: { moneyLossMultipliers: number[]; moneyLossBadgeFlags: number[] };
+  /** script_menu.c sMultichoiceLists: MULTICHOICE_* -> the list's string symbols */
+  multichoices: (string[] | null)[];
 }
 
 /** sHealLocations + sWhiteoutRespawnHealCenterMapIdxs + sWhiteoutRespawnHealerNpcIds. */
@@ -61,6 +65,16 @@ export interface ScriptHost {
   showMoneyBox(x: number, y: number): void;
   updateMoneyBox(): void;
   hideMoneyBox(): void;
+  /** ScriptMenu_Multichoice(WithDefault) or, with `columns`, ScriptMenu_MultichoiceGrid. */
+  openMultichoice(opts: MultichoiceRequest): { tick(): boolean; result: number };
+  /** DrawElevatorCurrentFloorWindow / CloseElevatorCurrentFloorWindow (FLOOR_NAMES index, or undefined to close) */
+  elevatorFloorWindow(floor: number | undefined): void;
+  /** CreateTask for a field task that outlives the script command that started it. */
+  startFieldTask(task: FieldTask): void;
+  /** SetCameraPanning(0, dy) relative to the standard pan */
+  setCameraPanning(dy: number): void;
+  /** CreatePokemartMenu (shop.c): the wait ends when the player leaves the shop menu. */
+  openPokemart(items: number[]): Wait;
   /** SetWarpDestination without warping (setwarp): used by the next WarpIntoMap. */
   setWarpDestination(mapId: string, warpId: number, x: number, y: number): void;
   /** LOCALID_* names are generated per map from map.json `local_id` fields. */
@@ -85,6 +99,19 @@ export interface ScriptHost {
   whiteOutMoneyLoss(): number;
   /** GetCurrentRegionMapSectionId, for a new mon's met location. */
   mapSection(): string;
+}
+
+export interface MultichoiceRequest {
+  left: number;
+  top: number;
+  /** MULTICHOICE_* */
+  mcId: number;
+  /** sMultichoiceLists[mcId]'s texts, encoded */
+  items: number[][];
+  ignoreBPress: boolean;
+  initPos: number;
+  /** multichoicegrid's column count */
+  columns?: number;
 }
 
 export interface TrainerBattleRun {
@@ -367,6 +394,35 @@ export class ScriptEngine {
     if (bytes) this.messageBox.show(bytes, this.contextTextColor());
   }
 
+  /**
+   * The multichoice commands' arguments are bytes in the script, not vars. Bit 1 of ignoreBPress only
+   * matters to the quest log (QL_AvoidDisplay).
+   */
+  private multichoice(ctx: ScriptContext, args: { left: string; top: string; mcId: string; ignoreBPress: string; initPos?: string; columns?: string }): void {
+    const d = this.defines;
+    const mcId = d.require(args.mcId);
+    const items = this.data.multichoices[mcId];
+    if (!items) {
+      console.warn('[script] unknown multichoice', args.mcId);
+      return;
+    }
+    this.state.setVar('VAR_RESULT', SCR_MENU_UNSET);
+    const menu = this.host.openMultichoice({
+      left: d.require(args.left),
+      top: d.require(args.top),
+      mcId,
+      items: items.map((label) => this.charmap.encode(this.strings[label] ?? '?$')),
+      ignoreBPress: (d.require(args.ignoreBPress) & 1) !== 0,
+      initPos: args.initPos !== undefined ? d.require(args.initPos) : 0,
+      columns: args.columns !== undefined ? d.require(args.columns) : undefined,
+    });
+    ctx.wait = () => {
+      if (!menu.tick()) return false;
+      this.state.setVar('VAR_RESULT', menu.result);
+      return true;
+    };
+  }
+
   /** ContextNpcGetTextColor */
   contextTextColor(): TextColor {
     const c = this.state.getVar('VAR_TEXT_COLOR');
@@ -572,6 +628,19 @@ export class ScriptEngine {
       };
     },
 
+    /** ScrCmd_multichoice: ScriptMenu_Multichoice, then VAR_RESULT = the choice or SCR_MENU_CANCEL. */
+    multichoice(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
+      this.multichoice(ctx, { left: a[0], top: a[1], mcId: a[2], ignoreBPress: a[3] });
+    },
+    /** ScrCmd_multichoicedefault: ScriptMenu_MultichoiceWithDefault */
+    multichoicedefault(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
+      this.multichoice(ctx, { left: a[0], top: a[1], mcId: a[2], initPos: a[3], ignoreBPress: a[4] });
+    },
+    /** ScrCmd_multichoicegrid: ScriptMenu_MultichoiceGrid */
+    multichoicegrid(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
+      this.multichoice(ctx, { left: a[0], top: a[1], mcId: a[2], columns: a[3], ignoreBPress: a[4] });
+    },
+
     // ------------------------------------------------ objects
     /**
      * ScrCmd_lock: FreezeObjects_WaitForPlayerAndSelected. Other objects already hold still while a
@@ -637,6 +706,11 @@ export class ScriptEngine {
     warp(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
       this.doWarp(ctx, a);
     },
+    /** ScrCmd_setdynamicwarp: SetDynamicWarpWithCoords */
+    setdynamicwarp(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      const { warpId, x, y } = this.warpArgs(a);
+      this.state.dynamicWarp = { mapId: a[0], warpId, x, y };
+    },
     setwarp(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
       const { warpId, x, y } = this.warpArgs(a);
       this.host.setWarpDestination(a[0], warpId, x, y);
@@ -691,6 +765,25 @@ export class ScriptEngine {
     /** ScrCmd_checkmoney: VAR_RESULT = IsEnoughMoney */
     checkmoney(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
       if (!this.state.value(a[1] ?? '0')) this.state.setVar('VAR_RESULT', this.state.money >= this.state.value(a[0]) ? 1 : 0);
+    },
+
+    /**
+     * ScrCmd_pokemart: CreatePokemartMenu with the `.2byte` item list at the label (up to ITEM_NONE), then
+     * ScriptContext_Stop until the shop's callback (ScriptContext_Enable) runs.
+     */
+    pokemart(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
+      const items: number[] = [];
+      let pc = this.data.labels[a[0]];
+      if (pc === undefined) {
+        console.warn('[script] missing pokemart list', a[0]);
+        return;
+      }
+      for (let ins = this.data.code[pc]; ins?.[0] === '.2byte'; ins = this.data.code[++pc]) {
+        const item = this.defines.require(ins[1]);
+        items.push(item);
+        if (item === 0) break;
+      }
+      ctx.wait = this.host.openPokemart(items);
     },
 
     // ------------------------------------------------ items

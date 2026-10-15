@@ -1,5 +1,6 @@
 import { adjustFriendship } from '../battle/pokemonBattle';
 import type { GameState } from '../state/GameState';
+import { animateElevator, getElevatorFloor, initElevatorFloorSelectMenuPos } from '../world/elevator';
 import { initRoamer } from '../world/roamer';
 import { isPoisoned } from '../world/stepCounters';
 import type { ScriptHost } from './ScriptEngine';
@@ -58,6 +59,34 @@ export const SPECIALS: Record<string, Special> = {
   /** InitRoamer (roamer.c) */
   InitRoamer({ state }) {
     initRoamer(state);
+  },
+
+  /** GetElevatorFloor (field_specials.c): VAR_ELEVATOR_FLOOR from the dynamic warp's map */
+  GetElevatorFloor({ state }) {
+    getElevatorFloor(state);
+  },
+
+  /** InitElevatorFloorSelectMenuPos: the floor select menu's starting cursor */
+  InitElevatorFloorSelectMenuPos({ state }) {
+    return initElevatorFloorSelectMenuPos(state);
+  },
+
+  /** DrawElevatorCurrentFloorWindow: "Now on:" and the floor gSpecialVar_0x8005 names */
+  DrawElevatorCurrentFloorWindow({ state, host }) {
+    host.elevatorFloorWindow(state.getVar('VAR_0x8005'));
+  },
+
+  CloseElevatorCurrentFloorWindow({ host }) {
+    host.elevatorFloorWindow(undefined);
+  },
+
+  /** AnimateElevator: the shake ends the script's waitstate; the window view may scroll on after it. */
+  AnimateElevator(env) {
+    const { shake, windowView } = animateElevator(env.state, env.host);
+    // RunTasks order: Task_AnimateElevatorWindowView (priority 8) before Task_ElevatorShake (9)
+    env.host.startFieldTask(windowView);
+    env.host.startFieldTask(shake);
+    env.setWaitState(() => shake.done);
   },
 
   /** EndTrainerApproach (trainer_see.c): the script's waitstate ends once the trainer has walked up. */

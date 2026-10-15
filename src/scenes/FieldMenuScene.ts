@@ -1,6 +1,7 @@
-// The party menu and bag opened from the field (start menu): CB2_PartyMenuFromStartMenu /
-// CB2_BagMenuFromStartMenu running on the GBA host. The overworld isn't a GBA screen, so its
-// return points (CB2_ReturnToFieldWithOpenMenu, CB2_ReturnToField) end this scene instead.
+// The GBA-layer screens opened from the field: the party menu and bag from the start menu
+// (CB2_PartyMenuFromStartMenu / CB2_BagMenuFromStartMenu) and the Poké Mart's buy menu and sell bag
+// (CB2_InitBuyMenu / CB2_GoToSellMenu). The overworld isn't a GBA screen, so its return points
+// (CB2_ReturnToFieldWithOpenMenu, CB2_ReturnToField) end this scene instead.
 
 import type { Assets } from '../data/assets';
 import { K } from '../battle/constants';
@@ -11,7 +12,9 @@ import { initGbaText } from '../gba/window';
 import { fieldReturn } from '../menus/fieldCallbacks';
 import { prepareMenus } from '../menus/host';
 import { CB2_BagMenuFromStartMenu } from '../menus/itemMenu';
+import { setObjectEventGraphicsInfo } from '../menus/objectEventGraphics';
 import { CB2_PartyMenuFromStartMenu } from '../menus/partyMenu';
+import { buyMenuGfxSymbols, CB2_GoToSellMenu, CB2_InitBuyMenu, LoadFieldTilesetsForShop, type ShopFieldView } from '../menus/shop';
 import type { PokemonData } from '../pokemon/Pokemon';
 import type { GameState } from '../state/GameState';
 import type { Charmap } from '../text/charmap';
@@ -23,7 +26,9 @@ import { GbaHostScene } from './GbaHostScene';
 const TEXTURE = 'field_menu_screen';
 
 export interface FieldMenuStart {
-  menu: 'party' | 'bag';
+  menu: 'party' | 'bag' | 'buy' | 'sell';
+  /** For 'buy': what the buy menu's map view reads from the field. */
+  shopField?: ShopFieldView;
   state: GameState;
   pokemon: PokemonData;
   charmap: Charmap;
@@ -51,11 +56,18 @@ export class FieldMenuScene extends GbaHostScene {
     initGbaText(new Fonts(this, assets.fonts), this.buttons, TEXT_SPEED[start.state.textSpeed].scroll);
     this.lEqualsA = start.state.optionsButtonMode === K.OPTIONS_BUTTON_MODE_L_EQUALS_A;
 
+    if (start.menu === 'buy') {
+      setObjectEventGraphicsInfo(assets.sprites);
+      await loadGfx(buyMenuGfxSymbols(start.shopField!));
+      LoadFieldTilesetsForShop(start.shopField!);
+    }
+
     fieldReturn.withOpenMenu = () => this.exit(true);
     fieldReturn.plain = () => this.exit(false);
     gMain.inBattle = false;
     SetMainCallback1(null);
-    SetMainCallback2(start.menu === 'party' ? CB2_PartyMenuFromStartMenu : CB2_BagMenuFromStartMenu);
+    const entry = { party: CB2_PartyMenuFromStartMenu, bag: CB2_BagMenuFromStartMenu, buy: CB2_InitBuyMenu, sell: CB2_GoToSellMenu };
+    SetMainCallback2(entry[start.menu]);
     this.startHost();
   }
 

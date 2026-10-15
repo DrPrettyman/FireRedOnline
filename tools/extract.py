@@ -94,6 +94,8 @@ def parse_tileset_symbols(decomp):
                 "folder": meta_paths[fields["metatiles"]],
                 "tiles": tile_paths[fields["tiles"]],
                 "palettes": pal_paths[fields["palettes"]],
+                # The C symbols of the GBA-native data (extract_gfx), for code that loads them into VRAM.
+                "symbols": {k: fields[k] for k in ("tiles", "palettes", "metatiles")},
             }
         except KeyError as e:
             print(f"  tileset {name}: unresolved {e}", file=sys.stderr)
@@ -253,7 +255,7 @@ def extract_maps(decomp, out, ts_folders):
     for old in ts_dir.glob("*.png"):
         old.unlink()
     short = lambda sym: sym.replace("gTileset_", "")
-    index = {"primaries": {}, "secondaries": {}, "pairs": {}}
+    index = {"primaries": {}, "secondaries": {}, "pairs": {}, "symbols": {}}
     for p in sorted({p for p, _ in pairs.values()}):
         below, above = render_primary(get_tileset(p))
         below.save(ts_dir / f"{short(p)}_below.png", optimize=True)
@@ -266,6 +268,8 @@ def extract_maps(decomp, out, ts_folders):
         below.save(ts_dir / f"{key}_below.png", optimize=True)
         above.save(ts_dir / f"{key}_above.png", optimize=True)
         index["pairs"][key] = {"primary": short(p), "secondary": short(s_), "overrides": overrides}
+    for sym in sorted({t for pair in pairs.values() for t in pair}):
+        index["symbols"][short(sym)] = ts_folders[sym]["symbols"]
     (ts_dir / "index.json").write_text(json.dumps(index, separators=(",", ":")))
     (ts_dir / "attributes.json").unlink(missing_ok=True)
     print(f"  {len(pairs)} tileset pairs")
@@ -297,6 +301,7 @@ def extract_object_events(decomp, out):
 
     movement_c = (decomp / "src/event_object_movement.c").read_text()
     pal_by_tag = {tag: sym for sym, tag in re.findall(r"\{\s*(gObjectEventPal_\w+),\s*(OBJ_EVENT_PAL_TAG_\w+)\s*\}", movement_c)}
+    pal_tag_values = {n: int(v, 0) for n, v in re.findall(r"#define\s+(OBJ_EVENT_PAL_TAG_\w+)\s+(0x[0-9A-Fa-f]+|\d+)", movement_c)}
 
     def png_for(sym):
         p = pic_paths.get(sym)
@@ -325,6 +330,23 @@ def extract_object_events(decomp, out):
     def text_color(gfx_id):
         n = gfx_ids.get(gfx_id)
         return colors_by_gfx.get(n, 3) if n is not None else 3
+
+    def gba_info(info, table):
+        """CopyObjectGraphicsInfoToSpriteTemplate's inputs: GBA-native pics (extract_gfx symbols) per frame."""
+        tag = info.get("paletteTag", "").strip()
+        w_tiles, h_tiles = int(info["width"]) // 8, int(info["height"]) // 8
+        frame_size = w_tiles * h_tiles * 32
+        frames = []
+        for sym, frame in table:
+            # overworld_frame(ptr, w, h, frame) = {ptr + frame * w * h * TILE_SIZE_4BPP, w * h * TILE_SIZE_4BPP};
+            # obj_frame_tiles(ptr) = {ptr, sizeof(ptr)}: the whole symbol (size -1 here).
+            frames.append([sym, 0, -1] if frame is None else [sym, frame * frame_size, frame_size])
+        return {
+            "paletteTag": pal_tag_values.get(tag, 0x11FF),
+            "palette": pal_by_tag.get(tag),
+            "oam": re.sub(r"^&gObjectEventBaseOam_", "", info.get("oam", "").strip()),
+            "images": frames,
+        }
 
     # Start clean: on a case-insensitive disk, overwriting an old "Blackbelt.png" keeps that name, and the
     # dev server's case-sensitive lookup of "BlackBelt.png" then misses it.
@@ -383,7 +405,7 @@ def extract_object_events(decomp, out):
                 "anims": info.get("anims", "").strip(),
                 "inanimate": info.get("inanimate", "FALSE").strip() == "TRUE",
             }
-        manifest[gfx_id] = {**written[key], "textColor": text_color(gfx_id)}
+        manifest[gfx_id] = {**written[key], "textColor": text_color(gfx_id), "gba": gba_info(info, table)}
     (out / "sprites" / "manifest.json").write_text(json.dumps(manifest, indent=1))
     print(f"  {len(written)} sprite sheets, {len(manifest)} gfx ids")
 
@@ -790,11 +812,24 @@ def extract_scripts(decomp, out):
 
     white_out = {"moneyLossMultipliers": c_array("sWhiteOutMoneyLossMultipliers"), "moneyLossBadgeFlags": c_array("sWhiteOutMoneyLossBadgeFlagIDs")}
 
+    # script_menu.c sMultichoiceLists: MULTICHOICE_* -> the MenuAction texts (string symbols) of its list.
+    sm = (decomp / "src/script_menu.c").read_text()
+    mc_lists = {
+        name: re.findall(r"\{\s*(\w+)\s*\}", body)
+        for name, body in re.findall(r"static const struct MenuAction (sMultichoiceList_\w+)\[\]\s*=\s*\{(.*?)\};", sm, re.S)
+    }
+    table = re.search(r"sMultichoiceLists\[\]\s*=\s*\{(.*?)\};", sm, re.S).group(1)
+    multichoices = []
+    for mc, lst in re.findall(r"\[(MULTICHOICE_\w+)\]\s*=\s*MULTICHOICE\((\w+)\)", table):
+        idx = defines[mc]
+        multichoices += [None] * (idx + 1 - len(multichoices))
+        multichoices[idx] = mc_lists[lst]
+
     sd = out / "scripts"
     sd.mkdir(parents=True, exist_ok=True)
     (sd / "scripts.json").write_text(
         json.dumps(
-            {"code": code, "labels": labels, "defines": defines, "stdScripts": std, "rematches": rematches, "healLocations": heal_locations, "whiteOut": white_out},
+            {"code": code, "labels": labels, "defines": defines, "stdScripts": std, "rematches": rematches, "healLocations": heal_locations, "whiteOut": white_out, "multichoices": multichoices},
             ensure_ascii=False,
             separators=(",", ":"),
         )

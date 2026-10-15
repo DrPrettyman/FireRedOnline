@@ -45,6 +45,13 @@ export class TilesetPair {
       : (this.secondary.encounters[metatile - NUM_METATILES_IN_PRIMARY] ?? 0);
   }
 
+  /** METATILE_ATTRIBUTE_LAYER_TYPE (METATILE_LAYER_TYPE_*) */
+  layerType(metatile: number): number {
+    return metatile < NUM_METATILES_IN_PRIMARY
+      ? (this.primary.layers[metatile] ?? 0)
+      : (this.secondary.layers[metatile - NUM_METATILES_IN_PRIMARY] ?? 0);
+  }
+
   primaryTexture(layer: AtlasLayer): string {
     return `ts_${this.info.primary}_${layer}`;
   }

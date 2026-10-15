@@ -12,10 +12,10 @@ import { WhiteOutText } from '../ui/WhiteOutText';
 import { Input } from '../input/Input';
 import { PokemonData, readPokemonConstants, type Pokemon } from '../pokemon/Pokemon';
 import { Defines } from '../script/Defines';
-import { directionId, ScriptEngine, textColorFromId, type ScriptHost, type TrainerBattle, type TrainerBattleRun, type Wait } from '../script/ScriptEngine';
+import { directionId, ScriptEngine, textColorFromId, type MultichoiceRequest, type ScriptHost, type TrainerBattle, type TrainerBattleRun, type Wait } from '../script/ScriptEngine';
 import { GameState } from '../state/GameState';
 import { Charmap } from '../text/charmap';
-import { Fonts } from '../text/Font';
+import { FONT_NORMAL, Fonts } from '../text/Font';
 import { MessageBox } from '../text/MessageBox';
 import { Behaviors } from '../world/behaviors';
 import { DELTA, type Direction } from '../world/direction';
@@ -27,6 +27,12 @@ import { YesNoMenu } from '../ui/YesNoMenu';
 import { MonPicBox } from '../ui/MonPicBox';
 import { MoneyBox } from '../ui/MoneyBox';
 import { ScreenFade } from '../ui/ScreenFade';
+import { ShopMenu, type ShopHost } from '../ui/ShopMenu';
+import { MenuWindow } from '../ui/MenuWindow';
+import { FLOOR_NAMES, type FieldTask } from '../world/elevator';
+import { stringWidth } from '../text/stringWidth';
+import { MultichoiceGridMenu, MultichoiceMenu } from '../ui/MultichoiceMenu';
+import type { ShopFieldView } from '../menus/shop';
 import { setBgMosaic } from '../world/BgMosaic';
 import { initRoamerTables, roamerMove, roamerMoveToOtherLocationSet, updateLocationHistoryForRoamer } from '../world/roamer';
 import {
@@ -39,6 +45,7 @@ import {
 } from '../world/trainerSee';
 import { mapResetTrainerRematches, shouldEggHatch, updateHappinessStepCounter, updatePoisonStepCounter, updateVsSeekerStepCounter } from '../world/stepCounters';
 import { sharedBattleData, type BattleStart } from './BattleScene';
+import type { FieldMenuStart } from './FieldMenuScene';
 
 /** GBA runs at ~59.73Hz; we tick game logic at a fixed 60Hz regardless of display refresh. */
 const FRAME_MS = 1000 / 60;
@@ -88,6 +95,12 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   private monPic?: MonPicBox;
   private wild!: WildEncounters;
   private moneyBox?: MoneyBox;
+  /** DrawElevatorCurrentFloorWindow's window while it's up. */
+  private elevatorWindow?: MenuWindow;
+  /** Tasks started by specials that run on their own, after the script each frame (RunTasks). */
+  private fieldTasks: FieldTask[] = [];
+  /** sVerticalCameraPan - 32: SetCameraPanning's offset from the standard framing. */
+  private cameraPanY = 0;
   /** sWarpDestination as set by `setwarp` (only Safari Zone's out-of-balls exit reads it so far). */
   private warpDestination?: { mapId: string; warpId: number; x: number; y: number };
   /** FldEffPoison's task while it runs. */
@@ -212,6 +225,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     this.trainerApproach?.tick();
     if (this.trainerApproach?.done) this.trainerApproach = undefined;
     this.scripts.tick();
+    this.fieldTasks = this.fieldTasks.filter((t) => !t.tick());
     this.messageBox.tick();
     this.screenFade.tick();
     this.monPic?.tick();
@@ -255,7 +269,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
    * 32 px vertical pan and 8). The Phaser camera is framed the same way by CAMERA_FOLLOW_OFFSET_Y.
    */
   private updateFieldCamera(): void {
-    this.field.cameraTop = (this.cameraObject ?? this.player).feetY - CAMERA_FOLLOW_OFFSET_Y - this.cameras.main.height / 2;
+    this.field.cameraTop = (this.cameraObject ?? this.player).feetY - CAMERA_FOLLOW_OFFSET_Y + this.cameraPanY - this.cameras.main.height / 2;
   }
 
   private handleInput(): void {
@@ -487,12 +501,30 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     return cur.data.warpEvents.find((w) => w.x === wx - cur.originX && w.y === wy - cur.originY);
   }
 
+  /** SetupWarp (field_control_avatar.c), then the warp. */
   private async takeWarp(w: WarpEventData): Promise<void> {
+    if (w.dest_map === 'MAP_DYNAMIC') {
+      // SetWarpDestinationToDynamicWarp
+      const dyn = this.state.dynamicWarp;
+      const dynName = dyn && this.assets.mapNameForId(dyn.mapId);
+      if (!dyn || !dynName) {
+        console.warn('[warp] no dynamic warp set');
+        return;
+      }
+      await this.warpTo(dynName, dyn.warpId, dyn.x, dyn.y);
+      return;
+    }
     const name = this.assets.mapNameForId(w.dest_map);
     const destIndex = Number(w.dest_warp_id);
     if (!name || !Number.isInteger(destIndex)) {
       console.warn('[warp] unsupported destination', w.dest_map, w.dest_warp_id);
       return;
+    }
+    // A warp into a map whose matching warp is dynamic remembers where it came from (SetDynamicWarp)
+    const destData = await this.assets.loadMap(name);
+    if (destData.warpEvents[destIndex]?.dest_map === 'MAP_DYNAMIC') {
+      const cur = this.world.current;
+      this.state.dynamicWarp = { mapId: cur.data.id, warpId: cur.data.warpEvents.indexOf(w), x: this.player.tileX - cur.originX, y: this.player.tileY - cur.originY };
     }
     await this.warpTo(name, destIndex, -1, -1);
   }
@@ -707,25 +739,108 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       tick: () => {
         if (launched || this.screenFade.active) return false;
         launched = true;
-        this.scene.launch('FieldMenu', {
-          menu,
-          state: this.state,
-          pokemon: this.state.pokemon,
-          charmap: this.charmap,
-          onExit: (openStartMenu: boolean) => {
-            this.scene.stop('FieldMenu');
-            this.scene.wake('Overworld');
-            this.resumeMap();
-            this.screenFade.begin(d.require('FADE_FROM_BLACK'));
-            if (openStartMenu) {
-              this.openStartMenu(true);
-            } else {
-              this.overlay = { tick: () => !this.screenFade.active };
-            }
-          },
+        this.runFieldMenu({ menu }, (openStartMenu) => {
+          this.screenFade.begin(d.require('FADE_FROM_BLACK'));
+          if (openStartMenu) {
+            this.openStartMenu(true);
+          } else {
+            this.overlay = { tick: () => !this.screenFade.active };
+          }
         });
-        this.scene.sleep();
         return false;
+      },
+    };
+  }
+
+  /**
+   * Hand over to a GBA-layer screen (FieldMenuScene) from a black field. When it returns through
+   * CB2_ReturnToField(WithOpenMenu), the field runs its return-to-field map scripts and calls `onReturn`
+   * with the screen still black.
+   */
+  private runFieldMenu(start: Pick<FieldMenuStart, 'menu' | 'shopField'>, onReturn: (openStartMenu: boolean) => void): void {
+    const launch: FieldMenuStart = {
+      ...start,
+      state: this.state,
+      pokemon: this.state.pokemon,
+      charmap: this.charmap,
+      onExit: (openStartMenu: boolean) => {
+        this.scene.stop('FieldMenu');
+        this.scene.wake('Overworld');
+        this.resumeMap();
+        onReturn(openStartMenu);
+      },
+    };
+    this.scene.launch('FieldMenu', launch);
+    this.scene.sleep();
+  }
+
+  openMultichoice(req: MultichoiceRequest): { tick(): boolean; result: number } {
+    const d = this.defines;
+    const cursor = this.charmap.encode(this.assets.strings.gText_SelectorArrow2);
+    const frameType = this.state.optionsWindowFrameType + 1;
+    if (req.columns !== undefined) {
+      const lrMode = this.state.optionsButtonMode === d.require('OPTIONS_BUTTON_MODE_LR');
+      return new MultichoiceGridMenu(this, this.fonts, this.buttons, { ...req, columnCount: req.columns, cursor, frameType, lrMode });
+    }
+    // sDelay: the cable club menus ignore input for 12 frames
+    const delayed = ['MULTICHOICE_TRADE_CENTER_COLOSSEUM', 'MULTICHOICE_TRADE_COLOSSEUM_CRUSH', 'MULTICHOICE_TRADE_COLOSSEUM_2'].some((n) => d.get(n) === req.mcId);
+    return new MultichoiceMenu(this, this.fonts, this.buttons, { ...req, cursor, frameType, delay: delayed ? 12 : 0, fadeActive: () => this.screenFade.active });
+  }
+
+  /** CreatePokemartMenu: the shop menu runs as a field overlay while the script waits for it. */
+  openPokemart(items: number[]): Wait {
+    const shop = new ShopMenu(this, this.fonts, this.buttons, this.createShopHost(), items);
+    this.overlay = shop;
+    return () => shop.done;
+  }
+
+  private createShopHost(): ShopHost {
+    const d = this.defines;
+    return {
+      contextTextColor: () => this.scripts.contextTextColor(),
+      windowFrameType: () => this.state.optionsWindowFrameType + 1,
+      text: (symbol) => this.charmap.encode(this.assets.strings[symbol] ?? '?$'),
+      fadeToBlack: () => this.fadeScreen(d.require('FADE_TO_BLACK')),
+      goToBuyOrSellMenu: (menu, onReturn) => {
+        this.messageBox.hide(); // the field's windows are freed with it
+        this.runFieldMenu({ menu, shopField: menu === 'buy' ? this.shopFieldView() : undefined }, () => onReturn());
+      },
+      fadeInFromBlack: () => this.fadeScreen(d.require('FADE_FROM_BLACK')),
+      displayItemMessageOnField: (color, str) => {
+        this.messageBox.show(str, color);
+        return () => !this.messageBox.isPrinting;
+      },
+    };
+  }
+
+  /** The field as shop.c's buy menu reads it: map metatiles and the objects around the player. */
+  private shopFieldView(): ShopFieldView {
+    const d = this.defines;
+    const pairKey = this.world.current.data.tilesetPair;
+    const pair = this.assets.tilesetPair(pairKey);
+    const tilesets = this.assets.tilesetSymbols(pairKey);
+    const { dx, dy } = DELTA[this.player.facing];
+    // gObjectEvents: the current map's objects and the player (see "Deliberate QOL changes")
+    const objects = [
+      ...this.npcs.filter((n) => n.chunk === this.world.current).map((n) => ({ obj: n.brain.obj, graphicsId: n.graphicsId })),
+      { obj: this.player, graphicsId: PLAYER_GFX },
+    ];
+    return {
+      primaryTileset: tilesets.primary,
+      secondaryTileset: tilesets.secondary,
+      facing: { x: this.player.tileX + dx, y: this.player.tileY + dy },
+      playerElevation: this.player.currentElevation,
+      MapGridGetMetatileIdAt: (x, y) => this.world.tileAt(x, y).metatile,
+      // gMapHeader's tilesets interpret every block, the neighbours' too
+      MapGridGetMetatileLayerTypeAt: (x, y) => pair.layerType(this.world.tileAt(x, y).metatile),
+      objectAt: (x, y, elevation) => {
+        // GetObjectEventIdByPosition: currentCoords and ObjectEventDoesElevationMatch
+        const found = objects.find(({ obj }) => {
+          const at = obj.destination;
+          if (at.x !== x || at.y !== y) return false;
+          return obj.currentElevation === 0 || elevation === 0 || obj.currentElevation === elevation;
+        });
+        return found && { graphicsId: found.graphicsId, facingDirection: directionId(found.obj.facing, d) };
       },
     };
   }
@@ -761,6 +876,31 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
 
   updateMoneyBox(): void {
     this.moneyBox?.change(this.state.money);
+  }
+
+  elevatorFloorWindow(floor: number | undefined): void {
+    this.elevatorWindow?.destroy();
+    this.elevatorWindow = undefined;
+    if (floor === undefined) return; // CloseElevatorCurrentFloorWindow
+    // sElevatorCurrentFloorWindowTemplate (22, 1, 7x4) with LoadStdWindowGfx's frame
+    const win = new MenuWindow(this, { left: 22, top: 1, width: 7, height: 4 }, this.fonts, this.buttons, 'std');
+    const text = (label: string) => this.charmap.encode(this.assets.strings[label] ?? '?$');
+    win.print(text('gText_NowOn'), 0, 2);
+    const name = text(FLOOR_NAMES[floor] ?? 'gText_1F');
+    win.print(name, 56 - stringWidth(this.fonts, FONT_NORMAL, name, 0), 16);
+    win.flush();
+    this.elevatorWindow = win;
+  }
+
+  startFieldTask(task: FieldTask): void {
+    this.fieldTasks.push(task);
+  }
+
+  setCameraPanning(dy: number): void {
+    // A bigger sVerticalCameraPan scrolls the view down
+    this.cameraPanY = dy;
+    this.cameras.main.setFollowOffset(0, CAMERA_FOLLOW_OFFSET_Y - dy);
+    this.updateFieldCamera();
   }
 
   hideMoneyBox(): void {

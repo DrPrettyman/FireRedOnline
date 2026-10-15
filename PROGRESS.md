@@ -27,6 +27,8 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] Wild encounters data (`wild_encounters.json`: FireRed gWildMonHeaders, ENCOUNTER_CHANCE_* slot totals, sUnownLetterSlots)
 - [x] Battle graphics by C INCBIN symbol as decompressed ROM bytes (`tools/extract_gfx.py` → gen/gfx/): interface, terrain, balls, trainer/mon front+back pics and palettes, fonts
 - [x] Battle scripts (assembled ROM image), battle strings, mechanics tables, anim command tables (`tools/extract_anims.py`)
+- [x] Shop buy menu graphics; GBA-native tileset tiles/palettes/metatiles (`tilesets/index.json` `symbols`) and object
+  event pics/palettes (sprite manifest `gba`), with spritesheet_rules.mk / tileset_rules.mk applied by extract_gfx
 - [x] Party menu / bag / item icon / mon icon / help-window graphics; `menus.json` (`tools/extract_menus.py`: mon and item icon tables, TM/HM + tutor learnsets, TM/HM + tutor moves, evolutions)
 - [ ] Move/status battle animation scripts
 - [x] Pure event macros (giveitem_msg, famechecker, trainerbattle_*, ...) expanded like the assembler would, incl. `.if/.elseif/.else` on arguments
@@ -53,7 +55,12 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] NPC talk (incl. across counters) / signs / coord triggers / map scripts (on transition, on frame, on load, on warp-into)
 - [x] NPC text colours by gender
 - [x] YES/NO box (sYesNo_WindowTemplate, 5-frame input delay, B = NO)
-- [ ] Multichoice menus
+- [x] Multichoice menus (script_menu.c): `multichoice`, `multichoicedefault`, `multichoicegrid` from the extracted
+  sMultichoiceLists (`scripts.json` `multichoices`)
+- [x] Elevators (field_specials.c): floor select, "Now on:" window, AnimateElevator (camera shake + window view);
+  MAP_DYNAMIC warps and `setdynamicwarp` (gSaveBlock1Ptr->dynamicWarp)
+- [x] Poké Mart (shop.c + buy_menu_helpers.c): `pokemart`, BUY/SELL/SEE YA! field menu, buy menu with the map view
+  (field tiles + object sprites on the GBA layer), regular and TM layouts, quantity box, YES/NO; SELL via the bag
 - [~] Specials (`special X` / `specialvar`): table in `script/specials.ts`; HealPlayerParty, GetPokedexCount, EnableNationalPokedex, GetQuestLogState, GetPartyMonSpecies, BufferMonNickname, ChangePokemonNickname (stub), plus no-ops for audio/quest log/help/fame checker. Unknown specials log once
 - [~] Items: additem/removeitem/checkitem/checkitemspace/checkitemtype, giveitem/giveitem_msg through the std scripts. Not yet: hidden items, item balls (finditem) untested
 - [x] Buffer commands (species/lead mon/party nick/item/item plural/number/std string/string); `waitstate`
@@ -120,6 +127,9 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     HP-as-text (SwapHpBarsWithHpText) and link/multi battles aren't implemented.
   - Battle transitions: a fade to black instead of the B_TRANSITION_* effects.
   - Wild encounters: no bike rate modifier (no bikes). GAME_STAT_* counters aren't kept.
+  - Poké Mart: no quest log transaction history (RecordItemTransaction / RecordTransactionForQuestLog) or
+    GAME_STAT_SHOPPED; no SE_SHOP. The decoration marts (`pokemartdecoration*`) aren't ported (unused in FRLG).
+    Selling the TM case / berry pouch logs "not implemented" (those screens don't exist).
   - Field steps: TrySetUpWalkIntoSignpostScript isn't ported. Eggs count down egg cycles, but the daycare (breeding,
     its mons' steps) and the hatching scene (`special EggHatch`) aren't ported. A finished VS Seeker charge would
     start EventScript_VsSeekerChargingDone, whose specials aren't ported; only the (unported) VS Seeker starts one.
@@ -127,6 +137,9 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     effects (none) and the entrance's SE/fanfare are silent.
   - The money box and Safari stats window are Phaser MenuWindows (the field isn't on the GBA layer).
   - Full party: `givemon` returns MON_CANT_GIVE instead of sending the mon to the PC (`SendMonToPC`).
+  - Multichoice: the cable club menus' help descriptions (MultiChoicePrintHelpDescription) aren't drawn (no
+    link play); the quest log's QL_AvoidDisplay bit of ignoreBPress is ignored.
+  - Elevators: SE_ELEVATOR / SE_DING_DONG are silent; UpdateEscapeWarp isn't kept on warps.
   - No-op specials (`NO_OP` in `script/specials.ts`): audio, quest log, help system, fame checker, GameCube link flags.
   - Player names are "PLAYER"/"RIVAL" until Oak's intro exists.
 - **Approximations:**
@@ -144,6 +157,8 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     which no map elevation produces. Sprites tied on priority, subpriority and screen top keep creation order rather
     than the previous frame's gSpriteOrder.
   - BIOS ObjAffineSet uses a computed sine table; mosaic isn't emulated by the PPU.
+  - Buy menu map view: object sprites skip their subsprite tables (table 0 is empty for every size, so it draws the
+    same); an inanimate object not facing south shows its only anim instead of reading past the anim table.
 - **Data:** Castform has no front pic (its `front.png` isn't in the decomp; it's built from per-form images).
 
 ## Deliberate QOL changes
@@ -207,8 +222,19 @@ State as of the last log entry:
   ScriptEngine.setUpTrainerBattleFromApproach is ConfigureAndSetUpOneTrainerBattle; `special EndTrainerApproach`
   starts the task. Test trainers: Viridian Forest Rick (`?start=after-rival&map=ViridianForest&x=41&y=45`, step
   right), Route 20 Nora for the camera pan (teleport the player to 34,11).
-- **Next blockers on the main path:** `pokemart`
-  (the clerk's shop; the parcel scene doesn't need it), multichoice; in battle: move animations (battle_anim
+- **Poké Mart:** `ui/ShopMenu.ts` is the field side of shop.c (the BUY/SELL/SEE YA! menu as a field overlay and
+  the return hook); `menus/shop.ts` is the buy menu on the GBA layer, run by FieldMenuScene (`menu: 'buy' | 'sell'`).
+  The buy menu's map view reads the field through `ShopFieldView` (`OverworldScene.shopFieldView`), and
+  `LoadFieldTilesetsForShop` puts the map's tiles/palettes where the overworld would have left them in VRAM.
+  `menus/objectEventGraphics.ts` is CreateObjectGraphicsSprite for any GBA-layer screen that needs NPC sprites.
+  Test: `?start=after-rival&map=PewterCity_Mart&x=4&y=3`, face left, A (TM layout: Celadon Dept. Store 2F, x=3 y=6).
+- **Multichoice / elevators:** `ui/MultichoiceMenu.ts` (vertical list and grid, field windows); the script engine
+  sets VAR_RESULT from `ScriptHost.openMultichoice`. `text/stringWidth.ts` is GetStringWidth for any font set
+  (the field's or the GBA layer's). Specials can start field tasks that outlive them (`ScriptHost.startFieldTask`,
+  run after the script each frame like RunTasks); `world/elevator.ts` uses that. Test: walk into the Celadon Dept.
+  Store elevator from 1F (`?start=after-rival&map=CeladonCity_DepartmentStore_1F&x=6&y=2`, Up), panel at (4,1).
+- **Next blockers on the main path:** Silph Co.'s elevator uses `special ListMenu` (scrolling floor list, not
+  ported); in battle: move animations (battle_anim
   scripts), evolution scene.
 - **GBA screens:** `src/gba/main.ts` is gMain (callbacks, ReadKeys with key repeat). `GbaHostScene` runs the
   main loop; `BattleScene` and `FieldMenuScene` extend it. Screens hand over with SetMainCallback2 like the C
@@ -648,3 +674,47 @@ State as of the last log entry:
   facing left, talking gives the post-battle text, no re-trigger. Blocking a tile in the line stops it; clearing
   it makes him spot the standing player. Route 20 Nora (range 4, facing down): camera pans 2 tiles up, "!", pans
   back, she approaches, female text. Oak's Pallet Town trigger still runs into the lab.
+
+### Poké Mart (main path: buying Poké Balls)
+- `pokemart` (ScrCmd_pokemart): reads the `.2byte` item list at the label and waits on `ScriptHost.openPokemart`.
+- Field side (`ui/ShopMenu.ts`): CreatePokemartMenu / CreateShopMenu (sShopMenuWindowTemplate, user frame, BUY/SELL/SEE YA!,
+  Menu_ProcessInputNoWrapAround), the mart font from ContextNpcGetTextColor (neutral reads as female, as in the C),
+  Task_HandleShopMenuBuy/Sell (FadeScreen to black, then FieldMenuScene), MapPostLoadHook_ReturnToShopMenu +
+  Task_ReturnToShopMenu ("Is there anything else I can do?" and the menu again), Task_HandleShopMenuQuit
+  (ScriptContext_Enable). `OverworldScene.runFieldMenu` now launches any FieldMenuScene screen (start menu too).
+- GBA side (`menus/shop.ts`): CB2_InitBuyMenu and the whole buy flow (list with prices, item icon or TM number/move
+  name, description recolouring, "How many", quantity box with arrows, YES/NO, AddBagItem / not enough money / no
+  room, money box), BuyMenuDrawMapView (metatiles by layer type into BG1-3, object sprites facing their way),
+  ExitBuyMenu. CB2_GoToSellMenu is the existing bag's ITEMMENULOCATION_SHOP mode. New: BagGetQuantityByItemId,
+  TilesetPair.layerType, Assets.tilesetSymbols.
+- Extraction: extract_gfx adds graphics/shop_menu, graphics/object_events and data/tilesets, and now reads
+  spritesheet_rules.mk and tileset_rules.mk too (object event pics were coming out in the wrong tile order without
+  their -mwidth/-mheight); extract_anims adds event_object_movement.c (object anim tables); the sprite manifest gets
+  each graphics id's GBA info (palette tag + symbol, base OAM, frame images); tilesets/index.json gets each tileset's
+  tiles/palettes/metatiles symbols.
+- Verified headless: Pewter Mart clerk → menu → BUY → map view with the clerk and player sprites, list, buy 13 Poké
+  Balls (₽3080 → ₽480), back to the field with "anything else"; SELL 2 of 5 balls for ₽200; SEE YA! → "Please come
+  again!" and the script ends. Celadon Dept. Store 2F TM clerk shows the TM layout (No.xx + move name, CANCEL shows
+  ---/-------). The start menu bag still returns to the start menu.
+- Note: some TM descriptions (e.g. TM45's first line, 164 px) are wider than the 144 px TM description window; the
+  decomp's own glyph widths give the same, so this is left as the C draws it (clipped).
+
+### Multichoice menus and elevators
+- Extraction: `scripts.json` gets `multichoices` (script_menu.c sMultichoiceLists → each list's string symbols).
+- `ui/MultichoiceMenu.ts`: ScriptMenu_Multichoice(WithDefault) = DrawVerticalMultichoiceMenu (width from the widest
+  item, left clamped to 28 - width, GetMCWindowHeight, items at 8/2 + 14 per row, cursor at 0/2) +
+  Task_MultichoiceMenu_HandleInput (waits for a field fade, sDelay 12 for the cable club ids, wraps above 3 items,
+  B → SCR_MENU_CANCEL unless ignored); ScriptMenu_MultichoiceGrid with MultichoiceGrid_PrintItems /
+  MultichoiceGrid_RedrawCursor / Menu_ProcessInputGridLayout (FONT_NORMAL_COPY_1, L/R in LR button mode).
+- `text/stringWidth.ts`: GetStringWidth moved out of gba/window.ts so field menus measure `{FONT_SMALL}` /
+  `{CLEAR_TO}` strings (the vending machine and prize lists) exactly; GetStringWidth calls it.
+- Elevators (`world/elevator.ts`): GetElevatorFloor, InitElevatorFloorSelectMenuPos (+ sElevatorScroll),
+  DrawElevatorCurrentFloorWindow / CloseElevatorCurrentFloorWindow, AnimateElevator (Task_ElevatorShake ending the
+  waitstate, Task_AnimateElevatorWindowView swapping the window metatiles every 6 frames). The overworld gained
+  field tasks, SetCameraPanning (`cameraPanY`, also in the sprite camera top), `setdynamicwarp`, and SetupWarp's
+  MAP_DYNAMIC handling (warping into a map whose matching warp is dynamic records the way back).
+- Verified headless: Celadon roof vending machine (prices in the small font line up; wrap-around; EXIT →
+  "Not thirsty!"; buying loops back to the menu and stops when money runs out), Viridian school blackboard grid
+  (3x2, no wrap, EXIT = 5), Celadon elevator: enter from 1F → "Now on: 1F", cursor on 1F → 5F: shake and window
+  scroll, VAR_ELEVATOR_FLOOR 8, exit mat → 5F; entering from 5F shows "Now on: 5F" with the cursor on 5F; exit
+  from 1F returns to 1F.

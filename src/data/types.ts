@@ -136,6 +136,14 @@ export interface TilesetIndex {
   primaries: Record<string, TilesetAttributes>;
   secondaries: Record<string, TilesetAttributes>;
   pairs: Record<string, TilesetPairInfo>;
+  /** gTileset_X's C symbols for the GBA-native tiles, palettes and metatiles (extract_gfx), by X. */
+  symbols: Record<string, TilesetSymbols>;
+}
+
+export interface TilesetSymbols {
+  tiles: string;
+  palettes: string;
+  metatiles: string;
 }
 
 export interface SpriteInfo {
@@ -147,6 +155,19 @@ export interface SpriteInfo {
   inanimate: boolean;
   /** NPC_TEXT_COLOR_*: 0 male (blue), 1 female (red), 2 mon, 3 neutral. */
   textColor: number;
+  /** The graphics info as GBA-native data, for screens on the GBA layer (CreateObjectGraphicsSprite). */
+  gba: ObjectEventGbaInfo;
+}
+
+export interface ObjectEventGbaInfo {
+  /** OBJ_EVENT_PAL_TAG_* value */
+  paletteTag: number;
+  /** sObjectEventSpritePalettes' palette symbol for that tag */
+  palette: string | null;
+  /** gObjectEventBaseOam_<shape> */
+  oam: string;
+  /** sPicTable_*: [pic symbol, byte offset, size (-1: the whole symbol)] per frame */
+  images: [string, number, number][];
 }
 
 export interface Constants {

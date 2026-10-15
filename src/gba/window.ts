@@ -3,6 +3,7 @@
 
 import type { Input } from '../input/Input';
 import type { Font, Fonts } from '../text/Font';
+import { stringWidth } from '../text/stringWidth';
 import { TEXT_SPEED, TextPrinter, type PrinterTemplate } from '../text/TextPrinter';
 import type { TextSurface } from '../text/TextWindow';
 import {
@@ -484,98 +485,7 @@ export function setStringVarLookup(f: (n: number) => number[]): void {
   stringVarLookup = f;
 }
 
-/**
- * GetStringWidth (text.c). Latin glyphs don't add letter spacing (only Japanese text does), so
- * `letterSpacing` only matters after an {JPN} code.
- */
+/** GetStringWidth (text.c) on the GBA layer's fonts. */
 export function GetStringWidth(fontId: number, str: number[], letterSpacing: number): number {
-  let font = textFonts.get(fontId);
-  let spacing = letterSpacing === -1 ? font.info.letterSpacing : letterSpacing;
-  let isJapanese = false;
-  let minGlyphWidth = 0;
-  let width = 0;
-  let lineWidth = 0;
-  const glyph = (c: number) => {
-    let w = font.width(c);
-    if (minGlyphWidth > 0) w = Math.max(w, minGlyphWidth);
-    else if (isJapanese) w += spacing;
-    lineWidth += w;
-  };
-  for (let i = 0; i < str.length && str[i] !== 0xff; i++) {
-    const c = str[i];
-    switch (c) {
-      case 0xfe: // CHAR_NEWLINE
-        if (lineWidth > width) width = lineWidth;
-        lineWidth = 0;
-        break;
-      case 0xfd: {
-        // PLACEHOLDER_BEGIN: STR_VAR_1..3 (ids 2..4)
-        const id = str[++i];
-        if (id < 2 || id > 4) return 0;
-        for (const b of stringVarLookup(id - 2)) {
-          if (b === 0xff) break;
-          glyph(b);
-        }
-        break;
-      }
-      case 0xfa: // CHAR_PROMPT_SCROLL
-      case 0xfb: // CHAR_PROMPT_CLEAR
-        break;
-      case 0xf8: // CHAR_KEYPAD_ICON: GetKeypadIconWidth
-      case 0xf9: {
-        // CHAR_EXTRA_SYMBOL
-        let w = c === 0xf9 ? font.width(str[++i] | 0x100) : (textFonts.keypadIcons[str[++i]]?.[1] ?? 0);
-        if (minGlyphWidth > 0) w = Math.max(w, minGlyphWidth);
-        else if (isJapanese) w += spacing;
-        lineWidth += w;
-        break;
-      }
-      case 0xfc: // EXT_CTRL_CODE_BEGIN
-        switch (str[++i]) {
-          case 0x04: // COLOR_HIGHLIGHT_SHADOW
-            i += 3;
-            break;
-          case 0x0b: // PLAY_BGM
-          case 0x10: // PLAY_SE
-            i += 2;
-            break;
-          case 0x01: // COLOR
-          case 0x02: // HIGHLIGHT
-          case 0x03: // SHADOW
-          case 0x05: // PALETTE
-          case 0x08: // PAUSE
-          case 0x0c: // ESCAPE
-          case 0x0d: // SHIFT_RIGHT
-          case 0x0e: // SHIFT_DOWN
-            i++;
-            break;
-          case 0x06: // FONT
-            font = textFonts.get(str[++i]);
-            if (letterSpacing === -1) spacing = font.info.letterSpacing;
-            break;
-          case 0x11: // CLEAR
-            lineWidth += str[++i];
-            break;
-          case 0x12: // SKIP
-            lineWidth = str[++i];
-            break;
-          case 0x13: // CLEAR_TO
-            if (str[++i] > lineWidth) lineWidth = str[i];
-            break;
-          case 0x14: // MIN_LETTER_SPACING
-            minGlyphWidth = str[++i];
-            break;
-          case 0x15: // JPN
-            isJapanese = true;
-            break;
-          case 0x16: // ENG
-            isJapanese = false;
-            break;
-        }
-        break;
-      default:
-        glyph(c);
-    }
-  }
-  return lineWidth > width ? lineWidth : width;
+  return stringWidth(textFonts, fontId, str, letterSpacing, stringVarLookup);
 }

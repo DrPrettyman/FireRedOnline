@@ -164,6 +164,12 @@ export function BagGetQuantityByPocketPosition(pocketId: number, slotId: number)
   return state.bag.pockets[pocketId - 1][slotId]?.quantity ?? 0;
 }
 
+/** BagGetQuantityByItemId: the quantity of the item's first stack in its pocket. */
+export function BagGetQuantityByItemId(itemId: number): number {
+  const slot = state.bag.pockets[ItemId_GetPocket(itemId) - 1]?.find((s) => s.itemId === itemId);
+  return slot?.quantity ?? 0;
+}
+
 /** BagPocketCompaction: move empty slots to the end (a bubble of SwapItemSlots). */
 export function BagPocketCompaction(slots: ItemSlot[], capacity: number): void {
   for (let i = 0; i < capacity - 1; i++) {

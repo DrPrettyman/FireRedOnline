@@ -21,6 +21,11 @@ export class GameState {
   optionsButtonMode = 0;
   /** gSaveBlock2Ptr->optionsWindowFrameType (frame 1 = 0) */
   optionsWindowFrameType = 0;
+  /**
+   * gSaveBlock1Ptr->dynamicWarp: where a MAP_DYNAMIC warp leads (an elevator's door back to the floor it
+   * was entered from). Set on entering a map by a warp whose counterpart is dynamic, or by `setdynamicwarp`.
+   */
+  dynamicWarp?: { mapId: string; warpId: number; x: number; y: number };
   /** gSaveBlock1Ptr->lastHealLocation (set by `setrespawn`): where a white-out sends you. */
   lastHealLocation?: { map: string; x: number; y: number };
   /** gSaveBlock1Ptr->trainerRematches, by local id: set by the VS Seeker (not implemented yet). */
