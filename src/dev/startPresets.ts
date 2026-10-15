@@ -6,9 +6,10 @@ import type { GameState } from '../state/GameState';
 import type { OverworldStart } from '../scenes/OverworldScene';
 
 /**
- * Dev-only start states (`?start=after-rival`), so a playtest can begin later in the story. Each preset
- * applies what the game's own scripts would have left behind, step by step, citing them; it was checked
- * against the state of a real headless playthrough.
+ * Dev-only start states (`?start=after-rival`), so a playtest can begin later in the story. Story presets
+ * apply what the game's own scripts would have left behind, step by step, citing them; after-rival was
+ * checked against the state of a real headless playthrough. Test-bed presets (`evolution`) build on one
+ * and then set up a party and bag that no playthrough would have.
  */
 
 /** Starter choice as PLAYER_STARTER_NUM (PalletTown_ProfessorOaksLab_EventScript_Choose*). */
@@ -22,18 +23,56 @@ const STARTER_SPECIES: Record<Starter, { player: string; rival: string }> = {
   charmander: { player: 'CHARMANDER', rival: 'SQUIRTLE' },
 };
 
+export const PRESETS = ['after-rival', 'evolution'] as const;
+
 export interface StartPreset {
-  name: 'after-rival';
+  name: (typeof PRESETS)[number];
   starter: Starter;
 }
 
 /** Where the rival battle leaves the player: on the middle trigger tile, having watched the rival leave. */
 export const AFTER_RIVAL_START: OverworldStart = { map: 'PalletTown_ProfessorOaksLab', x: 6, y: 8, facing: 'down' };
 
+/** Viridian Forest, six tiles left of Bug Catcher Rick (sight 5): one step right and he spots you. */
+export const EVOLUTION_START: OverworldStart = { map: 'ViridianForest', x: 41, y: 45, facing: 'right' };
+
+/** Where a preset starts when the URL gives no ?map=&x=&y=. */
+export function presetStart(preset: StartPreset): OverworldStart {
+  return preset.name === 'evolution' ? EVOLUTION_START : AFTER_RIVAL_START;
+}
+
 /** Apply a preset to a fresh new-game state, before the first map loads. */
 export async function applyStartPreset(state: GameState, preset: StartPreset, healLocations: HealLocation[]): Promise<void> {
   const tables: BattleTablesData = await (await fetch('gen/battle/tables.json')).json();
   applyAfterRival(state, preset.starter, tables, healLocations);
+  if (preset.name === 'evolution') applyEvolutionTestBed(state);
+}
+
+/**
+ * Not a story state: after-rival, then a party with an evolution ready each way.
+ * - The starter at Lv. 15, one exp point short of 16 (all three starters evolve at 16): beat Rick to evolve it.
+ * - Caterpie at Lv. 6 and a Rare Candy: Lv. 7 evolves it into Metapod, which then learns Harden.
+ * - Pikachu and a Thunder Stone.
+ */
+function applyEvolutionTestBed(state: GameState): void {
+  const d = state.defines;
+  const data = state.pokemon;
+  const create = (name: string, level: number) => {
+    const species = d.require(`SPECIES_${name}`);
+    state.setDexFlags(data.nationalDex(species), true, true);
+    return data.createMon(species, level, { otId: state.trainerId, otName: state.playerName, otGender: state.playerGender, metLocation: 'MAPSEC_VIRIDIAN_FOREST' });
+  };
+
+  const starter = state.party[0];
+  const lead = create(data.species[starter.species].id.replace('SPECIES_', ''), 15);
+  lead.personality = starter.personality; // same mon, just trained up
+  lead.exp = data.tables.experience[data.species[lead.species].growthRate][16] - 1;
+  data.calculateStats(lead);
+  lead.hp = lead.maxHP;
+
+  state.party = [lead, create('CATERPIE', 6), create('PIKACHU', 10)];
+  state.bag.add(d.require('ITEM_RARE_CANDY'), 1);
+  state.bag.add(d.require('ITEM_THUNDER_STONE'), 1);
 }
 
 /**
@@ -120,9 +159,10 @@ function gainBattleExp(state: GameState, mon: Pokemon, foeSpecies: number, foeLe
   }
 }
 
-/** `?start=after-rival[&starter=squirtle]`, dev builds only. */
+/** `?start=after-rival|evolution[&starter=squirtle]`, dev builds only. */
 export function presetFromUrl(q: URLSearchParams): StartPreset | undefined {
-  if (!import.meta.env.DEV || q.get('start') !== 'after-rival') return undefined;
+  const name = PRESETS.find((p) => p === q.get('start'));
+  if (!import.meta.env.DEV || !name) return undefined;
   const s = q.get('starter')?.toLowerCase();
-  return { name: 'after-rival', starter: STARTERS.find((x) => x === s) ?? 'bulbasaur' };
+  return { name, starter: STARTERS.find((x) => x === s) ?? 'bulbasaur' };
 }

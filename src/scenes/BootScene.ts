@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Assets } from '../data/assets';
-import { AFTER_RIVAL_START, presetFromUrl } from '../dev/startPresets';
+import { presetFromUrl, presetStart } from '../dev/startPresets';
 import type { OverworldStart } from './OverworldScene';
 
 /** New game warp target (src/new_game.c: SetWarpDestination(..PLAYERS_HOUSE_2F, -1, 6, 6)). */
@@ -29,13 +29,14 @@ export class BootScene extends Phaser.Scene {
 
 /**
  * Debug: ?map=PalletTown&x=10&y=10 jumps straight to a location; ?start=after-rival[&starter=squirtle]
- * starts after Oak's lab and the first rival battle (in the lab, or at ?map=&x=&y= if given).
+ * starts after Oak's lab and the first rival battle (in the lab, or at ?map=&x=&y= if given);
+ * ?start=evolution is that plus a party set up to evolve, next to a Viridian Forest trainer.
  */
 function startFromUrl(): OverworldStart | undefined {
   const q = new URLSearchParams(location.search);
   const map = q.get('map');
   const at = map ? { map, x: Number(q.get('x') ?? 0), y: Number(q.get('y') ?? 0) } : undefined;
   const preset = presetFromUrl(q);
-  if (preset) return { ...(at ?? AFTER_RIVAL_START), preset };
+  if (preset) return { ...(at ?? presetStart(preset)), preset };
   return at;
 }

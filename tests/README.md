@@ -38,7 +38,7 @@ test('...', async () => {
 });
 ```
 
-Start options: `map`/`x`/`y`, `start: 'after-rival'` (+ `starter`), `party`, `seed` (default 1),
+Start options: `map`/`x`/`y`, `start: 'after-rival' | 'evolution'` (+ `starter`; see `src/dev/startPresets.ts`), `party`, `seed` (default 1),
 `speed` (logic ticks per frame, default 8) and `textSpeed` (default fast).
 
 The game is driven through `window.__test` (`src/dev/testHooks.ts`, dev builds only). In a test,

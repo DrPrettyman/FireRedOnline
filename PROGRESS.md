@@ -304,6 +304,9 @@ State as of the last log entry:
 - **Skip the intro:** `?start=after-rival[&starter=bulbasaur|squirtle|charmander]` (dev only) starts in Oak's lab
   right after the first rival battle, won (`src/dev/startPresets.ts`); add `&map=&x=&y=` to start elsewhere with
   that state. When a script on the way changes, update the preset to match.
+- **Evolution test bed:** `?start=evolution[&starter=...]` is after-rival plus a party set up to evolve, in Viridian
+  Forest six tiles left of Bug Catcher Rick (step right and he spots you): the starter at Lv. 15, one exp point
+  short of 16 (beat Rick); Caterpie Lv. 6 + a Rare Candy; Pikachu Lv. 10 + a Thunder Stone. Not a story state.
 - **Bugs that depend on world position:** `?map=` always loads at origin 0, so maps that are far from the origin in
   a real playthrough (e.g. Viridian at y = -80 after walking up from Pallet) need either a real walk or
   `await s.world.load(name, ox, oy)`, then `s.player.setPosition(...)` and `await s.onMapLoaded(false)`.
@@ -876,4 +879,15 @@ State as of the last log entry:
   moves, forgetting Tackle through the summary screen; holding B; Rare Candy on Charmander; Fire Stone on
   Growlithe). New test event `evolution`. Fix in the test probe: `t.party()` named moves from the first MOVE_*
   define with that value, which picked MOVE_EFFECT_SLEEP for Pound; it now reads the move table's ids.
+
+### Evolution test bed preset (user request)
+
+- `?start=evolution[&starter=...]` (`src/dev/startPresets.ts` `applyEvolutionTestBed`): after-rival, then the
+  starter retrained to Lv. 15 one exp point short of 16, Caterpie Lv. 6, Pikachu Lv. 10 (all registered as caught),
+  a Rare Candy and a Thunder Stone, starting in Viridian Forest at (41, 45) facing Bug Catcher Rick.
+  `presetStart()` picks a preset's default location; BootScene uses it when the URL has no `?map=`.
+- `tests/e2e/evolution.test.ts` checks the preset and that beating Rick evolves the starter. Test gotchas: a
+  Lv. 15 Squirtle's first move is Tail Whip (mashing A only uses move 1), and with the SHIFT battle style mashing A
+  says YES to "Will you switch?" and lands in the party menu, so the test leads with Water Gun and sets
+  `battleStyleSet`.
 

@@ -149,8 +149,8 @@ export interface StartOptions {
   map?: string;
   x?: number;
   y?: number;
-  /** Story preset (?start=after-rival). */
-  start?: 'after-rival';
+  /** Start preset (?start=after-rival, or the evolution test bed). */
+  start?: 'after-rival' | 'evolution';
   starter?: 'bulbasaur' | 'squirtle' | 'charmander';
   /** GBA RNG seed (default 1). */
   seed?: number;

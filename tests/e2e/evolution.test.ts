@@ -112,3 +112,30 @@ test('a Fire Stone evolves Growlithe into Arcanine', async () => {
   expect(mon).toMatchObject({ species: 'ARCANINE', nickname: 'ARCANINE', level: 20 });
   expect(await game.eval((t) => t.itemCount('FIRE_STONE'))).toBe(0);
 });
+
+test('the evolution test bed (?start=evolution): beating Rick evolves the starter', async () => {
+  const game = await session.start({ start: 'evolution', starter: 'squirtle' });
+  expect(await game.eval((t) => t.field())).toMatchObject({ map: 'ViridianForest', x: 41, y: 45 });
+  const party = await game.eval((t) => t.party());
+  expect(party.map((m) => [m.species, m.level])).toEqual([
+    ['SQUIRTLE', 15],
+    ['CATERPIE', 6],
+    ['PIKACHU', 10],
+  ]);
+  expect(await game.eval((t) => [t.itemCount('RARE_CANDY'), t.itemCount('THUNDER_STONE')])).toEqual([1, 1]);
+
+  // Mashing A uses the first move, and a Lv. 15 Squirtle's is Tail Whip: lead with Water Gun instead.
+  await game.eval((t) => {
+    const mon = t.state!.party[0];
+    const i = mon.moves.indexOf(t.define('MOVE_WATER_GUN'));
+    [mon.moves[0], mon.moves[i]] = [mon.moves[i], mon.moves[0]];
+    [mon.pp[0], mon.pp[i]] = [mon.pp[i], mon.pp[0]];
+    t.state!.battleStyleSet = true; // no "Will you switch?" between Rick's mons (A would say YES)
+  });
+  await game.walk('right');
+  await game.waitForEvent('trainerApproach');
+  await game.mashUntil((t) => t.gbaScreen()?.startsWith('CB2_EvolutionSceneUpdate'), { what: 'the evolution scene after beating Rick' });
+  await game.mashUntil((t) => t.idle(), { what: 'the field after the evolution' });
+  expect(await game.eval((t) => t.party()[0])).toMatchObject({ species: 'WARTORTLE', level: 16 });
+  expect(await game.eval((t) => t.trainerDefeated('BUG_CATCHER_RICK'))).toBe(true);
+});
