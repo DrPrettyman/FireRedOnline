@@ -124,6 +124,11 @@ export function MapHasPreviewScreen(mapsec: string, type: number): boolean {
   return type === MPS_TYPE_ANY || previewType === type;
 }
 
+/** MapHasPreviewScreen(mapsec, MPS_TYPE_FOREST), for the map load's MapPreview_StartForestTransition */
+export function MapHasForestPreviewScreen(mapsec: string): boolean {
+  return MapHasPreviewScreen(mapsec, MPS_TYPE_FOREST);
+}
+
 /** MapHasPreviewScreen(mapsec, MPS_TYPE_CAVE), for WarpFadeOutScreen */
 export function MapHasCavePreviewScreen(mapsec: string): boolean {
   return MapHasPreviewScreen(mapsec, MPS_TYPE_CAVE);

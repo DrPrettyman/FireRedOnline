@@ -90,7 +90,8 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
   splashes, feet in shallow water, sand footprints/bike tracks, hot springs, water/ice reflections). Not yet: the
   field move effects (Cut, Surf blob, Strength, Rock Smash, Fly bird, ...), the warp arrow, Pokémon Center heal,
   `dofieldeffect` in general
-- [ ] Map name popup
+- [x] Map name popup (map_name_popup.c): on warps into maps with show_map_name, on connections into another
+  region map section (reshown if still up), floor numbers / ROOFTOP, dismissed when field input starts something
 - [ ] Save/load
 - [x] Party menu (party_menu.c) and bag (item_menu.c, bag.c, item_use.c) on the GBA layer, from the field and in battle; list menus, scroll arrows, mon/item icons, std/dialog frames, YES/NO, money box
 - [x] Summary screen (pokemon_summary_screen.c): INFO / SKILLS / KNOWN MOVES pages, move details, switching moves, choosing a move to forget (field and battle)
@@ -237,6 +238,10 @@ Places where we choose to differ from the GBA on purpose (not placeholders). Kee
     because VAR_OBJ_GFX_ID_* hold the current map's choices, not the neighbour's.
   - Trainer sight only checks the current map's objects. On the GBA the previous map's objects linger until they
     scroll off screen, and a trainer among them can still spot you; here a neighbour's trainers never do.
+  - Map preview screens (map_preview_screen.c) aren't ported: warping into another section with a forest preview
+    (Viridian Forest, Rocket Hideout, ...) shows nothing, where the GBA shows the preview with the name.
+  - The map name popup scrolls only its own window; on the GBA it scrolls all of BG0 (BG0VOFS), so a message
+    box opened during the frame or two before the dismissal clears it would also be shifted.
   - Future: any other per-object logic should likewise check that an object belongs to the current map where the
     GBA would only have current-map objects alive.
 
@@ -299,6 +304,9 @@ State as of the last log entry:
   (`msgSetSignpost`, `handleCancelSignpost`, `takeRegisteredInput`); MessageBox draws the signpost frame when told.
   Tests: Viridian Forest item ball (`?start=after-rival&map=ViridianForest&x=5&y=42`, face up, A), hidden Potion
   (x=3 y=23), Pallet town sign (x=9 y=13, hold up), Viridian PC (`map=ViridianCity_PokemonCenter_1F&x=11&y=2`).
+- **Map name popup:** `ui/MapNamePopup.ts` (Task_MapNamePopup) is owned by `OverworldScene` (`showMapNamePopup`,
+  `showMapNameOnWarpArrival`); `world/regionMap.ts` is GetMapName (shared with the summary screen). Maps carry
+  `floorNumber`. Tests: `tests/e2e/mapNamePopup.test.ts`, probe `__test.mapNamePopup()`.
 - **Next blockers on the main path:** Silph Co.'s elevator uses `special ListMenu` (scrolling floor list, not
   ported); PC storage (a 7th mon has nowhere to go); save/load; in battle: move animations (battle_anim scripts);
   field moves (Cut for Vermilion's gym).
@@ -959,3 +967,5 @@ State as of the last log entry:
 - Tests: `tests/e2e/fieldEffects.test.ts` (water/flower tiles change, door entry and exit, ledge jump shadow into
   grass, pond reflection). New probes: `field().playerVisible/doorAnimating/fieldEffects/playerEffects`,
   `__test.tilesetTile()`.
+
+- **Map name popup.** Ported map_name_popup.c: slide in 2 px/frame to 24 px, hold 120 frames, slide out; reshow on a second section change; std frame, name centred in 112/152/176 px with " <n>F" / " B<n>F" / " ROOFTOP"; CELADON DEPT. inside the store. Shown after warps (LoadMapInStepsLocal state 12, incl. new game start and white-out) and connection crossings; dismissed whenever ProcessPlayerFieldInput would return TRUE; killed on map load. extract.py now writes `floorNumber`; GetMapName moved to `world/regionMap.ts`. New e2e: mapNamePopup.test.ts.
