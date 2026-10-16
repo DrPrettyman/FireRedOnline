@@ -37,13 +37,14 @@ import { MoneyBox } from '../ui/MoneyBox';
 import { DEPTH_FADE, ScreenFade } from '../ui/ScreenFade';
 import { BarnDoorWipe } from '../ui/BarnDoorWipe';
 import { FieldGbaScreen, fieldGbaScreenGfxSymbols, type FieldGbaSource } from '../world/fieldGbaScreen';
-import { CB2_DoChangeMap, IsChangeMapDone, MapHasCavePreviewScreen, mapTransitionGfxSymbols, MapTransitionIsEnter, MapTransitionIsExit } from '../world/mapTransition';
+import { CB2_DoChangeMap, IsChangeMapDone, MapHasCavePreviewScreen, MapHasForestPreviewScreen, mapTransitionGfxSymbols, MapTransitionIsEnter, MapTransitionIsExit } from '../world/mapTransition';
 import { DEPTH_MIDDLE, DEPTH_TOP } from '../world/MapChunk';
 import { DEPTH_UI } from '../text/TextWindow';
 import { FieldDoors } from '../world/doors';
 import { InitSecondaryTilesetAnimation, InitTilesetAnimations, TransferTilesetAnimsBuffer, UpdateTilesetAnimations } from '../world/tilesetAnims';
 import { ShopMenu, type ShopHost } from '../ui/ShopMenu';
 import { MenuWindow } from '../ui/MenuWindow';
+import { MapNamePopup } from '../ui/MapNamePopup';
 import { FLOOR_NAMES, type FieldTask } from '../world/elevator';
 import { stringWidth } from '../text/stringWidth';
 import { MultichoiceGridMenu, MultichoiceMenu } from '../ui/MultichoiceMenu';
@@ -111,6 +112,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   private fieldEffects!: FieldEffects;
   private doors!: FieldDoors;
   private monPic?: MonPicBox;
+  /** Task_MapNamePopup, while it runs */
+  private mapNamePopup?: MapNamePopup;
   private wild!: WildEncounters;
   private moneyBox?: MoneyBox;
   /** DrawElevatorCurrentFloorWindow's window while it's up. */
@@ -152,6 +155,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   private buttons!: Input;
   private accumulator = 0;
   private busy = true;
+  /** SetupWarp has run and the destination isn't loaded yet. */
+  private warping = false;
   private turnFrames = 0;
   /** Task_QuestLogPlayback_OpenStartMenu: START cancelled a walked-into sign; open the menu once the controls are free. */
   private startMenuWhenFree = false;
@@ -252,6 +257,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     testHooks.applyTestOptions(this.state);
     if (start.preset) await applyStartPreset(this.state, start.preset, this.assets.scripts.healLocations);
     await this.enterMap(start.map, start.x, start.y, start.facing ?? 'down', true);
+    this.showMapNameOnWarpArrival(undefined); // CB2_NewGame loads the map like a warp
     this.busy = false;
     testEvent('ready');
   }
@@ -279,6 +285,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       doorAnimating: this.doors.running,
       fieldEffects: this.fieldEffects.liveEffects(),
       playerEffects: this.fieldEffects.liveEffects(this.player),
+      mapNamePopup: this.mapNamePopup?.text,
+      mapNamePopupHeight: this.mapNamePopup?.visibleHeight ?? 0,
     };
   }
 
@@ -367,6 +375,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     // frame (CB1_Overworld checks ArePlayerFieldControlsLocked before tasks run), so the A press that
     // dismisses a message or picks EXIT on the start menu can't also start a new interaction.
     const lockedAtFrameStart = this.scripts.running || this.overlay !== undefined;
+    const freeAtFrameStart = !this.busy && !lockedAtFrameStart && this.trainerApproach === undefined;
     this.trainerApproach?.tick();
     if (this.trainerApproach?.done) this.trainerApproach = undefined;
     this.scripts.tick();
@@ -379,6 +388,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     // An overlay may hand off to another (start menu → notice); only clear it if it wasn't replaced.
     if (overlay && overlay.tick() && this.overlay === overlay) this.overlay = undefined;
     this.doors.tick(); // Task_AnimateDoor (priority 80) runs after the tasks that start it
+    if (this.mapNamePopup?.tick()) this.mapNamePopup = undefined; // Task_MapNamePopup (priority 90)
     const scripted = this.scripts.running || this.overlay !== undefined;
     for (const n of this.npcs) {
       n.brain.paused = scripted;
@@ -405,6 +415,11 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
         testEvent('trainerApproach');
       }
       else if (!this.player.isMoving && !this.tryOnFrameScript()) this.handleInput();
+    }
+    // ProcessPlayerFieldInput returned TRUE (a script, menu, warp or trainer started): LockPlayerFieldControls
+    // and DismissMapNamePopup. Crossing a connection isn't one of them (the popup is reshown instead).
+    if (freeAtFrameStart && (this.scripts.running || this.overlay !== undefined || this.trainerApproach !== undefined || this.warping)) {
+      this.mapNamePopup?.dismiss();
     }
     this.wasMoving = this.player.isMoving;
 
@@ -495,11 +510,17 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     const chunk = this.world.chunkAt(x, y);
     if (chunk && chunk !== this.world.current) {
       this.busy = true;
+      const fromMapsec = this.mapSection();
       void this.world.setCurrent(chunk).then(async () => {
         InitSecondaryTilesetAnimation(this.assets.tilesetAnimInfo(chunk.data.tilesetPair).secondary);
         await this.onMapLoaded(false);
+        // LoadMapFromCameraTransition (GetLastUsedWarpMapSectionId is the map just left)
+        if (fromMapsec !== this.mapSection()) this.showMapNamePopup();
         this.busy = false;
-        if (!this.scripts.running && this.overlay === undefined) this.processStep(x, y);
+        if (!this.scripts.running && this.overlay === undefined) {
+          this.processStep(x, y);
+          if (this.scripts.running || this.overlay !== undefined || this.warping) this.mapNamePopup?.dismiss(); // as in tickField
+        }
       });
       return;
     }
@@ -739,6 +760,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     // Lock the controls now: the destination may still be loading on the next frames, and a held push
     // direction (stairs, arrow mats) must not set up the same warp again meanwhile.
     this.busy = true;
+    this.warping = true;
     if (w.dest_map === 'MAP_DYNAMIC') {
       // SetWarpDestinationToDynamicWarp
       const dyn = this.state.dynamicWarp;
@@ -746,6 +768,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       if (!dyn || !dynName) {
         console.warn('[warp] no dynamic warp set');
         this.busy = false;
+        this.warping = false;
         return;
       }
       await this.warpTo(dynName, dyn.warpId, dyn.x, dyn.y);
@@ -756,6 +779,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     if (!name || !Number.isInteger(destIndex)) {
       console.warn('[warp] unsupported destination', w.dest_map, w.dest_warp_id);
       this.busy = false;
+      this.warping = false;
       return;
     }
     // A warp into a map whose matching warp is dynamic remembers where it came from (SetDynamicWarp)
@@ -921,6 +945,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     await this.doChangeMap(from, data, white);
     const dest = warpDestCoords(data, warpId, x, y);
     await this.enterMap(name, dest.x, dest.y, this.player.facing, true);
+    this.showMapNameOnWarpArrival(from);
     // FieldCB_DefaultWarpExit → SetUpWarpExitTask: a door (MetatileBehavior_IsWarpDoor_2) gets Task_ExitDoor;
     // otherwise ExitWarpFadeInScreen(FALSE) and a task that waits for the fade.
     const isExit = MapTransitionIsExit(this.mapType(from), this.mapType(data));
@@ -931,8 +956,39 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     this.busy = false;
   }
 
+  /**
+   * LoadMapInStepsLocal's state 12: into another region map section with a forest preview screen,
+   * MapPreview_StartForestTransition (not ported, so nothing is shown); else the map name popup if the
+   * header asks for one.
+   */
+  private showMapNameOnWarpArrival(from: MapData | undefined): void {
+    const to = this.world.current.data;
+    const fromMapsec = from?.regionMapSection ?? 'MAPSEC_NONE';
+    if (fromMapsec !== this.mapSection() && MapHasForestPreviewScreen(this.mapSection())) return;
+    if (to.showMapName) this.showMapNamePopup();
+  }
+
+  /** ShowMapNamePopup: start Task_MapNamePopup, or have the running one slide out and back with the new name. */
+  private showMapNamePopup(): void {
+    if (this.state.getFlag('FLAG_DONT_SHOW_MAP_NAME_POPUP')) return;
+    if (this.mapNamePopup && !this.mapNamePopup.closing) {
+      this.mapNamePopup.reshowName();
+      return;
+    }
+    // A task already clearing its window has no window left to reprint into; start over.
+    this.mapNamePopup?.destroy();
+    this.mapNamePopup = new MapNamePopup(this, this.fonts, this.buttons, this.charmap, this.assets.strings, () => ({
+      mapsec: this.defines.require(this.mapSection()),
+      floorNum: this.world.current.data.floorNumber,
+    }));
+    testEvent('mapNamePopup', { map: this.state.currentMap });
+  }
+
   /** Load a map fresh (origin at 0,0) and put the player at local (x, y). */
   private async enterMap(name: string, x: number, y: number, facing: Direction, warped: boolean): Promise<void> {
+    this.warping = false;
+    this.mapNamePopup?.destroy(); // the map load's ResetTasks
+    this.mapNamePopup = undefined;
     this.fieldEffects.clear();
     this.doors.clear();
     this.trainerApproach = undefined;
@@ -1721,8 +1777,11 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     for (const v of ['VAR_MAP_SCENE_ROUTE16', 'VAR_MAP_SCENE_FUCHSIA_CITY_SAFARI_ZONE_ENTRANCE', 'VAR_QL_ENTRANCE']) this.state.setVar(v, 0);
     const respawn = this.whiteOutRespawn();
     const name = this.assets.mapNameForId(respawn.map);
-    if (name) await this.enterMap(name, respawn.x, respawn.y, 'up', true); // WarpIntoMap, DIR_NORTH
-    else console.warn('[whiteout] unknown respawn map', respawn.map);
+    if (name) {
+      const from = this.world.current.data;
+      await this.enterMap(name, respawn.x, respawn.y, 'up', true); // WarpIntoMap, DIR_NORTH
+      this.showMapNameOnWarpArrival(from); // CB2_WhiteOut loads the map in steps like a warp
+    } else console.warn('[whiteout] unknown respawn map', respawn.map);
     if (respawn.healer) {
       // SetWhiteoutRespawnHealerNpcAsLastTalked
       const id = this.resolveLocalId(respawn.healer);

@@ -178,6 +178,10 @@ export interface FieldProbe {
   fieldEffects: string[];
   /** The ones following the player (shadow, grass, splashes, reflection). */
   playerEffects: string[];
+  /** The map name popup's text while Task_MapNamePopup runs (encoded). */
+  mapNamePopup: number[] | undefined;
+  /** How many px of the popup window are on screen (0..24). */
+  mapNamePopupHeight: number;
 }
 
 /** The parts of OverworldScene the hooks use (`startWildBattle` is private there; reached by name). */
@@ -415,6 +419,11 @@ function createApi(game: Phaser.Game) {
     message: () => {
       const m = field()?.message;
       return m ? decode(m) : undefined;
+    },
+    /** The map name popup while Task_MapNamePopup runs: its text, decoded, and how many px of it are on screen. */
+    mapNamePopup: () => {
+      const f = field();
+      return f?.mapNamePopup ? { text: decode(f.mapNamePopup), height: f.mapNamePopupHeight } : undefined;
     },
     /** Quantity of the first stack of ITEM_<name> in the bag (0 if none). */
     itemCount: (name: string) => {
