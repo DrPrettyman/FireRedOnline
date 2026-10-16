@@ -21,7 +21,7 @@ import { electricSpriteCallbacks, electricTasks } from './electric';
 import { fightSpriteCallbacks, fightTasks } from './fight';
 import { fireSpriteCallbacks, fireTasks } from './fire';
 import { flyingSpriteCallbacks, flyingTasks } from './flying';
-import { ghostSpriteCallbacks, ghostTasks } from './ghost';
+import { ghostSpriteCallbacks, ghostTasks, registerGhostExtraGfx } from './ghost';
 import { groundSpriteCallbacks, groundTasks } from './ground';
 import { iceSpriteCallbacks, iceTasks, registerIceExtraGfx } from './ice';
 import { poisonSpriteCallbacks, poisonTasks } from './poison';
@@ -88,6 +88,7 @@ export function registerPortedBattleAnims(): void {
   });
   registerUtilityExtraGfx();
   registerDarkExtraGfx();
+  registerGhostExtraGfx();
   registerWaterExtraGfx();
   registerIceExtraGfx();
   registerRockExtraGfx();

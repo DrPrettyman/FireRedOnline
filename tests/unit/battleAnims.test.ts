@@ -44,6 +44,21 @@ const FULLY_PORTED: Record<string, string[]> = {
     'Special_BallThrowWithTrainer', 'Special_SubstituteToMon', 'Special_MonToSubstitute',
   ],
 
+  // Added when batch 1 merged: scripts that needed files from more than one worker, plus scripts that were
+  // already complete before step 2 but never listed.
+  batch1Merge: [
+    'General_IngrainHeal', 'General_LeechSeedDrain', 'Move_AGILITY', 'Move_BIDE', 'Move_BIND', 'Move_BLAZE_KICK',
+    'Move_BODY_SLAM', 'Move_BUBBLE_BEAM', 'Move_CALM_MIND', 'Move_CLAMP', 'Move_COUNT', 'Move_CRABHAMMER',
+    'Move_CRUNCH', 'Move_DETECT', 'Move_DIVE', 'Move_DOOM_DESIRE', 'Move_DOUBLE_EDGE', 'Move_DOUBLE_SLAP',
+    'Move_EGG_BOMB', 'Move_ERUPTION', 'Move_EXPLOSION', 'Move_FLASH', 'Move_GIGA_DRAIN', 'Move_GROWTH',
+    'Move_HEAT_WAVE', 'Move_HYDRO_PUMP', 'Move_IMPRISON', 'Move_IRON_DEFENSE', 'Move_IRON_TAIL', 'Move_MEGA_DRAIN',
+    'Move_METAL_SOUND', 'Move_MUD_SHOT', 'Move_MUD_SLAP', 'Move_OCTAZOOKA', 'Move_POISON_TAIL', 'Move_PSYCH_UP',
+    'Move_PURSUIT', 'Move_RECOVER', 'Move_REST', 'Move_ROAR', 'Move_ROCK_TOMB', 'Move_SCREECH',
+    'Move_SELF_DESTRUCT', 'Move_SHEER_COLD', 'Move_SIGNAL_BEAM', 'Move_SKY_ATTACK', 'Move_SLAM', 'Move_SNATCH',
+    'Move_SNORE', 'Move_SPIKE_CANNON', 'Move_STRENGTH', 'Move_SUBMISSION', 'Move_SUBSTITUTE', 'Move_TAKE_DOWN',
+    'Move_THIEF', 'Move_TOXIC', 'Move_TWINEEDLE', 'Move_VITAL_THROW', 'Move_WRAP',
+  ],
+
   // battle_anim_fight.c
   fight: [
     'Move_KARATE_CHOP', 'Move_STOMP', 'Move_DOUBLE_KICK', 'Move_DIZZY_PUNCH', 'Move_CROSS_CHOP', 'Move_SUPERPOWER',
@@ -90,13 +105,16 @@ const FULLY_PORTED: Record<string, string[]> = {
   flying: ['Move_AEROBLAST', 'Move_BOUNCE', 'Move_DRILL_PECK', 'Move_FEATHER_DANCE', 'Move_FLY', 'Move_WHIRLWIND'],
 
   // battle_anim_ghost.c
-  ghost: [],
+  ghost: [
+    'Move_CONFUSE_RAY', 'Move_CURSE', 'Move_DESTINY_BOND', 'Move_GRUDGE', 'Move_LICK', 'Move_NIGHTMARE',
+    'Move_NIGHT_SHADE', 'Move_SHADOW_BALL', 'Move_SPITE',
+  ],
 
   // battle_anim_psychic.c
-  psychic: [],
+  psychic: ['Move_AMNESIA', 'Move_EXTRASENSORY', 'Move_MEDITATE', 'Move_SKILL_SWAP', 'Move_TELEPORT'],
 
   // battle_anim_dark.c
-  dark: [],
+  dark: ['Move_CAMOUFLAGE', 'Move_FAINT_ATTACK', 'Move_FAKE_TEARS', 'Move_MEMENTO'],
 
   // battle_anim_effects_1.c
   effects1: [],
