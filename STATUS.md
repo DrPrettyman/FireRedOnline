@@ -21,12 +21,16 @@ Status of the port: what exists, what's next. Everything else lives in `docs/`:
 Main-path blockers, roughly in the order a playthrough hits them. [MAIN_PATH_PLAN.md](MAIN_PATH_PLAN.md) splits
 them into workstreams and batches:
 
-1. **PC storage:** the boxes and sending to the PC work (batch 1); the storage screens (deposit / withdraw /
-   move) are batch 2.
-2. **Save/load:** the save data model is done (batch 1); the save dialog, main menu and CONTINUE are batch 2.
-3. **Field moves:** the framework, Cut, Rock Smash, Sweet Scent, Dig, Teleport, Soft-Boiled / Milk Drink and Flash
-   work (batch 1). Surf, Waterfall and Strength are batch 2, Fly batch 3.
+1. ~~**PC storage**~~: done (batches 1-2): boxes, sending to the PC, the storage screens, the item PC. The Hall
+   of Fame PC is still a stub.
+2. ~~**Save/load**~~: done (batches 1-2): SAVE from the start menu, the main menu, CONTINUE, play time. Not yet:
+   `special Field_AskSaveTheGame` (scripted save prompts), and the title screen in front of the main menu.
+3. **Field moves:** everything but Fly works (Cut, Flash, Surf, Strength, Waterfall, Rock Smash, Sweet Scent, Dig,
+   Teleport, Soft-Boiled / Milk Drink). Fly and the Town Map (region_map.c) are batch 3 of MAIN_PATH_PLAN.md.
 4. ~~`special ListMenu`~~: done (batch 1); Silph Co.'s elevator works.
+5. **Also done in batch 2:** Snorlax (Poké Flute), the legendary birds and Mewtwo (`dowildbattle`,
+   StartLegendaryBattle). Next blockers after Fly: Silph Co.'s card key doors, Seafoam's currents
+   (`setmaplayoutindex`).
 
 Other open work:
 
@@ -142,7 +146,7 @@ Loose ends:
   `dofieldeffect` in general
 - [x] Map name popup (map_name_popup.c): on warps into maps with show_map_name, on connections into another
   region map section (reshown if still up), floor numbers / ROOFTOP, dismissed when field input starts something
-- [~] Save/load: the save data model (state/saveData.ts, localStorage); no save dialog or main menu yet
+- [x] Save/load: SAVE dialog, main menu + CONTINUE, play time, one localStorage slot (state/saveData.ts); no title screen yet
 - [x] Party menu (party_menu.c) and bag (item_menu.c, bag.c, item_use.c) on the GBA layer, from the field and in battle; list menus, scroll arrows, mon/item icons, std/dialog frames, YES/NO, money box
 - [x] Summary screen (pokemon_summary_screen.c): INFO / SKILLS / KNOWN MOVES pages, move details, switching moves, choosing a move to forget (field and battle)
 - [ ] Pokédex, options, TM case, berry pouch
