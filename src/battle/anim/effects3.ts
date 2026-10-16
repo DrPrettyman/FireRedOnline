@@ -1,4 +1,4 @@
-// battle_anim_effects_3.c: sprite callbacks and tasks, ported as the moves that use them come up.
+// battle_anim_effects_3.c, first half (up to AnimPainSplitProjectile, C line 2877); the rest is in effects3b.ts.
 
 import { LoadBgTiles } from '../../gba/bg';
 import { REG_OFFSET_MOSAIC, SetGpuReg } from '../../gba/hw';

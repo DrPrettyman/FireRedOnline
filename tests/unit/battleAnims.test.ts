@@ -122,8 +122,11 @@ const FULLY_PORTED: Record<string, string[]> = {
   // battle_anim_effects_2.c
   effects2: [],
 
-  // battle_anim_effects_3.c
+  // battle_anim_effects_3.c, first half (effects3.ts)
   effects3: [],
+
+  // battle_anim_effects_3.c, second half (effects3b.ts)
+  effects3b: [],
 };
 
 describe('battle anim coverage', () => {

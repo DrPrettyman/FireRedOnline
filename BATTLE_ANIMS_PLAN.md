@@ -101,20 +101,32 @@ To keep their PRs from conflicting:
   AnimMoveTwisterParticle (effects_1, used by rock), SetSpriteNextToMonHead (effects_1, used by effects_2),
   AnimParticleBurst (effects_2, used by effects_3), AnimTask_HorizontalShake (ground, used by water),
   AnimWaterPulseRing (water, used by effects_2). CreateAdditionalMonSpriteForMoveAnim (battle_anim_mons.c) is
-  only used by effects_3, so the effects_3 worker ports it.
+  only used by the second half of effects_3, so that worker ports it (into animMons.ts).
 - **Unit test:** add the labels your files complete to your C file's list in `FULLY_PORTED`
   (`tests/unit/battleAnims.test.ts`). Don't touch the other lists.
 - **E2e:** put your cases in a new file, `tests/e2e/battleAnims.<file>.test.ts` (e.g. `battleAnims.fight.test.ts`),
   using `tests/e2e/battleAnimHelpers.ts` (`expectMovesRun(session, moves)` runs up to four moves against a
   splashing Snorlax). Don't add to `battleAnims.test.ts`.
+- **Which tests to run:** typecheck, `npm test`, and only your own e2e file
+  (`npx vitest run --project e2e tests/e2e/battleAnims.<file>.test.ts`). If you change shared code outside
+  `src/battle/anim/`, also run `tests/e2e/battleAnims.test.ts`. Don't run the full e2e suite: with several
+  workers each starting four Chromes it overloads the machine. The merger runs the anim e2e files for each PR and
+  the full suite once per batch.
+- **Scratch files:** the scratchpad directory is shared between workers. Prefix anything you write there with your
+  worker name (e.g. `e3b-coverage.json`).
 - **Shared engine** (`battleAnim.ts`, `animMons.ts`, `gfx.ts`, `src/gba/`): change it only when your callbacks need
   it, keep the change small, and say what you changed in the PR description.
 - **Docs:** don't edit the "N of 397 scripts" counts in STATUS.md and docs/DEVIATIONS.md, or this plan's tables;
   whoever merges updates them. Do add your docs/LOG.md entry and any new deviations.
 
 Batch 1 (step 2), one worker each: **A** fight, rock, ground, bug, poison · **B** water, ice, dragon (new module,
-register it in `ported.ts`) · **C** fire, electric, flying · **D** ghost, psychic, dark. Batch 2 (step 3): one
-worker per effects file, two or three PRs each, one after another (never two workers on the same file).
+register it in `ported.ts`) · **C** fire, electric, flying · **D** ghost, psychic, dark.
+
+Batch 2 (step 3), four workers: **E1** battle_anim_effects_1.c (`effects1.ts`) · **E2** battle_anim_effects_2.c
+(`effects2.ts`) · **E3a** battle_anim_effects_3.c up to AnimPainSplitProjectile, C line 2877 (`effects3.ts`) ·
+**E3b** battle_anim_effects_3.c from AnimTask_PainSplitMovement, C line 2914, to the end (`effects3b.ts`). The two
+halves of effects_3 don't call each other's functions, so E3a and E3b only share the C file. Each worker opens one
+PR; a worker that runs low on context commits, pushes and opens its PR with what's done, and says what's left.
 
 ## Step 2: one PR per type file — done
 

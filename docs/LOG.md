@@ -903,3 +903,11 @@ end to end.
 - Testing note: four workers each running the full e2e suite (4 Chromes each) overloaded the machine and caused
   timeouts. From batch 2, workers run only their own e2e file; the merger runs the battle anim files per PR and
   the full suite once per batch.
+
+### Battle anims: set up batch 2 (step 3)
+
+- `battle_anim_effects_3.c` is split between two workers at AnimTask_PainSplitMovement (C line 2914): the halves
+  don't call each other. New module `src/battle/anim/effects3b.ts` (registered in `ported.ts`, own
+  `FULLY_PORTED.effects3b` list) takes the second half; `effects3.ts` keeps the first.
+- BATTLE_ANIMS_PLAN.md "Working in parallel": batch 2 assignments (E1, E2, E3a, E3b), workers run only their own
+  e2e file, and scratch files get a per-worker prefix.
