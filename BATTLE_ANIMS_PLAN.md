@@ -87,9 +87,34 @@ most scripts.
 each registered in `ported.ts`. Later PRs then touch separate files and can run in parallel worktrees without
 conflicts (apart from `ported.ts` when a new file is added).
 
-**Tests:** add the newly complete labels to the list in `tests/unit/battleAnims.test.ts`. Add an e2e case to
-`tests/e2e/battleAnims.test.ts` for any anim that uses a new engine path (for example the psychic background or
+**Tests:** add the newly complete labels to the list in `tests/unit/battleAnims.test.ts` (steps 2-3: see "Working
+in parallel" for where). Add an e2e case for any anim that uses a new engine path (for example the psychic background or
 Transform), and check a few by eye in mid-anim screenshots.
+
+## Working in parallel (steps 2-3)
+
+Steps 2 and 3 run as several workers at once, each in its own worktree and branch, each owning whole C files.
+To keep their PRs from conflicting:
+
+- **Only port your own files' symbols.** If a script also needs a symbol from someone else's file, leave it; the
+  script completes when the second file lands (whoever lands second adds its label). Known cases:
+  AnimMoveTwisterParticle (effects_1, used by rock), SetSpriteNextToMonHead (effects_1, used by effects_2),
+  AnimParticleBurst (effects_2, used by effects_3), AnimTask_HorizontalShake (ground, used by water),
+  AnimWaterPulseRing (water, used by effects_2). CreateAdditionalMonSpriteForMoveAnim (battle_anim_mons.c) is
+  only used by effects_3, so the effects_3 worker ports it.
+- **Unit test:** add the labels your files complete to your C file's list in `FULLY_PORTED`
+  (`tests/unit/battleAnims.test.ts`). Don't touch the other lists.
+- **E2e:** put your cases in a new file, `tests/e2e/battleAnims.<file>.test.ts` (e.g. `battleAnims.fight.test.ts`),
+  using `tests/e2e/battleAnimHelpers.ts` (`expectMovesRun(session, moves)` runs up to four moves against a
+  splashing Snorlax). Don't add to `battleAnims.test.ts`.
+- **Shared engine** (`battleAnim.ts`, `animMons.ts`, `gfx.ts`, `src/gba/`): change it only when your callbacks need
+  it, keep the change small, and say what you changed in the PR description.
+- **Docs:** don't edit the "N of 397 scripts" counts in STATUS.md and docs/DEVIATIONS.md, or this plan's tables;
+  whoever merges updates them. Do add your docs/LOG.md entry and any new deviations.
+
+Batch 1 (step 2), one worker each: **A** fight, rock, ground, bug, poison · **B** water, ice, dragon (new module,
+register it in `ported.ts`) · **C** fire, electric, flying · **D** ghost, psychic, dark. Batch 2 (step 3): one
+worker per effects file, two or three PRs each, one after another (never two workers on the same file).
 
 ## Step 2: one PR per type file
 

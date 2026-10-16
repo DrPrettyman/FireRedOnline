@@ -787,3 +787,13 @@ end to end.
 - Merging `marowak-ghost-battle` (built on the unsquashed battle-anims-step1 commits) silently brought back what it
   had removed: the `startUnveiledGhostBattle` test hook, the Marowak "isn't ported" deviation and the plan's loose
   end. Fixed in the merge.
+
+### Battle anims: set up for parallel workers (steps 2-3)
+
+- `tests/unit/battleAnims.test.ts`: the fully-ported labels are now one list per C file (`FULLY_PORTED`), so PRs
+  for different files don't edit the same lines.
+- `tests/e2e/battleAnimHelpers.ts`: the anim e2e helpers (ROUTE1, animEvent, reseed, useFirstMove, useMoveSlot,
+  and `expectMovesRun`, the four-moves-against-Snorlax check) moved out of battleAnims.test.ts so each worker can
+  add its own `battleAnims.<file>.test.ts`.
+- BATTLE_ANIMS_PLAN.md "Working in parallel": who owns which files, the cross-file symbols to leave alone, and
+  which shared lines (counts, tables) only the merger edits.

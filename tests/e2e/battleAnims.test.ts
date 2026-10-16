@@ -2,40 +2,10 @@
 // and the battle carries on afterwards.
 
 import { expect, test } from 'vitest';
+import { animEvent, expectMovesRun, reseed, ROUTE1, useFirstMove } from './battleAnimHelpers';
 import { useGame, type Game } from './harness';
 
 const session = useGame();
-
-const ROUTE1 = { start: 'after-rival', map: 'Route1', x: 12, y: 7 } as const;
-
-/** The first battleAnim / battleAnimEnd event for `label` after `since` (pressing A through text meanwhile). */
-async function animEvent(game: Game, type: 'battleAnim' | 'battleAnimEnd', label: string, since: number) {
-  for (let i = 0; i < 300; i++) {
-    const e = (await game.events(since)).find((ev) => ev.type === type && ev.label === label);
-    if (e) return e;
-    await game.eval((t) => t.waitFrames(10));
-  }
-  throw new Error(`no ${type} event for ${label}: ${JSON.stringify((await game.events(since)).map((e) => [e.type, e.label]))}`);
-}
-
-/**
- * Reseeds the RNG, so the turn's rolls (the wild mon's move, accuracy, damage) don't depend on how many frames
- * the run took to get here: a 95% Tackle otherwise misses now and then, and a miss plays no anim at all.
- */
-async function reseed(game: Game): Promise<void> {
-  await game.eval((t) => t.seed(1));
-}
-
-/** Picks the first move at the action menu. */
-async function useFirstMove(game: Game): Promise<number> {
-  await game.waitForActionMenu();
-  const since = await game.mark();
-  await game.press('A'); // FIGHT
-  await game.eval((t) => t.waitFrames(10));
-  await reseed(game);
-  await game.press('A'); // move 1
-  return since;
-}
 
 test('Tackle runs its anim script to the end, then the turn carries on', async () => {
   // speed 1 so polling from here catches the hit splat while it's up
@@ -268,19 +238,6 @@ test("a poisoned mon's status anim runs at the end of the turn", async () => {
   expect(mons[0].hp).toBeLessThan(mons[0].maxHP);
 });
 
-/** At the action menu: FIGHT, then the move in `slot` (0-3, laid out 2x2). The cursor starts on `from`, where it was last turn. */
-async function useMoveSlot(game: Game, from: number, slot: number): Promise<number> {
-  await game.waitForActionMenu();
-  const since = await game.mark();
-  await game.press('A'); // FIGHT
-  await game.eval((t) => t.waitFrames(10));
-  if ((slot & 1) !== (from & 1)) await game.press(slot & 1 ? 'RIGHT' : 'LEFT');
-  if ((slot & 2) !== (from & 2)) await game.press(slot & 2 ? 'DOWN' : 'UP');
-  await reseed(game);
-  await game.press('A');
-  return since;
-}
-
 // Battle anims step 1 (BATTLE_ANIMS_PLAN.md): one move per newly ported sprite callback / task, four to a
 // battle against a Snorlax that only splashes (and has the HP to take it).
 test.each([
@@ -289,21 +246,7 @@ test.each([
   ['CUT', 'ROLLING_KICK', 'BONE_CLUB', 'WING_ATTACK'],
   ['SUNNY_DAY', 'RAGE', 'FOCUS_ENERGY', 'METAL_CLAW'],
   ['HORN_ATTACK', 'JUMP_KICK', 'COMET_PUNCH', 'BARRIER'],
-])('%s, %s, %s and %s run to the end', async (...moves) => {
-  const game = await session.start({ ...ROUTE1, party: [{ species: 'RATTATA', level: 10, moves }] });
-  await game.eval((t) => t.startWildBattle({ species: 'SNORLAX', level: 100, moves: ['SPLASH'] }));
-  let from = 0;
-  for (const [slot, move] of moves.entries()) {
-    const since = await useMoveSlot(game, from, slot);
-    from = slot;
-    expect(await animEvent(game, 'battleAnim', `Move_${move}`, since)).toMatchObject({ ran: true, attacker: 0 });
-    await animEvent(game, 'battleAnimEnd', `Move_${move}`, since);
-  }
-  await game.waitForActionMenu();
-  // Nothing hidden or left over: both battlers are back on screen.
-  const mons = (await game.eval((t) => t.battle()))!.mons;
-  expect(mons.map((m) => m.spriteInvisible)).toEqual([false, false]);
-});
+])('%s, %s, %s and %s run to the end', (...moves) => expectMovesRun(session, moves));
 
 test('Transform mosaics the attacker into a copy of the target', async () => {
   const game = await session.start({ ...ROUTE1, speed: 1, party: [{ species: 'DITTO', level: 30, moves: ['TRANSFORM'] }] });

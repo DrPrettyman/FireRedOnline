@@ -12,8 +12,11 @@ beforeAll(async () => {
   coverage = battleAnimCoverage();
 });
 
-describe('battle anim coverage', () => {
-  test.each([
+// Scripts whose sprite callbacks and tasks are all ported. BATTLE_ANIMS_PLAN.md steps 2-3: each PR adds the
+// labels it completes to its own C file's list, so PRs for different files don't touch the same lines. A label
+// that needs two files goes in the list of whichever file lands second.
+const FULLY_PORTED: Record<string, string[]> = {
+  before: [
     'Move_POUND', 'Move_SCRATCH', 'Move_TACKLE', 'Move_GROWL', 'Move_TAIL_WHIP', 'Move_LEER', 'Move_EMBER',
     'Move_WATER_GUN', 'Move_VINE_WHIP', 'Move_BUBBLE', 'Move_THUNDER_SHOCK', 'Move_QUICK_ATTACK',
     'Move_SAND_ATTACK', 'Move_GUST', 'Move_PECK', 'Move_STRING_SHOT', 'Move_POISON_STING', 'Move_HARDEN',
@@ -39,7 +42,62 @@ describe('battle anim coverage', () => {
     // every special anim: InitAndLaunchSpecialAnimation has no fallback
     'Special_LevelUp', 'Special_SwitchOutPlayerMon', 'Special_SwitchOutOpponentMon', 'Special_BallThrow',
     'Special_BallThrowWithTrainer', 'Special_SubstituteToMon', 'Special_MonToSubstitute',
-  ])('%s is fully ported', (label) => {
+  ],
+
+  // battle_anim_fight.c
+  fight: [],
+
+  // battle_anim_rock.c
+  rock: [],
+
+  // battle_anim_ground.c
+  ground: [],
+
+  // battle_anim_bug.c
+  bug: [],
+
+  // battle_anim_poison.c
+  poison: [],
+
+  // battle_anim_water.c
+  water: [],
+
+  // battle_anim_ice.c
+  ice: [],
+
+  // battle_anim_dragon.c
+  dragon: [],
+
+  // battle_anim_fire.c
+  fire: [],
+
+  // battle_anim_electric.c
+  electric: [],
+
+  // battle_anim_flying.c
+  flying: [],
+
+  // battle_anim_ghost.c
+  ghost: [],
+
+  // battle_anim_psychic.c
+  psychic: [],
+
+  // battle_anim_dark.c
+  dark: [],
+
+  // battle_anim_effects_1.c
+  effects1: [],
+
+  // battle_anim_effects_2.c
+  effects2: [],
+
+  // battle_anim_effects_3.c
+  effects3: [],
+};
+
+describe('battle anim coverage', () => {
+  test.each(Object.values(FULLY_PORTED).flat())('%s is fully ported', (label) => {
     expect(coverage[label]).toEqual([]);
   });
 
