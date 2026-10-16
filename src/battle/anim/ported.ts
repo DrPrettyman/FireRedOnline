@@ -14,7 +14,7 @@ import { registerSpriteCallbacks, registerTaskFuncs } from './state';
 import { effects1SpriteCallbacks, effects1Tasks } from './effects1';
 import { effects2SpriteCallbacks, effects2Tasks } from './effects2';
 import { effects3SpriteCallbacks, effects3Tasks, registerEffects3ExtraGfx } from './effects3';
-import { effects3bSpriteCallbacks, effects3bTasks } from './effects3b';
+import { effects3bSpriteCallbacks, effects3bTasks, registerEffects3bExtraGfx } from './effects3b';
 import { bugSpriteCallbacks, bugTasks } from './bug';
 import { darkSpriteCallbacks, darkTasks, registerDarkExtraGfx } from './dark';
 import { dragonSpriteCallbacks, dragonTasks } from './dragon';
@@ -97,4 +97,5 @@ export function registerPortedBattleAnims(): void {
   registerRockExtraGfx();
   registerSpecialExtraGfx();
   registerEffects3ExtraGfx();
+  registerEffects3bExtraGfx();
 }
