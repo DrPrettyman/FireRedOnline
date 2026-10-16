@@ -57,7 +57,7 @@ import { gMain, SetHBlankCallback, SetVBlankCallback } from '../gba/main';
 import { BG_PLTT_ID, LoadPalette, OBJ_PLTT_OFFSET, PLTT_SIZE_4BPP, ResetPaletteFade, TransferPlttBuffer, UpdatePaletteFade } from '../gba/palette';
 import { renderFrame, setObjBitmapLayer, type ObjBitmapLayer } from '../gba/ppu';
 import { ScanlineEffect_Clear, ScanlineEffect_InitHBlankDmaTransfer } from '../gba/scanline';
-import { AnimateSprites, BuildOamBuffer, FreeAllSpritePalettes, IndexOfSpritePaletteTag, LoadSpritePalette, ProcessSpriteCopyRequests, ResetSpriteData } from '../gba/sprite';
+import { AnimateSprites, BuildOamBuffer, FreeAllSpritePalettes, LoadSpritePalette, ProcessSpriteCopyRequests, ResetSpriteData } from '../gba/sprite';
 import { ResetTasks, RunTasks } from '../gba/task';
 import { NUM_METATILES_IN_PRIMARY } from './TilesetPair';
 import { NUM_TILES_IN_PRIMARY, tilesetVram } from './TilesetVram';
@@ -124,6 +124,8 @@ export class FieldGbaScreen {
   private readonly bgTilemapBuffers3 = new Uint16Array(0x400);
   private source?: FieldGbaSource;
   private running = false;
+  /** The probe palettes' OBJ palette slots (looked up once: a reserved count can hide them from tag lookups). */
+  private probeSlots = [0, 1];
   /** sFieldCameraOffset as this screen frames the camera: BG1-3's scroll. */
   private scroll = { x: 0, y: 0 };
 
@@ -143,6 +145,13 @@ export class FieldGbaScreen {
     return this.running;
   }
 
+  /** Dev: the share of the last frame's pixels that are black (0..1). */
+  blackFraction(): number {
+    let black = 0;
+    for (const p of this.pixels) if ((p & 0xffffff) === 0) black++;
+    return black / this.pixels.length;
+  }
+
   /** FieldCameraGetPixelOffsetAtGround */
   cameraPixelOffset(): { x: number; y: number } {
     return { ...this.scroll };
@@ -156,10 +165,9 @@ export class FieldGbaScreen {
     this.source = undefined;
     this.running = true;
     setObjBitmapLayer(null);
-    this.image.setVisible(true);
   }
 
-  /** Put the field on the GBA layer and start drawing it over the Phaser field. */
+  /** Put the field on the GBA layer; from the next `frame` it's drawn over the Phaser field. */
   start(source: FieldGbaSource): void {
     this.source = source;
     this.running = true;
@@ -197,20 +205,19 @@ export class FieldGbaScreen {
 
     this.loadMapTilesetPalettes();
     // The field's own sprite palettes: the probes stand in for them.
-    for (let i = 0; i < 2; i++) {
+    this.probeSlots = PROBE_PAL_TAGS.map((tag, i) => {
       const ramp = Array.from({ length: 16 }, (_, j) => {
         const v = i * 16 + j;
         return v | (v << 5) | (v << 10);
       });
-      LoadSpritePalette({ data: ramp, tag: PROBE_PAL_TAGS[i] });
-    }
+      return LoadSpritePalette({ data: ramp, tag });
+    });
     this.copyMapTilesetsToVram();
     this.drawWholeMapView();
     this.fieldUpdateBgTilemapScroll();
     TransferPlttBuffer();
     SetVBlankCallback(() => this.vblankCbField());
     setObjBitmapLayer(this.objLayer);
-    this.image.setVisible(true);
   }
 
   /** Stop drawing: the field shows again (the caller has usually left it black). */
@@ -243,6 +250,7 @@ export class FieldGbaScreen {
     renderFrame(this.pixels);
     this.canvas.context.putImageData(this.frameData, 0, 0);
     this.canvas.refresh();
+    this.image.setVisible(true); // only once there's a frame of this run to show
   }
 
   /** VBlankCB_Field */
@@ -372,7 +380,7 @@ export class FieldGbaScreen {
     // The probes' faded colours: each channel value v of an object pixel shows as the probe for v does.
     const lut = [new Uint8Array(32), new Uint8Array(32), new Uint8Array(32)];
     for (let v = 0; v < 32; v++) {
-      const c = pltt[OBJ_PLTT_OFFSET + IndexOfSpritePaletteTag(PROBE_PAL_TAGS[v >> 4]) * 16 + (v & 15)];
+      const c = pltt[OBJ_PLTT_OFFSET + this.probeSlots[v >> 4] * 16 + (v & 15)];
       lut[0][v] = c & 0x1f;
       lut[1][v] = (c >> 5) & 0x1f;
       lut[2][v] = (c >> 10) & 0x1f;

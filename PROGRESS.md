@@ -112,7 +112,14 @@ Running checklist of what exists and what doesn't. Newest log entries at the bot
 - [x] GBA video layer (src/gba: VRAM/palette/regs, bg.c, window.c, sprite.c, task.c, palette fades, scanline effects, software PPU) and the battle presentation on it (BattleScene)
 - [x] Battle: bag and party menu (choose item, use medicine/PP items/X items/balls, switch/send out) with reshow_battle_screen.c
 - [x] Old Man's catching tutorial (StartOldManTutorialBattle)
-- [ ] Battle: move/status animations, battle transitions
+- [x] Battle transitions (battle_transition.c): every FRLG B_TRANSITION_* (the grey-blink intro, Blur, Swirl,
+  Shuffle, Big Poké Ball, Poké Balls trail, Clockwise wipe, Ripple, Wave, Slice, White bars fade, Grid squares,
+  Angled wipes, the Elite Four / Champion mugshots) drawn over the field on the GBA layer, picked like battle_setup.c
+  (GetWildBattleTransition / GetTrainerBattleTransition; Old Man's tutorial uses Slice)
+- [x] Warp screen effects: WarpFadeOutScreen / WarpFadeInScreen (white in and out of caves), the cave flash
+  transitions (FlashTransition_Enter / _Exit from CB2_DoChangeMap), the barn door wipe leaving through a door
+- [ ] Battle: move/status animations
+- [ ] Map preview screens (map_preview_screen.c: the cave/forest name banners)
 - [x] Evolution scene (evolution_scene.c, evolution_graphics.c): after a battle (TryEvolvePokemon), from a Rare Candy
   or an evolution stone; holding B stops it; Crobat-style evolutions stop without the National Dex; learning the
   new species' move (incl. forgetting one through the summary screen); Nincada's Shedinja. TradeEvolutionScene
@@ -168,7 +175,10 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     overworld's ScreenFade.
   - Battles: the level-up banner (exp to a mon that isn't sent out) has no mon icon; Spinda's spots aren't drawn;
     HP-as-text (SwapHpBarsWithHpText) and link/multi battles aren't implemented.
-  - Battle transitions: a fade to black instead of the B_TRANSITION_* effects.
+  - Battle transitions: no SE_MUGSHOT, and the battle music doesn't start with the transition. Flash isn't ported,
+    so GetBattleTransitionTypeByMap never picks TRANSITION_TYPE_FLASH (Blur / Grid squares in dark caves).
+  - Map preview screens (Mt. Moon, Rock Tunnel, Viridian Forest...) aren't ported: warps into those sections fade
+    to black like the GBA and go straight to the map, without the banner (or the flash that follows it).
   - Wild encounters: no bike rate modifier (no bikes). GAME_STAT_* counters aren't kept.
   - Poké Mart: no quest log transaction history (RecordItemTransaction / RecordTransactionForQuestLog) or
     GAME_STAT_SHOPPED; no SE_SHOP. The decoration marts (`pokemartdecoration*`) aren't ported (unused in FRLG).
@@ -195,8 +205,16 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - Text colour is reset to NPC_TEXT_COLOR_DEFAULT when a script starts, not in ProcessPlayerFieldInput.
   - The RNG (`random.c` formula) is seeded from `Math.random` (or `?seed=` in dev); the trainer id is rolled when the game state is created instead of in Oak's intro.
   - A mon's met location is the MAPSEC_* name, not the numeric id.
-  - Warps fade with Phaser's camera fade (200 ms), not the field warp fade. Leaving a building through a door,
-    the screen fades in instead of FRLG's barn door wipe (DoOutwardBarnDoorWipe); Task_ExitDoor's timing is kept.
+  - Battle transitions draw the field on the GBA layer (`world/fieldGbaScreen.ts`): BG1-3 come from the map
+    grid as DrawWholeMapView would lay them out (the ring buffer anchored at the camera, tile offsets 0), so a
+    scrolled BG shows the same neighbouring rows/columns the GBA's 32x32 tilemaps hold. Object sprites stay
+    Phaser's and are copied into an OBJ bitmap layer each frame (behind OAM sprites, priority from their depth
+    band); their colours follow palette fades/blends through two probe OBJ palettes, not their real palettes.
+    Weather tints are ignored.
+  - HBlank callbacks run before each line is drawn with REG_VCOUNT = that line, and HBlank DMA gives line L
+    entry L of its table, so per-line effects are one line earlier than on hardware (consistently so).
+  - The barn door wipe's windows are black Phaser rectangles under the screen fade (WININ 0 shows the backdrop,
+    which the field forces to black).
   - Tile animations: the GBA only has the current map's tilesets in VRAM and draws connected maps with them; here
     each map keeps its own atlases, so a neighbour with a different secondary tileset only animates it while it's
     the current map. BG3 under NORMAL-layer metatiles shows the backdrop colour instead of DrawMetatile's
@@ -212,7 +230,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     `setobjectsubpriority`, none of which FRLG scripts use) isn't ported, and neither is OAM priority 0, which no
     map elevation produces (priority 3 is only used by field effects: reflections and ripples). Sprites tied on priority, subpriority and screen top keep creation order rather
     than the previous frame's gSpriteOrder.
-  - BIOS ObjAffineSet uses a computed sine table; mosaic isn't emulated by the PPU.
+  - BIOS ObjAffineSet uses a computed sine table; the PPU has BG mosaic but not OBJ mosaic.
   - Buy menu map view: object sprites skip their subsprite tables (table 0 is empty for every size, so it draws the
     same); an inanimate object not facing south shows its only anim instead of reading past the anim table.
 - **Data:** Castform has no front pic (its `front.png` isn't in the decomp; it's built from per-form images).
@@ -314,6 +332,12 @@ State as of the last log entry:
   asynchronously, so `prepareMenus()` (src/menus/host.ts) preloads everything the bag/party/summary can draw
   (incl. each party mon's front pic and palettes). The summary is `ShowPokemonSummaryScreen` /
   `ShowSelectMovePokemonSummaryScreen` + `GetMoveSlotToReplace` (src/menus/summaryScreen.ts).
+- **Screen transitions:** `battle/transition.ts` is battle_transition.c; `world/fieldGbaScreen.ts` puts the field
+  on the GBA layer for it (start → BattleTransition_StartOnField, `frame()` once per overworld tick, stop when
+  IsBattleTransitionDone) and has a bare mode for CB2_DoChangeMap's cave flash screens (`world/mapTransition.ts`,
+  also MapTransitionIsEnter/IsExit). Warps go WarpFadeOutScreen → doChangeMap → SetUpWarpExitTask in
+  `OverworldScene.warpTo`. `__test.forceBattleTransition('SWIRL')` makes the next battles use one transition.
+  The map preview screens are the obvious next piece: TryDoMapTransition already knows where they'd run.
 - **Bag tests:** `battleTest.launch({..., bag: [["ITEM_POTION", 3]]})` stocks the bag for a battle.
 - **Quick battle test:** `npm run dev:battle` opens `battle-test.html`: pick both parties (species, level, moves,
   held item), trainer or wild, single/double, IVs, terrain, then Start. Scripted: `battleTest.launch({...config})`
@@ -334,7 +358,8 @@ State as of the last log entry:
   tests/README.md. Each e2e file starts from a URL preset, drives `window.__test` (`src/dev/testHooks.ts`) and
   asserts on state and events. New field mechanics should get a scenario there rather than a one-off
   `browser-test.mjs` run. The game reports milestones through `testEvent()` (map, script, trainerApproach,
-  battleStart, battleEnd, whiteOut); add one wherever a test needs to know something happened.
+  battleTransition, battleTransitionEnd, battleStart, battleEnd, whiteOut, mapTransition, barnDoorWipe); add one
+  wherever a test needs to know something happened.
 - **Testing long scenes (ad hoc):** `tools/browser-test.mjs` has `mash:<js>` (press A until a condition holds), e.g.
   `mash:game.scene.getScene("Overworld").state.getVar("VAR_MAP_SCENE_PALLET_TOWN_PROFESSOR_OAKS_LAB")===2`.
   Build step lists as a bash array (`args+=(...)`) so JS with spaces survives word splitting.
@@ -959,3 +984,29 @@ State as of the last log entry:
 - Tests: `tests/e2e/fieldEffects.test.ts` (water/flower tiles change, door entry and exit, ledge jump shadow into
   grass, pond reflection). New probes: `field().playerVisible/doorAnimating/fieldEffects/playerEffects`,
   `__test.tilesetTile()`.
+
+### Screen transitions: battle transitions, warp fades, barn door wipe (user request)
+
+- Battle transitions: port of battle_transition.c (`battle/transition.ts`) for every transition FRLG uses (Spiral,
+  which nothing starts, is left out), incl. the trainer pics for the mugshots (CreateTrainerSprite) and the Poké
+  Ball trail's field effect bookkeeping. `OverworldScene.runBattle` now runs CreateBattleStartTask /
+  Task_BattleStart: the transition picked by GetWildBattleTransition / GetTrainerBattleTransition (Old Man:
+  Slice), then BattleScene, instead of a fade to black. `include/battle_transition.h` is read for defines.
+- `world/fieldGbaScreen.ts`: the field on the GBA layer (InitOverworldBgs, InitOverworldGraphicsRegisters,
+  CopyMapTilesetsToVram from the animated tileset VRAM, LoadMapTilesetPalettes, DrawWholeMapView/DrawMetatile
+  every frame, VBlankCB_Field), drawn by the software PPU over the field; Phaser's sprites go into a new OBJ
+  bitmap layer of the PPU.
+- PPU: BG mosaic (Blur), an HBlank callback per line (Swirl, Shuffle, Ripple, Slice, mugshots, white bars), HBlank
+  DMA to any register (`DmaSetHBlank16` / `DmaStop0`). Window bounds now follow GBATEK (X2 > 240 or X1 > X2 means
+  X2 = 240, same for Y with 160) instead of wrapping: the field's WIN1 at (255, 255) used to cover the whole screen.
+  CB2_InitBattleInternal now clears the HBlank/VBlank callbacks like the C.
+- Warps: WarpFadeOutScreen / WarpFadeInScreen with the decomp's timing (ScreenFade, which gained FadeScreen's delay
+  and palette_bg_faded_fill_*) replace the 200 ms camera fade: white into caves, black into a section with a cave
+  preview screen, white out of caves. CB2_DoChangeMap's FlashTransition_Enter / _Exit run on the GBA layer between
+  the fade out and the new map (`world/mapTransition.ts`; cave_transition graphics extracted). Leaving through a
+  door: DoOutwardBarnDoorWipe (`ui/BarnDoorWipe.ts`) with WarpFadeInScreenWithDelay, and Task_ExitDoor waits for it.
+- Not done: map preview screens, battle music/SE with the transition, Flash (TRANSITION_TYPE_FLASH).
+- Tests: `tests/e2e/transitions.test.ts` (wild and trainer transition choice, every transition ends black before
+  the battle, barn door wipe, Mt. Moon exit flash and white fade in, black fade into Mt. Moon). New hooks:
+  `forceBattleTransition`, `field().fadeWhite`, events battleTransition / battleTransitionEnd / mapTransition /
+  barnDoorWipe.
