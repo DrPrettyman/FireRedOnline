@@ -1026,3 +1026,9 @@ State as of the last log entry:
   store. Shown after warps (LoadMapInStepsLocal state 12, incl. new game start and white-out) and connection
   crossings; dismissed whenever ProcessPlayerFieldInput would return TRUE; killed on map load. extract.py now
   writes `floorNumber`; GetMapName moved to `world/regionMap.ts`. New e2e: mapNamePopup.test.ts.
+
+### Union merge for PROGRESS.md
+
+- `.gitattributes`: `PROGRESS.md merge=union`, so branches that each append a log entry merge without a conflict
+  (git keeps both sides). Two branches editing the same line (a checklist item, "Where to resume") come out with
+  both versions: tidy them after merging. Log entries from the two sides may also need a blank line between them.
