@@ -21,13 +21,12 @@ Status of the port: what exists, what's next. Everything else lives in `docs/`:
 Main-path blockers, roughly in the order a playthrough hits them. [MAIN_PATH_PLAN.md](MAIN_PATH_PLAN.md) splits
 them into workstreams and batches:
 
-1. **PC storage** (pokemon_storage_system.c): a 7th mon has nowhere to go (`givemon` returns MON_CANT_GIVE, the
-   "sent to PC" message is cosmetic). Also the PC menu's storage entry and `ChangeBoxPokemonNickname`.
-2. **Save/load** (save.c, load_save.c): nothing persists.
-3. **Field moves**, Cut first (Vermilion Gym), then Flash, Surf, Strength, Rock Smash, Fly, Waterfall: the party
-   menu's field-move path (always "can't be used here" now), each move's field effect (`dofieldeffect`), and for
-   Surf/Waterfall GetInteractedWaterScript.
-4. **`special ListMenu`** (the scrolling list menu): Silph Co.'s elevator.
+1. **PC storage:** the boxes and sending to the PC work (batch 1); the storage screens (deposit / withdraw /
+   move) are batch 2.
+2. **Save/load:** the save data model is done (batch 1); the save dialog, main menu and CONTINUE are batch 2.
+3. **Field moves:** the framework, Cut, Rock Smash, Sweet Scent, Dig, Teleport, Soft-Boiled / Milk Drink and Flash
+   work (batch 1). Surf, Waterfall and Strength are batch 2, Fly batch 3.
+4. ~~`special ListMenu`~~: done (batch 1); Silph Co.'s elevator works.
 
 Other open work:
 
@@ -143,7 +142,7 @@ Loose ends:
   `dofieldeffect` in general
 - [x] Map name popup (map_name_popup.c): on warps into maps with show_map_name, on connections into another
   region map section (reshown if still up), floor numbers / ROOFTOP, dismissed when field input starts something
-- [ ] Save/load
+- [~] Save/load: the save data model (state/saveData.ts, localStorage); no save dialog or main menu yet
 - [x] Party menu (party_menu.c) and bag (item_menu.c, bag.c, item_use.c) on the GBA layer, from the field and in battle; list menus, scroll arrows, mon/item icons, std/dialog frames, YES/NO, money box
 - [x] Summary screen (pokemon_summary_screen.c): INFO / SKILLS / KNOWN MOVES pages, move details, switching moves, choosing a move to forget (field and battle)
 - [ ] Pokédex, options, TM case, berry pouch
