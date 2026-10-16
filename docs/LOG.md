@@ -1345,3 +1345,23 @@ end to end.
   other workers' suites shared the machine and passed on a rerun of those files).
 - Tests: tests/e2e/mainPathLeftovers.test.ts (Silph Co. 5F door + the Card Key ball, Seafoam B4F stopped / running /
   after CONTINUE, B3F, the cable club save prompt NO and YES, Lugia via seteventmon).
+
+### Oak's speech (`oak-speech`)
+
+- oak_speech.c on the GBA layer (menus/oakSpeech.ts), run by MainMenuScene for NEW GAME: the three controls guide
+  pages (top bar, keypad icons, the button pics), the Pikachu intro (blended page turns), then Oak: Nidoran♀ out of
+  its Poké Ball and back (pokeball.c's CreatePokeballSpriteToReleaseMon / CreateTradePokeballSprite with the ball's
+  open particles and the mon's fade), BOY / GIRL, the player's name (the naming screen; NO renames), the rival's
+  name (NEW NAME → the naming screen, or one of the four presets), "Let's go!" and the player pic turning white and
+  shrinking on the affine BG2, then CB2_NewGame. The names and gender end up in the field's new GameState
+  (OverworldStart `newGameProfile`, via Charmap.decodePlain).
+- GBA layer: affine BGs (PPU modes 1-2, bg.c's affine tilemap paths, SetBgAffine + BgAffineSet, ChangeBgX/Y writing
+  BG2X/Y), menu.c's top bar window (gba/topBarWindow.ts), text.c's text cursor sprite (gba/textCursor.ts),
+  GetStdWindowBaseTileNum, no-op PlayBGM. resetHardware now leaves BG2/BG3 PA = PD = 0x100 (RegisterRamReset).
+- Found on the way: ChangeBgX/Y only wrote BG0/BG1's offsets in bg mode 0; bg.c writes them in mode 1 too (and the
+  affine reference point for BG2). Task_OakSpeech_DestroyPlatformSprites destroys sprite 0 three times (its own
+  task's data[7..9] were never set; a decomp-documented bug), kept.
+- Extractor: graphics/oak_speech/ in extract_gfx.py.
+- Tests: titleScreen.test.ts gains two Oak's speech scenarios (GIRL with both names typed in the naming screen →
+  PlayersHouse_2F with the names and the female avatar; BOY, NO → rename, a preset rival name); charmap.test.ts
+  covers decodePlain.
