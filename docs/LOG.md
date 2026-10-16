@@ -779,3 +779,11 @@ end to end.
   trigger. New tests/e2e/pokemonTower.test.ts: beating the unveiled Marowak (checks gender, nature, IVs, the
   scene var) and running from the unidentified ghost (pushed back up a tile, scene var stays 0).
 - Verified: typecheck, unit tests, full e2e suite.
+
+### PROGRESS.md retired
+
+- Every branch started before the progress docs split has merged, so PROGRESS.md is gone, along with its CLAUDE.md
+  and `.gitattributes` rules. Checked first that everything in it is in STATUS.md or docs/.
+- Merging `marowak-ghost-battle` (built on the unsquashed battle-anims-step1 commits) silently brought back what it
+  had removed: the `startUnveiledGhostBattle` test hook, the Marowak "isn't ported" deviation and the plan's loose
+  end. Fixed in the merge.

@@ -20,8 +20,6 @@ FireRed rebuilt in Phaser 3 + TypeScript (Vite). See README.md for setup and arc
     changes go in its own section there.
   - docs/LOG.md: append an entry (what changed, fixes found on the way, how it was verified). It's long: search it,
     don't read it end to end.
-  - PROGRESS.md is the old all-in-one file, kept until branches started before the split have merged. Don't add to
-    it; when a merged branch changed it, carry those changes over to STATUS.md and docs/.
 
 ## Git
 
@@ -33,8 +31,11 @@ FireRed rebuilt in Phaser 3 + TypeScript (Vite). See README.md for setup and arc
     summary. Then report what was done, what wasn't, and confirm the progress docs are updated.
 - Merging PRs:
   - Merge open PRs one at a time, smallest first (unless one depends on another).
-  - For each: in a worktree, merge the latest `origin/master` into the PR branch, resolve conflicts (STATUS.md,
-    PROGRESS.md and docs/*.md use merge=union: tidy any duplicated lines), run typecheck, unit and e2e tests, push, then
+  - For each: in a worktree, merge the latest `origin/master` into the PR branch, resolve conflicts (STATUS.md
+    and docs/*.md use merge=union: tidy any duplicated lines), run typecheck, unit and e2e tests, push, then
     `gh pr merge --squash`. If a conflict needs a judgement call or tests fail, skip that PR and report it.
+  - If the PR branch contains another PR's commits that master already has squashed, git can silently restore
+    lines the PR deleted. After merging master in, check `git diff <PR head before the merge>` shows only master's
+    changes.
   - After each merge, delete the PR's branch (local and remote) and its worktree.
   - At the end, `git pull --ff-only` in the main checkout only if its working tree is clean; otherwise tell the user.
