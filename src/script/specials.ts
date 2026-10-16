@@ -50,6 +50,7 @@ const NO_OP = [
   'UpdatePickStateFromSpecialVar8005',
   'SetUnlockedPokedexFlags', // gcnLinkFlags, only used for GameCube link
   'Script_FadeOutMapMusic', // audio: its waitstate ends at once
+  'Script_UpdateTrainerFanClubGameClear', // the Trainer Fan Club's state isn't kept (EventScript_SetDefeatedEliteFourFlagsVars)
   'InitUnionRoom', // wireless only (and stubbed out from REVISION 0xA): CableClub_OnResume in every Pokémon Center
   'CloseLink', // link play: nothing was opened (TryBattleLinkup below never connects)
   'HelpSystem_Enable', // help system
@@ -217,9 +218,49 @@ export const SPECIALS: Record<string, Special> = {
     setWaitState(host.openPokemonStoragePc());
   },
 
-  /** HallOfFamePCBeginFade (hof_pc.c): the Hall of Fame screen isn't ported (only after the credits). */
-  HallOfFamePCBeginFade({ warnOnce }) {
-    warnOnce('HallOfFamePCBeginFade', '[special] Hall of Fame PC not implemented');
+  /**
+   * HallOfFamePCBeginFade (hof_pc.c): the Hall of Fame PC (menus/hallOfFame.ts CB2_InitHofPC). Its return
+   * (ReshowPCMenuAfterHallOfFamePC) puts the PC menu back up; the script's `waitstate` ends with that menu's
+   * choice in VAR_RESULT, which EventScript_ChoosePCMenu then switches on.
+   */
+  HallOfFamePCBeginFade({ state, host, setWaitState }) {
+    const pc = host.openHallOfFamePc();
+    setWaitState(() => {
+      if (!pc.tick()) return false;
+      state.setVar('VAR_RESULT', pc.result);
+      return true;
+    });
+  },
+
+  /**
+   * EnterHallOfFame (post_battle_event_funcs.c): SetMainCallback2(CB2_DoHallOfFameScreen). The screen ends in
+   * a warp to Indigo Plateau, so the script that called it never resumes.
+   */
+  EnterHallOfFame({ host, endScript }) {
+    endScript();
+    host.enterHallOfFame();
+    return 0;
+  },
+
+  /** DoCredits (credits.c): SetMainCallback2(CB2_Credits), which ends in SoftReset, so the `waitstate` never ends. */
+  DoCredits({ host, setWaitState }) {
+    host.doCredits();
+    setWaitState(() => false);
+  },
+
+  /** IsNationalPokedexEnabled (pokedex.c), as a `specialvar` (EventScript_SetDefeatedEliteFourFlagsVars). */
+  IsNationalPokedexEnabled({ state }) {
+    return isNationalDexEnabled(state) ? 1 : 0;
+  },
+
+  /** SpawnCameraObject (field_specials.c): the camera stays where the player stands while scripts move them. */
+  SpawnCameraObject({ host }) {
+    host.spawnCameraObject();
+  },
+
+  /** RemoveCameraObject: the camera follows the player again. */
+  RemoveCameraObject({ host }) {
+    host.removeCameraObject();
   },
 
   /** EnterSafariMode (safari_zone.c; GAME_STAT_ENTERED_SAFARI_ZONE isn't kept) */

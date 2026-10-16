@@ -58,15 +58,29 @@ export class BootScene extends Phaser.Scene {
 /**
  * DoSoftReset (the clear save data screen, the end of the credits): stop every scene and boot again, which shows
  * the title screen (with ?skipIntro: the main menu or the new game). The extracted data stays loaded; everything
- * else starts fresh, as the overworld builds a new GameState when it starts. Call it from a scene's own code
+ * else starts fresh. SoftReset clears RAM, but Phaser reuses a stopped scene's instance with all its fields, so the
+ * Overworld (whose fields hold the field's state) is replaced by a new instance. Call it from a scene's own code
  * (a GBA host should stopHost() first, as MainMenuScene's clear save data screen does).
  */
 export function softReset(from: Phaser.Scene): void {
-  for (const s of from.scene.manager.getScenes(false)) {
-    if (s === from || s.scene.key === 'Boot') continue;
-    if (s.scene.isActive() || s.scene.isSleeping() || s.scene.isPaused() || s.scene.isVisible()) s.scene.stop();
+  const game = from.game;
+  for (const s of game.scene.getScenes(false)) {
+    if (s.scene.key === 'Boot') continue;
+    if (s === from || s.scene.isActive() || s.scene.isSleeping() || s.scene.isPaused() || s.scene.isVisible()) s.scene.stop();
   }
-  from.scene.start('Boot', { softReset: true } satisfies BootStart);
+  const Overworld = game.scene.getScene('Overworld').constructor as new () => Phaser.Scene;
+  game.scene.remove('Overworld');
+  // The removal is queued while the scenes update: wait until it has happened
+  const reboot = () => {
+    if (game.scene.getScene('Overworld')) {
+      game.events.once(Phaser.Core.Events.POST_STEP, reboot);
+      return;
+    }
+    game.scene.add('Overworld', Overworld, false);
+    game.scene.moveAbove('MainMenu', 'Overworld'); // back to its place in main.ts's scene list
+    game.scene.start('Boot', { softReset: true } satisfies BootStart);
+  };
+  game.events.once(Phaser.Core.Events.POST_STEP, reboot);
 }
 
 /** `?skipIntro` (dev builds only): no title screen. */

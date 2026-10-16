@@ -95,6 +95,15 @@ export interface ScriptHost {
   openPokemonStoragePc(): Wait;
   /** PlayerPC / BedroomPC: the item storage menus; the wait ends when the player turns the PC off. */
   openPlayerPc(): Wait;
+  /** EnterHallOfFame: the Hall of Fame screen; the field comes back through its warp into Indigo Plateau. */
+  enterHallOfFame(): void;
+  /** HallOfFamePCBeginFade: the Hall of Fame PC, then the PC menu again (its choice in `result`). */
+  openHallOfFamePc(): { tick(): boolean; result: number };
+  /** DoCredits (credits.c): the credits on the field's GBA layer; they end in a reset, never back to the script. */
+  doCredits(): void;
+  /** SpawnCameraObject / RemoveCameraObject (field_specials.c) */
+  spawnCameraObject(): unknown;
+  removeCameraObject(): void;
   /** SetWarpDestination without warping (setwarp): used by the next WarpIntoMap. */
   setWarpDestination(mapId: string, warpId: number, x: number, y: number): void;
   /** LOCALID_* names are generated per map from map.json `local_id` fields. */
@@ -109,8 +118,8 @@ export interface ScriptHost {
   createSaveDialog(): { tick(): number };
   /** CreatePCMenuWindow + CreateMCMenuInputHandlerTask */
   openPcMenu(): { tick(): boolean; result: number };
-  /** FadeScreen: returns a wait for IsPaletteNotActive. */
-  fadeScreen(mode: number): Wait;
+  /** FadeScreen(mode, delay): returns a wait for IsPaletteNotActive. */
+  fadeScreen(mode: number, delay?: number): Wait;
   /**
    * DoNamingScreen from a black field, returning through CB2_ReturnToFieldContinueScriptPlayMapMusic:
    * the wait ends once the field has faded back in.
@@ -1000,6 +1009,10 @@ export class ScriptEngine {
 
     fadescreen(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
       ctx.wait = this.host.fadeScreen(this.state.value(a[0]));
+    },
+    /** ScrCmd_fadescreenspeed: FadeScreen(mode, speed), waiting for IsPaletteNotActive */
+    fadescreenspeed(this: ScriptEngine, ctx: ScriptContext, a: string[]) {
+      ctx.wait = this.host.fadeScreen(this.state.value(a[0]), this.state.value(a[1]));
     },
 
     // ------------------------------------------------ money (a non-zero second argument disables the command)
