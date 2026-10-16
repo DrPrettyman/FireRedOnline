@@ -59,6 +59,11 @@ export class ScreenFade {
     return true;
   }
 
+  /** Whether the fade colour is white (FADE_*_WHITE, palette_bg_faded_fill_white). */
+  get white(): boolean {
+    return this.rect.fillColor === 0xffffff;
+  }
+
   /** palette_bg_faded_fill_black / _white: every palette shows the colour until a fade starts. */
   fill(white: boolean): void {
     this.rect.setFillStyle(white ? 0xffffff : 0x000000);

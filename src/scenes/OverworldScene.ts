@@ -61,7 +61,7 @@ import {
 } from '../world/trainerSee';
 import { mapResetTrainerRematches, shouldEggHatch, updateHappinessStepCounter, updatePoisonStepCounter, updateVsSeekerStepCounter } from '../world/stepCounters';
 import { sharedBattleData, type BattleStart } from './BattleScene';
-import { logicSpeed, testEvent, testHooks, type FieldProbe } from '../dev/testHooks';
+import { forcedBattleTransition, logicSpeed, testEvent, testHooks, type FieldProbe } from '../dev/testHooks';
 import type { FieldMenuStart, NamingScreenRequest } from './FieldMenuScene';
 
 /** GBA runs at ~59.73Hz; we tick game logic at a fixed 60Hz regardless of display refresh. */
@@ -279,6 +279,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       moving: this.player.isMoving,
       approaching: this.trainerApproach !== undefined,
       fading: this.screenFade.active,
+      fadeWhite: this.screenFade.white,
       message: this.messageBox.visible ? this.messageBox.text : undefined,
       playerVisible: this.player.visible,
       doorAnimating: this.doors.running,
@@ -844,6 +845,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     // case 5
     this.player.setVisible(false); // FreezeObjectEvents: the overlay
     const wipe = new BarnDoorWipe(this); // DoOutwardBarnDoorWipe
+    testEvent('barnDoorWipe');
     this.warpFadeInScreen(isExit, 3); // WarpFadeInScreenWithDelay
     state = 6;
     this.overlay = {
@@ -1624,6 +1626,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     const color = this.scripts.contextTextColor();
     const map = this.world.current.data;
     let phase: 'poison' | 'transition' | 'battle' | 'done' = 'poison';
+    transition = forcedBattleTransition ?? transition;
     const source = this.fieldGbaSource();
     let loaded = false;
     void loadGfx([...battleTransitionGfxSymbols(transition), ...fieldGbaScreenGfxSymbols(source)]).then(() => (loaded = true));
@@ -1658,6 +1661,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
         }
         if (phase === 'transition' && IsBattleTransitionDone()) {
           phase = 'battle';
+          testEvent('battleTransitionEnd', { black: this.gbaScreen.blackFraction() });
           // Every palette is black now (FadeScreenBlack); the field stays black behind the battle.
           this.gbaScreen.stop();
           this.screenFade.fill(false);
