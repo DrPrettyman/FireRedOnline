@@ -1074,6 +1074,27 @@ end to end.
   reseeds inside the page; started before the anims play, it lands within a frame of the last one ending. Bounce
   and Doom Desire use it. Passed twice in a row with the anim and avatar files running four at a time.
 
+### Field move framework: Cut, Rock Smash, Sweet Scent, Dig, Teleport, Soft-Boiled (W-fieldmove)
+
+- field_effect.c's script interpreter (world/fieldEffectScripts.ts) over the extracted
+  data/field_effect_scripts.s, and the script commands `dofieldeffect`, `waitfieldeffect`,
+  `setfieldeffectargument`, `checkpartymove`, plus `buffermovename` and `setescapewarp`.
+- Party menu: CursorCB_FieldMove for real (sFieldMoveCursorCallbacks as a registry, badge check, the Teleport/Dig
+  YES/NO with the destination's name, Surf/Flash failure messages), FieldCallback_PrepareFadeInFromMenu +
+  gPostMenuFieldCallback through a new `gFieldCallback2`, and Soft-Boiled / Milk Drink (fldeff_softboiled.c).
+- FLDEFF_FIELD_MOVE_SHOW_MON(_INIT): the banner (outdoor and indoor) on the field's GBA layer, and the player's
+  field move pose (CreateFieldEffectShowMon).
+- Cut (trees via EventScript_CutTree / _FldEffCut, the `cut_tree` movement; grass around the player with
+  FldEff_CutGrass and its 8 sprites; the Ruin Valley braille), Rock Smash (+ `rock_smash_break`, the
+  RockSmashWildEncounter special), Sweet Scent (red fade, SweetScentWildEncounter, EventScript_FailSweetScent),
+  Dig (escape warp, Escape Rope warp-out/in) and Teleport (last heal location, TeleportFieldEffectTask*).
+- Field: the escape warp is set when leaving an outdoor map for an indoor one (UpdateEscapeWarp); warps can end in a
+  gFieldCallback (OverworldScene.loadWarpedMap); a field task created by another task is no longer dropped;
+  ObjectEvent.fixedPriority; ScreenFade.beginBlend.
+- Extractor: field_effects/scripts.json, tileset `terrains` (METATILE_ATTRIBUTE_TERRAIN) and map `allowEscaping`.
+  Rerun `npm run extract`.
+- Tests: tests/e2e/fieldMoves.test.ts (11 scenarios). Deviations (audio, Sweet Scent's overlay, unported natives) in
+  docs/DEVIATIONS.md; how to add Surf/Strength/Flash/Fly in docs/DEV_NOTES.md "Field moves".
 ### Field ListMenu (Silph Co. elevator) and Flash's darkness (W-list)
 
 - `special ListMenu` / `special ReturnToListMenu` (field_specials.c) in `ui/FieldListMenu.ts`: list_menu.c's
@@ -1121,3 +1142,13 @@ end to end.
   added PC boxes (no UI), save data (no flash/checksums/encryption; what isn't kept) and play time.
 - Tests: tests/unit/pcBoxes.test.ts, tests/unit/saveData.test.ts, tests/e2e/pcBoxes.test.ts (givemon and catches
   with a full party, with and without a full current box, a nicknamed catch, the save slot in the browser).
+
+### Batch 1 of MAIN_PATH_PLAN.md merged (PRs #14-#17); Flash from the party menu
+
+- Merged W-avatar (#14), W-state (#15), W-list (#16) and W-fieldmove (#17). Conflicts: OverworldScene's imports
+  and field-task loop (kept the task-survival fix and the flash tick); GameState had `escapeWarp` and `WarpData`
+  from both W-state and W-fieldmove (kept one). The save data now includes `flashLevel` (W-list's field).
+- Flash from the party menu: `SetUpFieldMove_Flash` / `FieldCallback_Flash` in world/fieldMoves.ts, on W-list's
+  check and FldEff_UseFlash; FieldMoveHost gains `cave()` and `useFlash()`. e2e: fieldMoves.test.ts.
+- Extracting in a worktree: set `FIRERED_DECOMP=/path/to/pret/firered` (the default is a path relative to the
+  checkout, which a worktree doesn't have).

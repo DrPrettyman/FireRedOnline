@@ -33,8 +33,8 @@ export class GameState {
   /** gSaveBlock1Ptr->lastHealLocation (set by `setrespawn`): where a white-out sends you. */
   lastHealLocation?: { map: string; x: number; y: number };
   /**
-   * gSaveBlock1Ptr->escapeWarp: where Dig / Escape Rope lead (SetEscapeWarp / UpdateEscapeWarp). Nothing sets it
-   * yet; it's here so the save keeps it once the field does.
+   * gSaveBlock1Ptr->escapeWarp: where Dig and the Escape Rope lead. Set on warps from outdoors to indoors
+   * (UpdateEscapeWarp in world/fieldMoves.ts) and by `setescapewarp`.
    */
   escapeWarp?: WarpData;
   /** gSaveBlock1Ptr->continueGameWarp: where CONTINUE starts instead of the saved position (SetContinueGameWarp*). */
@@ -354,7 +354,7 @@ export class GameState {
   }
 }
 
-/** struct WarpData, with the map as its MAP_* id; x/y are map-local. */
+/** struct WarpData: a MAP_* id, a warp id (-1: use x/y) and map-local x/y. */
 export interface WarpData {
   mapId: string;
   warpId: number;

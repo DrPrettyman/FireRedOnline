@@ -23,9 +23,18 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     them as English and Shedinja doesn't clear those fields.
   - Summary screen: no box mons (PC), trade-screen view or multi-battle party order; the struct Pokemon fields the
     port doesn't store read as defaults (markings 0, met game FireRed, no fateful-encounter flag, English).
-  - Party menu: field moves always say they can't be used
-    here (badge checks are real); mail, Softboiled/Milk Drink, the move relearner, Union Room, minigames,
-    Pokédude/Teachy TV demos are not ported.
+  - Party menu: mail, the move relearner, Union Room, minigames, Pokédude/Teachy TV demos are not ported. Of
+    the field moves, Surf, Waterfall, Strength and Fly aren't registered yet (they say they can't be used here;
+    Surf's message is the real one), and no field move records a quest log event.
+  - Field moves (world/fieldMoves.ts, world/fieldMoveShowMon.ts): no audio (the cry in the banner, SE_M_CUT,
+    SE_M_ROCK_THROW, SE_M_SWEET_SCENT, the warp sounds) and no GAME_STAT_USED_CUT / _ROCK_SMASH. The field
+    effect scripts' palette commands (loadfadedpal, ...) do nothing: the field's sprites are Phaser textures. A
+    `callnative` that isn't ported warns once and the effect ends at once (FLDEFF_POKECENTER_HEAL, the emote
+    icons from scripts, FLDEFF_USE_STRENGTH / _SURF / _WATERFALL until those field moves come). Sweet Scent's
+    red fade is an overlay under the player instead of a fade of every other palette, so the player is also drawn
+    over the map's top layer meanwhile, and the field is its normal colour during the battle transition that
+    follows. The show-mon banner's graphics load while the player's pose plays, so a very slow load would hold the
+    banner back. Dig/Escape Rope with no escape warp saved (a dev start in a cave) go to the last heal location.
   - Item use: the item-use animation (pokemon_special_anim.c) is skipped. Bag uses that need overworld systems
     (rods, Escape Rope, Itemfinder, VS Seeker, Town Map, Fame Checker, Teachy TV, mail, TM case, berry pouch,
     registered SELECT items) log "not implemented" and return to the bag. Berry powder reads as 0; the
@@ -35,8 +44,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - Battles: the level-up banner (exp to a mon that isn't sent out) has no mon icon; Spinda's spots aren't drawn;
     HP-as-text (SwapHpBarsWithHpText) and link/multi battles aren't implemented.
   - Battle transitions: no SE_MUGSHOT, and the battle music doesn't start with the transition.
-  - Flash (world/flash.ts): the party menu's Flash (SetUpFieldMove_Flash / FieldCallback_Flash and the mon
-    banner) isn't wired yet (waits for the field move framework); FldEff_UseFlash's SE_M_REFLECT is silent.
+  - Flash (world/flash.ts): FldEff_UseFlash's SE_M_REFLECT is silent.
   - Map preview screens (Mt. Moon, Rock Tunnel, Viridian Forest...) aren't ported: warps into those sections fade
     to black like the GBA and go straight to the map, without the banner (or the flash that follows it).
   - Wild encounters: GAME_STAT_* counters aren't kept.
