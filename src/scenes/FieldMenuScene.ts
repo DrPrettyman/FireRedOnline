@@ -1,7 +1,8 @@
 // The GBA-layer screens opened from the field: the party menu and bag from the start menu
 // (CB2_PartyMenuFromStartMenu / CB2_BagMenuFromStartMenu), the Poké Mart's buy menu and sell bag
-// (CB2_InitBuyMenu / CB2_GoToSellMenu), the naming screen (DoNamingScreen from a special) and the Hall of Fame
-// (CB2_DoHallOfFameScreen from EnterHallOfFame, CB2_InitHofPC from the PC). The
+// (CB2_InitBuyMenu / CB2_GoToSellMenu), the naming screen (DoNamingScreen from a special), the Hall of Fame
+// (CB2_DoHallOfFameScreen from EnterHallOfFame, CB2_InitHofPC from the PC) and the wall maps' region map
+// (`special ShowTownMap`). The
 // overworld isn't a GBA screen, so its return points (CB2_ReturnToFieldWithOpenMenu, CB2_ReturnToField,
 // CB2_ReturnToFieldContinueScriptPlayMapMusic) end this scene instead.
 
@@ -26,6 +27,7 @@ import { CB2_DoHallOfFameScreen, CB2_InitHofPC, hallOfFameGfxSymbols, hofEnv, pa
 import type { WarpData } from '../state/GameState';
 import { gHofBuffer, LoadHallOfFameSave } from '../state/hallOfFame';
 import { SAVE_STATUS_OK, TrySavingData } from '../state/save';
+import { InitRegionMapWithExitCB, REGIONMAP_TYPE_WALL, regionMapGfxSymbols } from '../menus/regionMap';
 import { buyMenuGfxSymbols, CB2_GoToSellMenu, CB2_InitBuyMenu, LoadFieldTilesetsForShop, type ShopFieldView } from '../menus/shop';
 import type { PokemonData } from '../pokemon/Pokemon';
 import type { GameState } from '../state/GameState';
@@ -52,7 +54,7 @@ export interface NamingScreenRequest {
 }
 
 export interface FieldMenuStart {
-  menu: 'party' | 'bag' | 'buy' | 'sell' | 'naming' | 'storage' | 'itemPc' | 'itemPcDeposit' | 'hallOfFame' | 'hallOfFamePc';
+  menu: 'party' | 'bag' | 'buy' | 'sell' | 'naming' | 'storage' | 'itemPc' | 'itemPcDeposit' | 'hallOfFame' | 'hallOfFamePc' | 'townMap';
   /** For 'storage': OPTION_WITHDRAW / OPTION_DEPOSIT / OPTION_MOVE_MONS / OPTION_MOVE_ITEMS */
   storageOption?: number;
   /** For 'buy': what the buy menu's map view reads from the field. */
@@ -104,6 +106,10 @@ export class FieldMenuScene extends GbaHostScene {
       // The box screen draws every mon's icon and pic synchronously; it can also open the naming screen.
       await loadGfx([...pokemonStorageGfxSymbols(), ...namingScreenGfxSymbols(NAMING_SCREEN_BOX, 0, 0)]);
     }
+    // The region map: the fly map from the party menu, the Town Map from the bag (with its dungeon previews), the wall maps.
+    if (start.menu === 'party' || start.menu === 'bag' || start.menu === 'townMap') {
+      await loadGfx(regionMapGfxSymbols(start.menu === 'bag' && start.state.bag.has(K.ITEM_TOWN_MAP, 1)));
+    }
     // The item PC's list (WITHDRAW ITEM) draws the PC's items' icons.
     if (start.menu === 'itemPc') await loadGfx(itemPcGfxSymbols());
     const naming = start.naming;
@@ -138,6 +144,9 @@ export class FieldMenuScene extends GbaHostScene {
       SetMainCallback2(CB2_DoHallOfFameScreen); // EnterHallOfFame
     } else if (start.menu === 'hallOfFamePc') {
       SetMainCallback2(CB2_InitHofPC); // Task_WaitFadeAndSetCallback
+    } else if (start.menu === 'townMap') {
+      // ShowTownMap (field_specials.c)
+      SetMainCallback2(() => InitRegionMapWithExitCB(REGIONMAP_TYPE_WALL, CB2_ReturnToFieldContinueScriptPlayMapMusic));
     } else if (start.menu === 'storage') {
       const option = start.storageOption!;
       SetMainCallback2(() => EnterPokeStorage(option));

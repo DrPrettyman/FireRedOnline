@@ -28,6 +28,7 @@ import { storageProbe } from '../menus/pokemonStorage';
 import { itemPcProbe } from '../menus/itemPc';
 import { hallOfFameProbe } from '../menus/hallOfFame';
 import { creditsProbe, creditsSkipToClosing } from '../menus/credits';
+import { regionMapProbe } from '../menus/regionMap';
 import { mainMenuProbe } from '../menus/mainMenu';
 import { titleScreenProbe } from '../menus/titleScreen';
 import { clearSaveDataProbe } from '../menus/clearSaveDataScreen';
@@ -528,6 +529,15 @@ function createApi(game: Phaser.Game) {
     credits: () => creditsProbe(),
     /** Jump the credits to their closing screens once they're between commands; false if not (try again next tick). */
     creditsSkipToClosing: () => creditsSkipToClosing(),
+    /**
+     * The region map while it runs (menus/regionMap.ts: the Town Map, the fly map, the wall maps): its
+     * REGIONMAP_TYPE_*, the task, the cursor and player icon cells, what's under the cursor (MAPSEC_*,
+     * MAPSECTYPE_*), the fly icons, and the map name and top bar's right text, decoded.
+     */
+    regionMap: () => {
+      const p = regionMapProbe();
+      return p && { ...p, mapName: decode(p.mapName), topBarRight: decode(p.topBarRight) };
+    },
     /** The item PC's list (WITHDRAW ITEM, item_pc.c) while it runs: its task, scroll/row and item count. */
     itemPc: () => (gMain.callback2?.name === 'ItemPc_MainCB' ? itemPcProbe() : undefined),
     /** The map name popup while Task_MapNamePopup runs: its text, decoded, and how many px of it are on screen. */
