@@ -49,6 +49,11 @@ import { DEPTH_UI } from '../text/TextWindow';
 import { FieldDoors } from '../world/doors';
 import { InitSecondaryTilesetAnimation, InitTilesetAnimations, TransferTilesetAnimsBuffer, UpdateTilesetAnimations } from '../world/tilesetAnims';
 import { ShopMenu, type ShopHost } from '../ui/ShopMenu';
+import { StoragePcMenu } from '../ui/StoragePcMenu';
+import { PlayerPcMenu } from '../ui/PlayerPcMenu';
+import { ItemPc_SetInitializedFlag } from '../menus/itemPc';
+import { CountItemsInPC } from '../state/pcItems';
+import { GetPreviousBoxOption } from '../menus/pokemonStorage';
 import { MenuWindow } from '../ui/MenuWindow';
 import { MapNamePopup } from '../ui/MapNamePopup';
 import { FLOOR_NAMES, type FieldTask } from '../world/elevator';
@@ -1496,7 +1501,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
    * CB2_ReturnToField(WithOpenMenu), the field runs its return-to-field map scripts and calls `onReturn`
    * with the screen still black.
    */
-  private runFieldMenu(start: Pick<FieldMenuStart, 'menu' | 'shopField' | 'naming'>, onReturn: (openStartMenu: boolean) => void): void {
+  private runFieldMenu(start: Pick<FieldMenuStart, 'menu' | 'shopField' | 'naming' | 'storageOption'>, onReturn: (openStartMenu: boolean) => void): void {
     const d = this.defines;
     const launch: FieldMenuStart = {
       ...start,
@@ -1526,6 +1531,59 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     // sDelay: the cable club menus ignore input for 12 frames
     const delayed = ['MULTICHOICE_TRADE_CENTER_COLOSSEUM', 'MULTICHOICE_TRADE_COLOSSEUM_CRUSH', 'MULTICHOICE_TRADE_COLOSSEUM_2'].some((n) => d.get(n) === req.mcId);
     return new MultichoiceMenu(this, this.fonts, this.buttons, { ...req, cursor, frameType, delay: delayed ? 12 : 0, fadeActive: () => this.screenFade.active });
+  }
+
+  /**
+   * ShowPokemonStorageSystemPC: the PC's storage menu runs as a field overlay while the script waits for it
+   * (`waitstate`); its options enter the box screen (FieldMenuScene 'storage').
+   */
+  openPokemonStoragePc(): Wait {
+    const d = this.defines;
+    const menu = new StoragePcMenu(this, this.fonts, this.buttons, {
+      text: (symbol) => this.charmap.encode(this.assets.strings[symbol] ?? '?$'),
+      partyCount: () => this.state.party.length,
+      constants: {
+        PARTY_SIZE: d.require('PARTY_SIZE'),
+        OPTION_WITHDRAW: d.require('OPTION_WITHDRAW'),
+        OPTION_DEPOSIT: d.require('OPTION_DEPOSIT'),
+        OPTION_EXIT: d.require('OPTION_EXIT'),
+      },
+      showDescription: (str) => this.messageBox.show(str, 'neutral', false, true),
+      hideDescription: () => this.messageBox.hide(),
+      fadeToBlack: () => this.fadeScreen(d.require('FADE_TO_BLACK')),
+      enterPokeStorage: (option, onReturn) => {
+        this.messageBox.hide(); // CleanupOverworldWindowsAndTilemaps
+        this.runFieldMenu({ menu: 'storage', storageOption: option }, () => onReturn());
+      },
+      previousBoxOption: () => GetPreviousBoxOption(),
+      fadeInFromBlack: () => this.fadeScreen(d.require('FADE_FROM_BLACK')),
+    });
+    this.overlay = menu;
+    return () => menu.done;
+  }
+
+  /** PlayerPC / BedroomPC (player_pc.c): the item storage menus run as a field overlay while the script waits. */
+  openPlayerPc(): Wait {
+    const d = this.defines;
+    const menu = new PlayerPcMenu(this, this.fonts, this.buttons, {
+      text: (symbol) => this.charmap.encode(this.assets.strings[symbol] ?? '?$'),
+      countItemsInPc: () => CountItemsInPC(this.state.pcItems, d.require('ITEM_NONE')),
+      countPcMail: () => 0,
+      displayItemMessageOnField: (str) => {
+        this.messageBox.show(str);
+        return () => !this.messageBox.isPrinting;
+      },
+      showDescription: (str) => this.messageBox.show(str, 'neutral', false, true),
+      fadeToBlack: () => this.fadeScreen(d.require('FADE_TO_BLACK')),
+      enter: (screen, onReturn) => {
+        this.messageBox.hide(); // CleanupOverworldWindowsAndTilemaps
+        if (screen === 'itemPc') ItemPc_SetInitializedFlag(false); // Task_WithdrawItemBeginFade
+        this.runFieldMenu({ menu: screen }, () => onReturn());
+      },
+      fadeInFromBlack: () => this.fadeScreen(d.require('FADE_FROM_BLACK')),
+    });
+    this.overlay = menu;
+    return () => menu.done;
   }
 
   /** CreatePokemartMenu: the shop menu runs as a field overlay while the script waits for it. */

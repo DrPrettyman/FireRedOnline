@@ -1245,3 +1245,41 @@ end to end.
   the water and the Waterfall climb. They now hold/watch/release in one eval, or start an in-page watcher
   (`watchAction` in surf.test.ts) before the action. tests/README.md "Writing a new scenario" has the rule.
   Strength, scripted battles, Surf and save/continue passed four loaded runs in a row after the fix.
+
+### Pokémon Storage System screens and the player's item PC (W-pc)
+
+- The PC's storage menu (`special ShowPokemonStorageSystemPC`, Task_PCMainMenu) as a field overlay
+  (ui/StoragePcMenu.ts), and the box screen on the GBA layer (FieldMenuScene 'storage'): pokemon_storage_system.c,
+  _tasks.c, _data.c (cursor/input), _graphics.c, _menu.c (box popup) and _misc.c (moving several mons, MOVE ITEMS)
+  in menus/pokemonStorage*.ts, with tilemap_util.c and pc_screen_effect.c. WITHDRAW / DEPOSIT / MOVE POKéMON /
+  MOVE ITEMS: picking up, placing and shifting mons (box and party), the party box, scrolling between boxes
+  (wallpapers, titles, icon scroll), the deposit / jump popup, releasing (with the Surf/Dive check), the box options
+  (JUMP, WALLPAPER, NAME through the naming screen), MARK (mon_markings.c's markings menu, now in
+  menus/monMarkings.ts; `Pokemon.markings` is kept and saved), the summary of a party, carried or boxed mon, and held
+  items (TAKE / BAG / INFO / GIVE from the bag / SWITCH).
+- Summary screen: PSS_MODE_BOX (a box's slots through BoxMonToMon, SeekToNextMonInBox) and the markings sprite.
+- The player's PC (`special PlayerPC` / `BedroomPC`, ui/PlayerPcMenu.ts): ITEM STORAGE (WITHDRAW ITEM = item_pc.c in
+  menus/itemPc.ts, incl. moving items and GIVE through the party menu; DEPOSIT ITEM = the bag's
+  Task_ItemContext_Deposit), MAILBOX (empty), TURN OFF. NewGameInitPCItems puts the Potion in the PC
+  (state/pcItems.ts has item.c's PC item functions).
+- Outside menus/: FieldMenuScene menus 'storage' / 'itemPc' / 'itemPcDeposit'; OverworldScene.openPokemonStoragePc /
+  openPlayerPc; ScriptHost gains both, SpecialEnv gains `setupScript` (ScriptContext_SetupScript, for BedroomPC's
+  shut-down script; the script loop no longer drops a context a special set up); MessageBox.show's `instant`;
+  `SetReservedSpriteTileCount` (sprite.ts); `KeyRepeat` exported from ui/FieldListMenu.ts; the bag's
+  Task_ItemContext_PcBoxGive / Task_ItemContext_Deposit; the party menu gives / returns PC items for
+  PARTY_ACTION_GIVE_PC_ITEM; GameState runs NewGameInitPCItems; `markings` in saveData's box mon fields (optional,
+  no version bump); test probes `pcStorage()` / `itemPc()`.
+- Extractor: graphics/pokemon_storage/ and graphics/item_pc/ in extract_gfx.py (whose INCBIN pattern now also takes
+  `[][16]` arrays, the wallpaper palettes), the pokemon_storage_system_*.c anim tables in extract_anims.py, and
+  include/pokemon_storage_system_internal.h's constants. Rerun `npm run extract`.
+- Tests: tests/e2e/pcStorage.test.ts (17 scenarios, incl. the bedroom PC).
+
+### E2e: exact-tick reseed, one-eval holds (merging `pc-storage`)
+
+- Doom Desire's test could still miss its roll, even on an idle machine: `reseedAfterAnims` reseeded from a promise
+  continuation, which runs after the frame's whole batch of logic ticks, so the reseed landed a variable number
+  of ticks after the anim. New dev hook `t.seedWhen(pred, n)` seeds inside the first tick `pred` holds (through
+  the virtual pad's per-tick drivers); `reseedAfterAnims` uses it.
+- playerAvatar.test.ts: the bike ride and the hold / watch / release sequences (bump, run, ledge, ice, spinner,
+  boulder push) are each one eval now. The bike test failed under load (the gaps between evals counted as frames).
+- Passed three loaded runs of playerAvatar, strength, surf and battleAnims.3e3a together.

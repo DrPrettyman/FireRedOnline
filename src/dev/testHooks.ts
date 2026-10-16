@@ -24,6 +24,8 @@ import { tilesetVram } from '../world/TilesetVram';
 import { SetPlayerAvatarTransitionFlags } from '../world/playerAvatar';
 import { DestroyPlayerSurfBlob } from '../world/surf';
 import type { FieldListMenuProbe } from '../ui/FieldListMenu';
+import { storageProbe } from '../menus/pokemonStorage';
+import { itemPcProbe } from '../menus/itemPc';
 import { mainMenuProbe } from '../menus/mainMenu';
 import { saveDialogProbe } from '../ui/SaveDialog';
 import { startMenuProbe } from '../ui/StartMenu';
@@ -496,6 +498,18 @@ function createApi(game: Phaser.Game) {
       const m = field()?.message;
       return m ? decode(m) : undefined;
     },
+    /**
+     * The Pokémon Storage System's box screen while it runs (CB2_PokeStorage): its task and state, the cursor
+     * (CURSOR_AREA_*, position, carrying a mon), the party box, the current box, the mon shown on the left,
+     * the bottom message and the open menu's items, decoded.
+     */
+    pcStorage: () => {
+      if (gMain.callback2?.name !== 'CB2_PokeStorage') return undefined;
+      const p = storageProbe();
+      return { ...p, message: decode(p.message), menu: p.menu.map(decode) };
+    },
+    /** The item PC's list (WITHDRAW ITEM, item_pc.c) while it runs: its task, scroll/row and item count. */
+    itemPc: () => (gMain.callback2?.name === 'ItemPc_MainCB' ? itemPcProbe() : undefined),
     /** The map name popup while Task_MapNamePopup runs: its text, decoded, and how many px of it are on screen. */
     mapNamePopup: () => {
       const f = field();
@@ -549,6 +563,27 @@ function createApi(game: Phaser.Game) {
 
     // --- setup
     seed: (n: number) => seedRng(n),
+    /**
+     * Seeds the RNG with `n` at the start of the first tick where `pred` holds, inside that tick (an awaited
+     * `seed()` after `until()` lands wherever the frame's batch of ticks ends). Resolves false if `maxFrames`
+     * pass first.
+     */
+    seedWhen: (pred: () => unknown, n: number, maxFrames = 20000) =>
+      new Promise<boolean>((resolve) => {
+        const deadline = pad.frame + maxFrames;
+        pad.drive(() => {
+          if (pred()) {
+            seedRng(n);
+            resolve(true);
+            return undefined;
+          }
+          if (pad.frame >= deadline) {
+            resolve(false);
+            return undefined;
+          }
+          return [];
+        });
+      }),
     /** Replace the party (CreateMon with the player as OT). */
     setParty: (specs: MonSpec[]) => {
       requireState().party = specs.map(createMon);
