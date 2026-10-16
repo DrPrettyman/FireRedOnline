@@ -762,3 +762,20 @@ end to end.
   BLDCNT/BLDALPHA cleared) and Reflect (foe hidden on the BG, then back). New test hooks: `battle().mons[i]`
   `nickname` / `transformSpecies` / `spriteInvisible`, `gpuReg(offset)`, `startUnveiledGhostBattle(spec)`.
 - Checked by eye in mid-anim screenshots: Transform, Surf, Reflect, Psychic, Rock Slide, Headbutt, Mist, Wing Attack.
+
+### Pokémon Tower 6F: the ghost Marowak battle (StartMarowakBattle)
+
+- `special StartMarowakBattle` + CB2_EndMarowakBattle (battle_setup.c) in `script/specials.ts`: with the Silph Scope
+  a GHOST | GHOST_UNVEILED battle against a Lv. 30 female Serious Marowak with 31 IVs
+  (`PokemonData.createMonWithGenderNatureLetter`, no Unown branch: every caller passes letter 0), else a GHOST
+  battle against the `setwildbattle` mon; nicknamed gText_Ghost either way, behind GetWildBattleTransition. Back on
+  the field VAR_RESULT = FALSE only for B_OUTCOME_WON (the script calms the ghost and sets
+  VAR_MAP_SCENE_POKEMON_TOWER_6F = 1), TRUE otherwise (ran: ForcePlayerUp); a loss whites out.
+- `setwildbattle` (ScrCmd_setwildbattle → CreateScriptedWildMon): gEnemyParty is `GameState.enemyParty`.
+  `dowildbattle` is still unported.
+- RestartWildEncounterImmunitySteps moved from runWildBattle/doSafariBattle into runBattle at the end of the
+  transition, where Task_BattleStart does it for every battle (trainer and scripted battles included).
+- The e2e hook `startUnveiledGhostBattle` is gone: battleAnims.test.ts's Silph Scope test now walks onto the 6F
+  trigger. New tests/e2e/pokemonTower.test.ts: beating the unveiled Marowak (checks gender, nature, IVs, the
+  scene var) and running from the unidentified ghost (pushed back up a tile, scene var stays 0).
+- Verified: typecheck, unit tests, full e2e suite.
