@@ -18,7 +18,8 @@ Status of the port: what exists, what's next. Everything else lives in `docs/`:
 
 ## Next up
 
-Main-path blockers, roughly in the order a playthrough hits them:
+Main-path blockers, roughly in the order a playthrough hits them. [MAIN_PATH_PLAN.md](MAIN_PATH_PLAN.md) splits
+them into workstreams and batches:
 
 1. **PC storage** (pokemon_storage_system.c): a 7th mon has nowhere to go (`givemon` returns MON_CANT_GIVE, the
    "sent to PC" message is cosmetic). Also the PC menu's storage entry and `ChangeBoxPokemonNickname`.
