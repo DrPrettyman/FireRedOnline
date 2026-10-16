@@ -1,6 +1,6 @@
 # Battle animations: plan to finish
 
-Status as of 2026-10-16 (master at `a9d97a8`). See PROGRESS.md for what is already ported.
+Status as of 2026-10-16 (master at `a9d97a8`). See STATUS.md for what is already ported.
 
 The engine is complete: the `battle_anim.c` interpreter, battle_anim_mons.c, mon_movement, normal, utility_funcs,
 sound_tasks, status_effects and battle_anim_special.c. What's left is the per-move code. **296 of the 397 scripts
@@ -111,7 +111,7 @@ from the file. "Only this file" is how many of them would be complete after port
 | `battle_anim_poison.c` | 4 | 3 | 3 |
 
 Small files can share a PR (for example bug + poison + dragon + dark). Port each C file completely, not just the
-symbols scripts need right now, so the file can be marked done in PROGRESS.md.
+symbols scripts need right now, so the file can be marked done in STATUS.md.
 
 ## Step 3: battle_anim_effects_1/2/3.c
 
@@ -127,7 +127,7 @@ into two or three PRs by move.
 ## Loose ends to close along the way
 
 - `CreateAdditionalMonSpriteForMoveAnim` (battle_anim_mons.c) isn't ported.
-- `General_SafariReaction`: done in step 1. Remove it from PROGRESS.md "Known deviations" when it lands.
+- `General_SafariReaction`: done in step 1. Remove it from docs/DEVIATIONS.md when it lands.
 - Castform's form change (needs the per-form front pics; Castform has no `front.png`).
 - Open question: with the BG dimmed (Thunder Shock, String Shot), faint diagonal lines show at the healthbox
   corners. Compare against the real game (mGBA screenshot) and fix it or record it as matching the GBA.
@@ -137,5 +137,5 @@ into two or three PRs by move.
 
 - `battleAnimCoverage()` returns `[]` for all 397 labels, and the unit test asserts that for every label instead
   of the hand-kept list.
-- PROGRESS.md: the "move/status animations" checklist item is `[x]`, and the anim placeholder entry under
-  "Known deviations" is reduced to the no-audio note.
+- STATUS.md: the "move/status animations" checklist item is `[x]`, and the anim placeholder entry in
+  docs/DEVIATIONS.md is reduced to the no-audio note.
