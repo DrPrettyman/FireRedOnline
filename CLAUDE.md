@@ -23,6 +23,9 @@ FireRed rebuilt in Phaser 3 + TypeScript (Vite). See README.md for setup and arc
 
 ## Git
 
+Big pieces of work run as parallel batches (a coordinator, up to four workers, a merger): see docs/WORKFLOW.md.
+`/get-on` ("get on with the project") runs batches back to back on its own (`.claude/skills/get-on/`).
+
 - New feature work:
   - Work in a new branch in a worktree, started from an up-to-date `origin/master`. The user works on master in the
     main checkout at the same time, so never switch its branch or touch its working tree.
@@ -37,5 +40,7 @@ FireRed rebuilt in Phaser 3 + TypeScript (Vite). See README.md for setup and arc
   - If the PR branch contains another PR's commits that master already has squashed, git can silently restore
     lines the PR deleted. After merging master in, check `git diff <PR head before the merge>` shows only master's
     changes.
+  - Stacked PRs (one PR's branch built on another's): see docs/WORKFLOW.md "Merger" for merging the second after
+    the first was squashed.
   - After each merge, delete the PR's branch (local and remote) and its worktree.
   - At the end, `git pull --ff-only` in the main checkout only if its working tree is clean; otherwise tell the user.
