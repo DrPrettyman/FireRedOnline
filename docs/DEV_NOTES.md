@@ -498,6 +498,27 @@ this is the next level down. When you add or change a subsystem, update its entr
   species, printed strings and pic / footprint pixel counts; it also works in battle while the registered page is
   up). Tests: tests/e2e/pokedex.test.ts (Pallet Town with FLAG_SYS_POKEDEX_GET and the dex sets written through
   `t.state`; the registered page from a Master Ball catch on Route 1), tests/unit/pokedex.test.ts.
+- **Option menu:** `menus/optionMenu.ts` is option_menu.c. START → OPTION fades out (OverworldScene
+  `openFieldMenu('options')`) and runs CB2_OptionsMenuFromStartMenu in FieldMenuScene 'options' (which preloads
+  `optionMenuGfxSymbols()`: sOptionMenuPalette, the std frame, every user frame, and sets the black backdrop);
+  CloseAndSaveOptionMenu writes the settings to GameState and returns through gMain.savedCallback =
+  CB2_ReturnToFieldWithOpenMenu (the start menu reopens on OPTION). The settings live in GameState: `textSpeed`
+  ('slow' / 'mid' / 'fast' = OPTIONS_TEXT_SPEED_*), `battleSceneOff`, `battleStyleSet`, `optionsSound` (stored and
+  saved only, since save version 3), `optionsButtonMode`, `optionsWindowFrameType` (0-9 = TYPE 1-10). Who reads
+  them: the field message box and GBA text (text speed), the battle (scene, style, `battle/battleBg.ts`'s user frame),
+  GbaHostScene's ReadKeys (L=A) and the GBA list menus (LR), the start menu (HELP: its help window), and every field
+  window drawn with a user frame: `MenuWindow` defaults to the options' frame through `setUserFrameTypeSource`
+  (OverworldScene sets it), multichoices / list menus / the shop pass it themselves; GBA screens get it through
+  `menuEnv.windowFrameType` (`configureMenuEnv`, each FieldMenuScene start). Probe: `t.optionMenu()` (loadState: 2
+  takes input, cursorPos, option[] by MENUITEM_*). Tests: tests/e2e/options.test.ts.
+- **Start menu help window:** `ui/HelpMessageWindow.ts` is help_message.c (CreateHelpMessageWindow,
+  DrawHelpMessageWindowTilesById, PrintTextOnHelpMessageWindow, DestroyHelpMessageWindow) plus new_menu_helpers.c's
+  DrawHelpMessageWindowWithText, as a Phaser window like the start menu (one at a time, sHelpMessageWindowId; the
+  graphics `helpMessageWindowGfxSymbols` are preloaded by the field). Text drawn on it uses TEXT_COLOR_TRANSPARENT as
+  background, which `TextWindow.drawGlyph` now leaves alone like GLYPH_COPY. `ui/StartMenu.ts` draws the item's
+  sStartMenuDescPointers text on open (DoDrawStartMenu case 5) and on cursor moves (StartCB_HandleInput) and
+  destroys it with the menu, only when `optionsButtonMode == OPTIONS_BUTTON_MODE_HELP` (no link play or union room,
+  so those checks always pass). Probe: `t.helpMessage()` (decoded, undefined when it's down).
 - **Trainer card:** `menus/trainerCard.ts` is trainer_card.c, CARD_TYPE_FRLG for the player only (the Hoenn and link
   cards wait for link play). START → PLAYER (StartMenuPlayerCallback) fades out and runs ShowPlayerTrainerCard in
   FieldMenuScene 'trainerCard' (which preloads `trainerCardGfxSymbols(gender)`: graphics/trainer_card/ by symbol plus
