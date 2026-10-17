@@ -13,6 +13,7 @@ import { g } from '../battle/env';
 import { getBattlerSide } from '../battle/util';
 import { GetGpuReg } from '../gba/hw';
 import { gMain } from '../gba/main';
+import { gPaletteFade } from '../gba/palette';
 import { gSprites } from '../gba/sprite';
 import type { Button } from '../input/Input';
 import type { Pokemon } from '../pokemon/Pokemon';
@@ -409,6 +410,8 @@ function createApi(game: Phaser.Game) {
     /** Tap buttons together for `frames` ticks (default 2), then release for `gap` ticks (default 2). */
     press: (buttons: Button | Button[], frames = 2, gap = 2) => pad.press(Array.isArray(buttons) ? buttons : [buttons], frames, gap),
     hold: (b: Button) => pad.hold(b),
+    /** Hold `b` on every tick that `keep()` is true at its start; let go for good the first tick it isn't. */
+    holdWhile: (b: Button, keep: () => boolean) => pad.holdWhile(b, keep),
     release: (b?: Button) => pad.release(b),
     waitFrames: (n: number) => pad.waitFrames(n),
     /** A tile of a tileset as the field's BG VRAM holds it now (tile animations write there), as hex. */
@@ -467,10 +470,16 @@ function createApi(game: Phaser.Game) {
       await pad.press([DIR_BUTTON[dir]], 1, 1);
       await pad.until(() => !field()?.moving);
     },
-    /** Resolves at the start of the first tick where `pred()` is true (checked every tick, in the page). */
+    /**
+     * Resolves at the start of the first tick where `pred()` is true (checked every tick, in the page), with
+     * whether it was (false after `maxFrames`). The result is the one from that tick: the promise settles after
+     * the frame's batch of ticks, when a short-lived state can be over, so it isn't checked again then. Read
+     * anything else you need from that tick inside `pred`.
+     */
     until: (pred: () => unknown, maxFrames = 3600) => {
       const deadline = pad.frame + maxFrames;
-      return pad.until(() => !!pred() || pad.frame >= deadline).then(() => !!pred());
+      let held = false;
+      return pad.until(() => (held = !!pred()) || pad.frame >= deadline).then(() => held);
     },
 
     // --- events
@@ -481,6 +490,8 @@ function createApi(game: Phaser.Game) {
     scenes: () => game.scene.getScenes(true).map((s) => s.scene.key),
     /** The GBA-layer screen running (gMain.callback2's name, e.g. BattleMainCB2, CB2_NamingScreen), if any. */
     gbaScreen: () => (game.scene.isActive('Battle') || game.scene.isActive('FieldMenu') || game.scene.isActive('MainMenu') ? gMain.callback2?.name : undefined),
+    /** gPaletteFade.active: a GBA-layer screen fading in or out (menus ignore input until it's done). */
+    paletteFadeActive: () => gPaletteFade.active,
     /** The main menu while it takes input: menu type (0 NEW GAME only, 1 CONTINUE / NEW GAME), cursor, fading, the CONTINUE values. */
     mainMenu: () => {
       const p = game.scene.isActive('MainMenu') ? mainMenuProbe() : undefined;
