@@ -11,7 +11,6 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     bad-word check aren't ported.
   - Pokémon Center nurse: SetUsedPkmnCenterQuestLogEvent is a no-op (no quest log) and BufferUnionRoomPlayerName always says no wireless
     player was seen.
-  - The S.S. Anne's departure (world/ssAnne.ts, ss_anne.c): the script's MUS_SURF waits for map music (W-sound 3).
   - In-game trades (script/tradeSpecials.ts): the traded mon's contest conditions and sheen aren't kept (Pokémon
     have no contest stats), and DONTAE's Jynx holds its Fab Mail without the message (mail isn't modelled:
     GetInGameTradeMail / gLinkPartnerMail / MON_DATA_MAIL). The trade scene (menus/tradeScene.ts) skips
@@ -30,7 +29,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     diploma's FANFARE_OBTAIN_BADGE holds its screen for sFanfares' 340 frames); no quest log (QuestLog_CutRecording). The Magikarp size record loads pokedex.json for the
     heights the first time the guru measures (the script waits for it). The diploma returns through the field's
     plain fade from black rather than FieldCB_WarpExitFadeFromBlack's Task_ExitNonDoor (same look).
-  - Fall warps (world/fallWarp.ts): silent (SE_FALL, SE_M_STRENGTH); no help context while surfing on Seafoam B4F.
+  - Fall warps (world/fallWarp.ts): no help context while surfing on Seafoam B4F.
   - Easy Chat (menus/easyChat.ts, menus/easyChatScreen.ts, SIDE_PLAN.md W-easychat): the screen is silent
     (SE_SELECT).
     ShowEasyChatScreen: on the GBA the script's `fadescreen FADE_FROM_BLACK` after the special
@@ -40,9 +39,8 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     its text like `messageautoscroll` does, as a plain field message (no auto-scroll; the profile's two lines fit one
     box). InitEasyChatPhrases doesn't clear the mail words (mail isn't modelled) and clears additionalPhrases only
     (the C's non-UBFIX loop clears 64 bytes, into the Mauville old man's data that's re-initialized right after).
-  - Seagallop ferry (menus/seagallop.ts, script/ferrySpecials.ts): no PlayRainStoppingSoundEffect (no weather) or
-    Overworld_FadeOutMapMusic (W-sound 3), so Task_Seagallop_2 waits only for the palette fade, not
-    BGMusicStopped; no help system (HelpSystem_Disable / Enable) and no quest log (DrawSeagallopDestinationMenu's
+  - Seagallop ferry (menus/seagallop.ts, script/ferrySpecials.ts): no PlayRainStoppingSoundEffect (no field
+    weather); no help system (HelpSystem_Disable / Enable) and no quest log (DrawSeagallopDestinationMenu's
     QL_AvoidDisplay). The script that ran DoSeagallopFerryScene stays in its `waitstate` until the scene warps, then
     runs on to its `end` (in C, CB2_LoadMap's ScriptContext_Init drops it). The scene's WarpFadeOutScreen is a plain palette fade to
     black (FadeScreen's white fade is for underwater maps, and no harbor is one).
@@ -68,11 +66,8 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     sprite's x2/y2 (the GBA keeps them unless ResetMovementOfRematchableTrainers zeroes them); a frozen jumper
     (any, not only `lock`'s selected object) lands before it holds still.
   - Battles: no audio (PlaySE/cries/BGM are no-ops, so anim SE waits and cry waits end at once).
-  - Field sounds: the doors' SEs during warps (field_fadetransition.c) wait for W-sound 3; `opendoor`'s and the
-    puddles' play. Puddles: UpdateFeetInFlowingWaterFieldEffect's SE_PUDDLE checks the splash's `invisible`, which
+  - Field sounds: puddles: UpdateFeetInFlowingWaterFieldEffect's SE_PUDDLE checks the splash's `invisible`, which
     the port never sets for an object off screen (UpdateObjectEventSpriteInvisibility's bounds check).
-  - Evolution scene: silent until the mixer; the cries count as finished at once (W-sound 2) and
-  - Field sounds: doors (SE_DOOR / SE_SLIDING_DOOR) and puddle splashes (SE_PUDDLE) are silent.
   - Evolution scene: no PSG parts until W-m4a 4; the cries count as finished at once (W-sound 2) and
     EVOSTATE_RESTORE_SCREEN's `if (IsSEPlaying())` after SE_EXP goes on unchecked (W-sound 7); the intro jingle
     (MUS_EVOLUTION_INTRO) and the other IsSEPlaying waits hold the scene as on the GBA; the help system isn't toggled; GAME_STAT_EVOLVED_POKEMON isn't kept. Evolving
@@ -99,15 +94,12 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     is learned, which holds the screen as on the GBA). The C's scroll arrows are kept as they
     are: scrollPositionMaybe never changes, so with more than six entries the down arrow always shows and the up
     arrow never does.
-  - Region map / Fly (menus/regionMap.ts, world/fly.ts): Fly's music (Overworld_PlaySpecialMapMusic) waits for
-    W-sound 3.
-    The bird of Fly always uses the extracted bird sheet's own palette (Red's), where the GBA draws it in OBJ
+  - Region map / Fly (menus/regionMap.ts, world/fly.ts): the bird of Fly always uses the extracted bird sheet's own palette (Red's), where the GBA draws it in OBJ
     palette 0, the player's (Leaf's frames would use hers). gExitStairsMovementDisabled isn't kept (no stair
     walk-out). The dungeon previews' third palette is zero-filled: the C loads 3 palettes from 2-palette data,
     reading on into the ROM (no preview tilemap uses it). Where the C reads a NULL sMapCursor (naming the section
     before the cursor exists, CB2_OpenRegionMap / UpdateMapsecNameBox), the port reads MAPSEC_NONE.
-  - Field moves (world/fieldMoves.ts, world/fieldMoveShowMon.ts): the warp tasks' sounds (Dig, Teleport, Escape
-    Rope: W-sound 3) and no GAME_STAT_USED_CUT / _ROCK_SMASH. The field
+  - Field moves (world/fieldMoves.ts, world/fieldMoveShowMon.ts): no GAME_STAT_USED_CUT / _ROCK_SMASH. The field
     effect scripts' palette commands (loadfadedpal, ...) do nothing: the field's sprites are Phaser textures. A
     `callnative` that isn't ported warns once and the effect ends at once (the emote icons from scripts). Sweet Scent's
     red fade is an overlay under the player instead of a fade of every other palette, so the player is also drawn
@@ -157,8 +149,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - Cable club (cable_club.c): there is no link play. TryBattleLinkup / TryTradeLinkup run as if nothing were on
     the other end of the cable (Task_LinkupAwaitConnection until B, then LINKUP_FAILED), IsWirelessAdapterConnected
     and ValidateSavedWonderCard are FALSE, IsBadEggInParty is FALSE (no bad eggs), CloseLink is a no-op.
-  - Player avatar (world/playerAvatar.ts, world/bike.ts): no Cycling Road and surf music (W-sound 3); the bike
-    bell is item_use.c's (W-sound 7). Not ported: the warp arrow sprite on arrow mats
+  - Player avatar (world/playerAvatar.ts, world/bike.ts): the bike bell is item_use.c's (W-sound 7). Not ported: the warp arrow sprite on arrow mats
     (HandleWarpArrowSpriteHideShow), DoStairWarp's 12-frame delay when a stair warp takes the player off the
     bike, the teleport spin, the quest log's recordings, and the help context. Movement scripts
     (applymovement) still run through MovementRunner rather than the player's held-movement actions, so `lock`
@@ -170,16 +161,15 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     same frame, but Fishing11 / Fishing16 see a finished message a frame later than RunTextPrinters would. The
     player's sprite anim (AnimateSprites) is run by the fishing task after its state functions, as the GBA's sprite
     pass would after the tasks.
-  - Surf and Waterfall (world/surf.ts): no audio (MUS_SURF and Overworld_ClearSavedMusic; the banner's cry as
-    above), no HELPCONTEXT_SURFING, no quest log (`goto_if_questlog` never branches). FldEff_UseSurf takes the
+  - Surf and Waterfall (world/surf.ts): the banner's cry is a stub until W-sound 2; no HELPCONTEXT_SURFING, no quest log (`goto_if_questlog` never branches). FldEff_UseSurf takes the
     field controls lock at once: the C holds FieldCallback_PrepareFadeInFromMenu's (or the script's) lock until
     the task takes it, which the port's hand-offs don't. Like CreateFieldEffectShowMon, the banner waits for its
     graphics to load (UseSurfEffect_3, waterfall_1). The surf blob is the player's only `fieldEffectSpriteId`
     user, so it lives in surf.ts rather than on the ObjectEvent, and the player's sprite y2 it sets is applied
     to the Phaser sprite directly (ObjectEvent's depth ignores that 1 px). After a battle or field menu the blob
     is made again (the GBA rebuilds every sprite), so its animation restarts.
-  - Dive (world/dive.ts; an R/S leftover no FRLG map reaches): no audio (SE_M_DIVE, TryFadeOutOldMapMusic,
-    PlayRainStoppingSoundEffect). DiveFieldEffect_ShowMon waits for the banner's graphics to load, as Waterfall's
+  - Dive (world/dive.ts; an R/S leftover no FRLG map reaches): no SE_M_DIVE, no PlayRainStoppingSoundEffect (no field
+    weather). DiveFieldEffect_ShowMon waits for the banner's graphics to load, as Waterfall's
     does. `setdivewarp` (ScrCmd_setdivewarp) isn't ported (no FRLG script uses it), so sFixedDiveWarp is always the
     dummy warp and a map without a dive/emerge connection never dives. As in the C, that case leaves the player
     locked (DiveFieldEffect_Init's preventStep and _ShowMon's LockPlayerFieldControls are never undone).
@@ -300,12 +290,23 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     "sound task" run from AgbMainFrameEnd after the frame's callbacks, not a gTask: ResetTasks doesn't remove it (on
     the GBA a screen's ResetTasks during a fanfare would drop it and leave the BGM paused; no FRLG screen does that
     mid-fanfare), and a screen task that polls IsFanfareTaskInactive in the frame the counter runs out sees it a
-    frame later than a task ordered after Task_Fanfare would. PlaySE isn't skipped while
-    gDisableMapMusicChangeOnMapLoad is set (W-sound 3 ports the flag); the quest log's playback paths (no fanfare
-    song, the BGM commands skipped) aren't ported. `savebgm`, `fadedefaultbgm` and `playbgm`'s save flag do nothing
-    yet (savedMusic and the map's default music: W-sound 3). The script engine models SetupNativeScript's frames
+    frame later than a task ordered after Task_Fanfare would. The quest log's playback paths (no fanfare
+    song, the BGM commands skipped, PlaySE skipped) aren't ported. The script engine models SetupNativeScript's frames
     (a native wait starts checking the next frame, and the script goes on the frame after it holds) only for the
     audio commands; the port's other waits check in the same frame.
+  - Map music (gba/overworldMusic.ts, overworld.c's music block): the warps load the destination's header before
+    their fade starts (WarpFadeOutScreen and TryFadeOutOldMapMusic wait for it; it's cached after SetupWarp, so
+    usually the same frame). The warps' PlayRainStoppingSoundEffect isn't ported (no field weather). DoStairWarp
+    runs as DoWarp (no stair walk: its TryFadeOutOldMapMusic and SE_EXIT come at once rather than after the
+    player's step and delay). `warpdoor` (unused in FRLG) goes straight to Task_DoorWarp's warp: no door SE or
+    animation. The Hall of Fame's SetWarpsToRollCredits sets gDisableMapMusicChangeOnMapLoad but its DoWarp leaves the
+    screen without TryFadeOutOldMapMusic and the BGMusicStopped wait (the field loads Indigo Plateau at once; with
+    MUSIC_DISABLE_KEEP the music stays anyway). Of the screens that come back through FieldCB_ContinueScriptHandleMusic,
+    only the naming screen calls Overworld_PlaySpecialMapMusic: `runScreenFromScript`'s (party menu specials) and
+    the ones that set their own music (trades, the daycare, the move relearner, the slot machine: batch D) don't
+    yet. The ambient cries (ChooseAmbientCrySpecies, UpdateAmbientCry, PlayAmbientCry) aren't ported. Cable club /
+    union room / link-return warps (DoCableClubWarp, ReturnFromLinkRoom, DoUnionRoomWarp) aren't ported (no link
+    play).
   - `fadescreen` is an alpha overlay, not a palette blend: same ramp and timing, not bit-identical; weather palettes ignored.
   - `showmonpic`: the sprite appears when its PNG has loaded; no cry.
   - The Pewter Museum's fossil pics (ui/MuseumFossilPic.ts): a Phaser image over a MenuWindow, like `showmonpic`,
