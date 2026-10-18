@@ -154,8 +154,6 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     sprite.c's anim tables; a sliding player (disableAnim) shows the standing frame.
   - Poké Mart: no quest log transaction history (RecordItemTransaction / RecordTransactionForQuestLog) or
     GAME_STAT_SHOPPED; no SE_SHOP. The decoration marts (`pokemartdecoration*`) aren't ported (unused in FRLG).
-  - Field steps: eggs count down egg cycles and the daycare mons count their steps (world/daycare.ts), but the
-    Four Island daycare's breeding (TriggerPendingDaycareEgg, eggs) isn't ported.
   - Egg hatching (menus/eggHatch.ts): no audio (the cry, SE_BALL / SE_EGG_HATCH, MUS_EVOLUTION, the MUS_EVOLVED
     fanfare). "X hatched from the EGG!" still waits the fanfare's 220 frames (sFanfares) with a local counter, as
     gba/sound.ts's IsFanfareTaskInactive is always true and the nickname prompt would replace it at once. The C
@@ -165,7 +163,11 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     the NO path too (the C leaks them). The hatched mon's language, met game and fateful-encounter bit aren't
     modelled.
   - Daycare (world/daycare.ts): mail isn't modelled, so a mon left holding mail doesn't have it moved into
-    struct DayCareMail (StorePokemonInDaycare's MonHasMail branch) and back.
+    struct DayCareMail (StorePokemonInDaycare's MonHasMail branch) and back (and DaycareMonReceivedMail isn't
+    ported). Eggs: MON_DATA_LANGUAGE isn't modelled, so CreateEgg / SetInitialEggData's LANGUAGE_JAPANESE isn't
+    kept (the nickname is タマゴ). The level menu's 1 px letter spacing is dropped, as for all latin text.
+    DetermineEggSpeciesAndParentSlots leaves parentSlots uninitialised in the C when neither mon is female nor
+    Ditto; the port starts them at [0, 1] (no compatible pair gets there).
   - Safari Zone: the entrance's SE/fanfare are silent.
   - The money box and Safari stats window are Phaser MenuWindows (the field isn't on the GBA layer).
   - Pokémon Storage System (menus/pokemonStorage*.ts): silent (SE_PC_LOGIN / SE_PC_OFF and the menu SEs); no

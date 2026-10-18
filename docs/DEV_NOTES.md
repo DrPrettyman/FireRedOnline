@@ -164,6 +164,38 @@ this is the next level down. When you add or change a subsystem, update its entr
   extract_gfx.py (`graphics/script_menu/`), preloaded with the field's gfx. Probe: `__test.museumFossilPic()`.
   Tests: tests/e2e/sideEvents.test.ts (Oak in his lab at (6, 4), the Viridian PC, the museum's fossils from
   (5, 4) / (5, 7) facing left, the Cinnabar lab's fossil revival), tests/unit/sideSpecials.test.ts.
+- **Daycare:** `world/daycare.ts` is daycare.c except the hatching scene: `GameState.route5DayCareMon` (struct
+  DaycareMon: a BoxPokemon or null, u32 steps; no mail) and `GameState.daycare` (struct DayCare, the Four Island
+  daycare: two DaycareMons, the u16 offspringPersonality, the u8 egg-cycle stepCounter), both saved (SAVE_VERSION
+  4; a version 3 save had only `daycareStepCounter`). Storage: StorePokemonInDaycare / StoreSelectedPokemonInDaycare
+  (first empty slot), TakeSelectedPokemonFromDaycare / TakePokemonFromDaycare (BoxMonToMon, one exp per step,
+  ApplyDaycareExperience: TryIncrementMonLevel level by level with MonTryLearningNewMove, the first move pushed out
+  when full; then ShiftDaycareSlots), the level / cost helpers (cost 100 + 100 per level), GetDaycareState,
+  GetDaycareMonNicknames. Eggs: ShouldEggHatch / TryProduceOrHatchEgg on every field step (the Route 5 mon's and
+  the daycare mons' steps; with both mons in and no egg pending, when the second's steps reach 0xFF mod 256 the
+  GetDaycareCompatibilityScore roll calls TriggerPendingDaycareEgg; party eggs' egg cycles), the compatibility
+  (EggGroupsOverlap, SetDaycareCompatibilityString into menus/common.ts's gStringVar4), _GiveEggFromDaycare
+  (DetermineEggSpeciesAndParentSlots: GetEggSpecies back through `menusData.evolutions`, Nidoran♂ / Volbeat for an
+  EGG_GENDER_MALE personality, Ditto as "mother"; AlterEggSpeciesWithIncenseItem; SetInitialEggData; InheritIVs with
+  the C's RemoveIVIndexFromList quirk; BuildEggMoveset: GetEggMoves over `tables.eggMoves` (gEggMoves, flat, from
+  extract.py), the father's TM/HM moves, the level-up moves both parents know), RejectEggFromDayCare, CreateEgg
+  (the shared egg maker: W-hatch / anything else making an egg should call it) and ScriptGiveEgg (`giveegg`,
+  ScriptEngine.ts), NameHasGenderSymbol / AppendGenderSymbol. The script specials are `script/daycareSpecials.ts`
+  (DAYCARE_SPECIALS: ChooseSendDaycareMon through `runScreenFromScript` and partyMenu.ts's ChooseMonForDaycare
+  (PARTY_MENU_TYPE_DAYCARE: STORE leaves the slot in VAR_0x8004), the Route 5 ones, the Four Island ones (slot in
+  VAR_0x8004), GetSelectedMonNicknameAndSpecies; they read the chosen slot with GetCursorSelectionMonId, as the C
+  does; plus field_specials.c's ShowFieldMessageStringVar4 (SpecialEnv.showFieldMessage takes encoded bytes too)
+  and PlayerPartyContainsSpeciesWithPlayerID for the Water Labyrinth's egg; its GetLeadMonFriendship is in
+  script/miscSpecials.ts).
+  IsEnoughForCostInVar0x8005 / SubtractMoneyFromVar0x8005 / CalculatePlayerPartyCount are in SIDE_SPECIALS.
+  ShowDaycareLevelMenu is `ui/DaycareLevelMenu.ts` (a field task with a FieldListMenu, whose template now takes an
+  `itemPrintFunc`; probe `t.daycareLevelMenu()`). Tests: tests/unit/daycare.test.ts, tests/unit/eggs.test.ts,
+  tests/e2e/daycare.test.ts (Route 5: `?start=after-rival&map=Route5_PokemonDayCare&x=4&y=5`, face up; Four
+  Island: `map=FourIsland_PokemonDayCare&x=2&y=3`, face up for the lady; out through the mat at (4, 7) with
+  VAR_MAP_SCENE_FOUR_ISLAND = 1 to skip the rival, the old man at (16, 13), talk from (16, 14); the Water
+  Labyrinth gentleman: `map=FiveIsland_WaterLabyrinth&x=14&y=12` with a lead at 255 friendship). Set the steps
+  (`t.state.route5DayCareMon.steps`, `t.state.daycare.mons[1].steps = 254` before a step for the egg roll) rather
+  than walking.
   `script/miscSpecials.ts` (MISC_SPECIALS, spread into SPECIALS; W-misc) has more: Daisy's grooming
   (DaisyMassageServices, GetLeadMonFriendship; RunMassageCooldownStepCounter runs on every step from
   OverworldScene.processPlayerFieldInput), the Route 12 Magikarp size record (pokemon_size_record.c: GetMonSizeHash,
@@ -189,21 +221,6 @@ this is the next level down. When you add or change a subsystem, update its entr
   Six Island's Dotted Hole after. Test events `fallWarp` (map), `fallWarpLanded`, `fallWarpDone`; the field probe's
   `avatar.spriteY2` / `avatar.cameraPanY`. Tests: tests/e2e/sideSpecials.test.ts (Pokémon Mansion 3F (18, 17)
   walking down; Seafoam B3F (6, 17) into the B4F current).
-- **Daycare:** `world/daycare.ts` is daycare.c's storage: `GameState.route5DayCareMon` (struct DaycareMon: a
-  BoxPokemon or null, u32 steps; no mail) and `GameState.daycare` (struct DayCare, the Four Island daycare: two
-  DaycareMons, offspringPersonality, the u8 egg-cycle stepCounter), both saved (SAVE_VERSION 4; a version 3 save
-  had only `daycareStepCounter`). StorePokemonInDaycare, TakeSelectedPokemonFromDaycare (BoxMonToMon, one exp per
-  step, ApplyDaycareExperience: TryIncrementMonLevel level by level with MonTryLearningNewMove, the first move
-  pushed out when full), the level / cost helpers (cost 100 + 100 per level), ShiftDaycareSlots,
-  CountPokemonInDaycare, and ShouldEggHatch / TryProduceOrHatchEgg (the Route 5 mon's and the daycare mons'
-  steps, party eggs' egg cycles; egg production is a TODO for unit 3). The script specials are
-  `script/daycareSpecials.ts` (DAYCARE_SPECIALS: ChooseSendDaycareMon through `runScreenFromScript` and
-  partyMenu.ts's ChooseMonForDaycare (PARTY_MENU_TYPE_DAYCARE: STORE leaves the slot in VAR_0x8004), the Route 5
-  ones, GetSelectedMonNicknameAndSpecies; they read the chosen slot with GetCursorSelectionMonId, as the C does);
-  IsEnoughForCostInVar0x8005 / SubtractMoneyFromVar0x8005 / CalculatePlayerPartyCount are in SIDE_SPECIALS. Eggs
-  (the Four Island specials) go into the same two files. Tests: tests/unit/daycare.test.ts,
-  tests/e2e/daycare.test.ts (`?start=after-rival&map=Route5_PokemonDayCare&x=4&y=5`, face up; set
-  `t.state.route5DayCareMon.steps` to skip the walking).
 - **Egg hatching:** `menus/eggHatch.ts` is daycare.c's hatching half. ShouldEggHatch (world/daycare.ts) leaves the
   egg's slot in VAR_0x8004; OverworldScene counts GAME_STAT_HATCHED_EGGS and runs EventScript_EggHatch, whose
   `special EggHatch` (EGG_HATCH_SPECIALS, spread into SPECIALS) fades out and `runScreenFromScript(StartEggHatch,

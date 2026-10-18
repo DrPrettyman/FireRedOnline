@@ -21,6 +21,7 @@ import { testEvent } from '../dev/testHooks';
 import { random } from '../util/random';
 import { FieldEffectActiveListContains, FieldEffectStart, gFieldEffectArguments } from '../world/fieldEffectScripts';
 import { SetEscapeWarp } from '../world/fieldMoves';
+import { scriptGiveEgg } from '../world/daycare';
 
 export interface ScriptsData {
   code: Instruction[];
@@ -829,7 +830,10 @@ export class ScriptEngine {
       ctx.wait = () => {
         if (!menu.tick()) return false;
         this.state.setVar('VAR_RESULT', menu.result ? 1 : 0);
-        return true;
+        // Task_HandleYesNoInput's ScriptContext_Enable: the script goes on in the next frame's
+        // ScriptContext_RunScript, so the A that chose can't also pass a `waitbuttonpress` or a menu after it.
+        ctx.wait = () => true;
+        return false;
       };
     },
 
@@ -1203,6 +1207,10 @@ export class ScriptEngine {
       if (result === c.MON_GIVEN_TO_PARTY || result === c.MON_GIVEN_TO_PC) this.state.setDexFlags(this.state.pokemon.nationalDex(species), true, true);
       this.state.setVar('VAR_RESULT', result);
     },
+    /** ScrCmd_giveegg → ScriptGiveEgg (world/daycare.ts): VAR_RESULT = MON_GIVEN_TO_PARTY / _PC / MON_CANT_GIVE. */
+    giveegg(this: ScriptEngine, _ctx: ScriptContext, a: string[]) {
+      this.state.setVar('VAR_RESULT', scriptGiveEgg(this.state, this.state.value(a[0])));
+    },
     /**
      * ScrCmd_setwildbattle → CreateScriptedWildMon (script_pokemon_util.c): gEnemyParty = one mon with random
      * IVs and personality, OT = player, for the battle special that follows (StartMarowakBattle).
@@ -1492,7 +1500,11 @@ export class ScriptEngine {
   }
 
   /** ShowFieldMessage */
-  private showFieldMessage(label?: string): void {
+  private showFieldMessage(label?: string | number[]): void {
+    if (Array.isArray(label)) {
+      this.messageBox.show(label, this.contextTextColor(), this.msgIsSignpost); // an encoded string (gStringVar4)
+      return;
+    }
     const raw = label && this.strings[label];
     this.messageBox.show(raw ? this.charmap.encode(raw) : this.charmap.encode('$'), this.contextTextColor(), this.msgIsSignpost);
   }
