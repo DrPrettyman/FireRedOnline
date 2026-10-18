@@ -2763,3 +2763,40 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
   sample ends and loops, FIX / reverse voices, stealing, the CGB claim, keysplit / rhythm, the cry song; on the
   extracted data: setVoiceData, voicegroup000's keysplit / rhythm voices, no song reaching a null keysplit entry,
   the cry table, a cry stealing from MUS_PALLET); `tests/e2e/titleScreen.test.ts` (6) as the boot check.
+
+### W-sound 1: sound.c without the cries, the frame hook, the audio script commands (AUDIO_PLAN.md batch B)
+
+- `src/gba/sound.ts` is now sound.c minus the cries (still stubs, W-sound 2): MapMusicMain and the map music
+  helpers, sFanfares / PlayFanfare / PlayFanfareByFanfareNum / Task_Fanfare / WaitFanfare / IsFanfareTaskInactive,
+  PlaySE / PlaySE12WithPanning / PlaySE1/2WithPanning / SE12PanpotControl, PlayBGM and the BGM fades, IsSEPlaying /
+  IsSpecialSEPlaying / IsBGMPlaying / IsBGMStopped / IsBGMPausedOrStopped, and overworld.c's BGMusicStopped and
+  Overworld_ChangeMusicTo. Task_Fanfare runs as a "sound task" from the new `AgbMainFrameEnd()`
+  (`src/audio/frame.ts`: the sound tasks, MapMusicMain, m4aSoundMain), called once per logic tick by
+  `OverworldScene.tick` and `GbaHostScene.update` (which also hosts BattleScene, in the game and on battle-test, so
+  BattleScene needed no line of its own). `src/audio/audioData.ts` loads songs.json, voicegroups.json, samples.json
+  and waves.json at boot (BootScene, BattleTestBoot) into `loadSongTable` / `setVoiceData`; `AgbMainSoundInit()`
+  (m4aSoundInit + sound.c's statics) runs before the first frame and on a soft reset.
+- Script commands (scrcmd.c:883-990): `playse`, `waitse`, `playbgm` (PlayNewMapMusic), `fadenewbgm`, `fadeoutbgm`,
+  `fadeinbgm`, `playfanfare`, `waitfanfare`. The three waits use a `SetupNativeScript` that keeps script.c's frames
+  (the check starts the next frame; the script goes on the frame after it holds). `savebgm`, `fadedefaultbgm` and
+  `playbgm`'s save flag wait for W-sound 3.
+- Test hooks: `__test.audioEvents(since)`, `__test.audio()`, `__test.playSong(name)`. eggHatch's local 220-frame
+  counter is gone (the real Task_Fanfare holds the message).
+- Found on the way: FRLG's item balls (and `giveitem`'s EventScript_BufferPocketNameTryFanfare) play MUS_LEVEL_UP
+  (FANFARE_LEVEL_UP, 80 frames), not MUS_OBTAIN_ITEM as AUDIO_PLAN.md section 5 says; MUS_OBTAIN_ITEM is only
+  Std_ObtainDecoration's (unreached) and the mystery event's. The diploma played FANFARE 0 (a local
+  `FANFARE_OBTAIN_BADGE = 0`); now K.FANFARE_OBTAIN_BADGE (5, 340 frames).
+- Waits that now take their GBA length: every `waitfanfare` / IsFanfareTaskInactive / WaitFanfare (items, heals,
+  badges, the move relearner, the slot payout, the diploma, the dex rating, egg hatching), every `waitse`, and the
+  IsSEPlaying checks of the screens whose PlaySE calls are live (evolution's MUS_EVOLUTION_INTRO, the trainer card,
+  item use), the title screen's FadeOutMapMusic wait.
+- Tick budgets raised: none. The full e2e suite passed on its first run with the longer waits (59 files, 389
+  tests, 22.7 min), so no budget sized for the instant waits was too tight, and nothing failed and passed on a
+  rerun.
+- Verified: typecheck; `npm test` (36 files, 426 tests after merging W-m4a 2 and W-out 1; tests/unit/sound.test.ts
+  12: fanfare counts, the BGM paused and resumed, MUS_EVOLVED outliving its counter, WaitFanfare, IsSEPlaying over
+  SE_SELECT, FadeOutMapMusic's 16 × speed + 1 wait, a new song after the fade); `tests/e2e/audio.test.ts` (Viridian
+  Forest's Potion ball: MUS_LEVEL_UP's continue 80 frames after the fanfare, "put the POTION" 3 after, BGM paused
+  throughout; the Game Corner fisher's `waitse` holds `setflag` until SE_SHOP's player stops, against the engine's
+  own length for SE_SHOP), 3 runs green; the full e2e suite once before the merge (above), and after it audio,
+  audioOutput, eggHatch, titleScreen and wildBattle.
