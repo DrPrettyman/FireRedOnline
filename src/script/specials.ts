@@ -16,6 +16,7 @@ import { ForcePlayerToStartSurfing, GetPlayerFacingDirection, SeafoamIslandsB4F_
 import { RockSmashWildEncounter } from '../world/fieldMoves';
 import { STORY_SPECIALS } from './storySpecials';
 import { PARTY_MENU_SPECIALS } from '../menus/partyMenuSpecials';
+import { TRADE_SPECIALS } from './tradeSpecials';
 
 export interface SpecialEnv {
   state: GameState;
@@ -71,6 +72,7 @@ export const SPECIALS: Record<string, Special> = {
   ...Object.fromEntries(NO_OP.map((name) => [name, () => {}])),
   ...PARTY_MENU_SPECIALS, // menus/partyMenuSpecials.ts: party_menu_specials.c, ChooseMonForMoveTutor
   ...STORY_SPECIALS, // storySpecials.ts: field_specials.c's story specials (Lt. Surge's trash cans, ...)
+  ...TRADE_SPECIALS, // tradeSpecials.ts: in-game trades and the Name Rater
 
   // field_player_avatar.c / bike.c / field_specials.c's player avatar specials
   ForcePlayerOntoBike,
