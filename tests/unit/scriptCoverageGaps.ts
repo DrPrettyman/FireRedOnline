@@ -29,11 +29,6 @@ export const KNOWN_GAPS: KnownGap[] = [
   // ---------------------------------------------------------------- main: on the main path to the Hall of Fame. BLOCKER in the note = the story can't go on without it.
   // (none left: the S.S. Anne departure and the league lighting were the last two, batch 2 of SIDE_PLAN.md)
   // ---------------------------------------------------------------- side: optional content before the Hall of Fame (NPCs, trades, the Game Corner, the daycare, the Sevii 1-3 trip).
-  { kind: 'special', name: 'DoSeagallopFerryScene', tag: 'side', where: "BirthIsland_Harbor, CinnabarIsland, FiveIsland_Harbor, FourIsland_Harbor, NavelRock_Harbor, ... (12 in all)", note: "the ferry; Bill's One Island trip after Blaine can be declined, so it's off the main path" },
-  { kind: 'special', name: 'DrawSeagallopDestinationMenu', tag: 'side', where: "FiveIsland_Harbor, FourIsland_Harbor, OneIsland_Harbor, SevenIsland_Harbor, SixIsland_Harbor, ... (8 in all)" },
-  { kind: 'special', name: 'GetSeagallopNumber', tag: 'side', where: "BirthIsland_Harbor, FiveIsland_Harbor, FourIsland_Harbor, NavelRock_Harbor, OneIsland_Harbor, ... (10 in all)" },
-  { kind: 'special', name: 'GetSelectedSeagallopDestination', tag: 'side', where: "FiveIsland_Harbor, FourIsland_Harbor, OneIsland_Harbor, SevenIsland_Harbor, SixIsland_Harbor, ... (8 in all)" },
-  { kind: 'special', name: 'IsPlayerLeftOfVermilionSailor', tag: 'side', where: "BirthIsland_Harbor, FiveIsland_Harbor, FourIsland_Harbor, NavelRock_Harbor, OneIsland_Harbor, ... (10 in all)" },
   { kind: 'special', name: 'ShowEasyChatMessage', tag: 'side', where: "PewterCity_PokemonCenter_1F" },
   { kind: 'special', name: 'ShowEasyChatScreen', tag: 'side', where: "PewterCity_PokemonCenter_1F" },
   // ---------------------------------------------------------------- postgame: after the Hall of Fame (Sevii 4-7, Trainer Tower, the event islands) or the link features postgame areas share.
