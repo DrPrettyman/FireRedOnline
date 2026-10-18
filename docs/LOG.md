@@ -2101,3 +2101,25 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
 - Verified: typecheck, `npm test` (161), tests/e2e/moveTutors.test.ts (5: Mega Punch with a free slot and with
   four moves, B in the tutor's party menu, deleting GROWL from the middle of four moves with PP Ups shifted, B out
   of the deleter's party menu and summary screen), tests/e2e/tmCase.test.ts; screenshots of the field after both.
+
+### W-slots unit 1: the coins box, the Game Corner's clerks and the slot machine's game logic
+
+- coins.c's coins box (`ui/CoinsBox.ts`): `showcoinsbox` / `updatecoinsbox` / `hidecoinsbox` (ScrCmd_* →
+  ShowCoinsWindow / PrintCoinsString / HideCoinsWindow), "COINS" over the 4-digit amount, next to the money box.
+- slot_machine.c's game logic as `menus/slotMachineLogic.ts` (no screen): InitSlotMachineState, the reel spin,
+  StopReel1/2/3 with TwoReelBiasCheck / OneReelBiasCheck, TestReelIconAttribute, CalcSlotBias, ResetMachineBias,
+  CalcPayout, GetPayout. Tables extracted by `tools/extract_slots.py` (new) to `slotMachine.json`.
+  GetRandomSlotMachineId (field_specials.c) in `script/gameCornerSpecials.ts`.
+- Fix found on the way: the script extractor ran both branches of top-level `.ifdef FIRERED` / `.ifdef LEAFGREEN`
+  blocks, so the prize room used LeafGreen's prices and levels (an Abra cost 120 coins, level 7). It now keeps
+  only the taken branch of `.ifdef` / `.if` / `#ifdef` blocks (BUILD_SYMBOLS: FIRERED, REVISION 0, no BUGFIX).
+  That also fixes Daisy's grooming text (both `#ifdef BUGFIX` branches were concatenated), the help system's
+  Pokédex text and the slot machine's smiley-face field effect arguments. Diffed scripts.json / strings.json
+  before and after: only those lines changed.
+- `TextPrinter.waitingForButton` / `MessageBox.waitingForButton` (getters, for tests): a test waits for a `\p`
+  in the page instead of mashing A into the multichoice that follows the message.
+- Verified: typecheck; `npm test` (179, incl. the new slotMachine.test.ts: 23 hand-worked cases from the C);
+  e2e `tests/e2e/gameCorner.test.ts` (new, 5 tests: buying 50 and 500 coins with the coins box at 7 → 57 → 557
+  and the money box; no Coin Case; the prize room's Abra for 180 coins and TM13 for 4000, not enough coins; the
+  Fisher's 10 coins and hidden coins; a slot machine without a Coin Case and GetRandomSlotMachineId's spread),
+  storyCeladonSaffron's Game Corner test. Screenshot of the coin clerk: money and coins boxes as on the GBA.
