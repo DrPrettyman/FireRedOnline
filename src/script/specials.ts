@@ -20,6 +20,7 @@ import { DAYCARE_SPECIALS } from './daycareSpecials';
 import { GAME_CORNER_SPECIALS } from './gameCornerSpecials';
 import { PARTY_MENU_SPECIALS } from '../menus/partyMenuSpecials';
 import { TRADE_SPECIALS } from './tradeSpecials';
+import { EGG_HATCH_SPECIALS } from '../menus/eggHatch';
 
 export interface SpecialEnv {
   state: GameState;
@@ -79,6 +80,7 @@ export const SPECIALS: Record<string, Special> = {
   ...DAYCARE_SPECIALS, // daycareSpecials.ts: daycare.c's Route 5 daycare specials
   ...GAME_CORNER_SPECIALS, // gameCornerSpecials.ts: GetRandomSlotMachineId
   ...TRADE_SPECIALS, // tradeSpecials.ts: in-game trades and the Name Rater
+  ...EGG_HATCH_SPECIALS, // menus/eggHatch.ts: daycare.c's EggHatch scene, ScriptHatchMon
 
   // field_player_avatar.c / bike.c / field_specials.c's player avatar specials
   ForcePlayerOntoBike,
