@@ -33,6 +33,14 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     heights the first time the guru measures (the script waits for it). The diploma returns through the field's
     plain fade from black rather than FieldCB_WarpExitFadeFromBlack's Task_ExitNonDoor (same look).
   - Fall warps (world/fallWarp.ts): silent (SE_FALL, SE_M_STRENGTH); no help context while surfing on Seafoam B4F.
+  - Easy Chat (menus/easyChat.ts, SIDE_PLAN.md W-easychat): the screen (`special ShowEasyChatScreen`,
+    easy_chat_2.c / easy_chat_3.c) isn't ported yet; it's a known gap the scripts run past, leaving VAR_0x8004 as the
+    script set it (EASY_CHAT_TYPE_PROFILE = 0), so the Pewter profile woman always takes the passphrase branch
+    ("I've heard that before") and the Viridian Mart questionnaire (VAR_0x8004 = EASY_CHAT_TYPE_QUESTIONNAIRE,
+    VAR_RESULT still YES from its msgbox) thanks the player for answers never given. ShowEasyChatMessage shows
+    its text like `messageautoscroll` does, as a plain field message (no auto-scroll; the profile's two lines fit one
+    box). InitEasyChatPhrases doesn't clear the mail words (mail isn't modelled) and clears additionalPhrases only
+    (the C's non-UBFIX loop clears 64 bytes, into the Mauville old man's data that's re-initialized right after).
   - Seagallop ferry (menus/seagallop.ts, script/ferrySpecials.ts): silent (SE_SHIP, SE_EXIT,
     PlayRainStoppingSoundEffect, Overworld_FadeOutMapMusic), so Task_Seagallop_2 waits only for the palette fade, not
     BGMusicStopped; no help system (HelpSystem_Disable / Enable) and no quest log (DrawSeagallopDestinationMenu's
