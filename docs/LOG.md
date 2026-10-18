@@ -2572,6 +2572,24 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
   Last run, on the final tree (#77 with master merged, identical to master after its squash): typecheck clean, 289
   unit, 385 e2e in 57 files.
 
+### AUDIO_PLAN.md: the audio plan (SIDE_PLAN.md batch 3, W-audioplan; docs only)
+
+- New [AUDIO_PLAN.md](../AUDIO_PLAN.md): how the GBA's m4a engine and sound.c work, every place the game uses audio
+  (call counts, the port's stubs, the ~40 DEVIATIONS entries), the waits that depend on it (fanfares are frame
+  counters; `waitse`, cries and `BGMusicStopped` depend on the engine's track and channel state), the options
+  (live engine, pre-rendered files, hybrids), integration, testing and a three-workstream split. Recommends porting
+  m4a to TypeScript, ticked once per frame and always running (output optional), with songs from a Python mid2agb.
+- Spikes (scratch, not committed): the decomp's mid2agb builds and converts all 347 songs; a Python assembler +
+  MPlayMain timing model runs all of them (77 loop, 270 end; fanfare lengths differ from `sFanfares`); all 388 cry
+  WAVs are exactly DPCM-reachable; poryaaaa (MIT) renders every song from the decomp's sources (21 MB of Opus).
+- Second pass (the coordinator's review): units re-sized against WORKFLOW.md (14 units in four batches, sized with
+  `wc -l` of the functions), appendix A maps every port file with audio calls or notes to its owner unit (the
+  GBA-layer menus already make their calls), cry wait lengths per mode on real species, the fanfare songs that
+  outlive their counters (MUS_POKE_FLUTE's 14 silent bars), the sequencer timing model's exact source lines and
+  SoundMain's order (sequencers, then CgbSound, then the mixer: the first frame-order claim was wrong), and a
+  model-vs-poryaaaa length cross-check.
+- STATUS.md "Next up" points at the plan. No code changed; no tests run.
+
 ### The unused gaps: decoration commands and Dive (SIDE_PLAN.md batch 3, W-unused)
 
 - ScriptEngine: `adddecoration`, `removedecoration`, `checkdecor`, `checkdecorspace` (ScrCmd_*: VarGet the id, the
