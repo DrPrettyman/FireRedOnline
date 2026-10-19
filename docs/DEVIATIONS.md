@@ -415,6 +415,11 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     MIN_LETTER_SPACING's argument as a glyph and ignores {FONT}); FRLG's braille strings use none of them.
     BrailleCursorToggle's text cursor is a field image moved by a field task (SpriteCB_TextCursor once a frame), not an
     OAM sprite; the quest log's playback, which skips it, isn't ported.
+  - Step callbacks (world/fieldTasks.ts, W-sevii unit 2): AshGrassPerStepCallback and CrackedFloorPerStepCallback
+    (R/S leftovers no FRLG script sets) log once and do nothing; the other ids are dummies as in FRLG. The task
+    doesn't run while OverworldScene loads a map (`busy`), when the GBA isn't running the overworld either.
+    `warphole MAP_UNDEFINED` (SetWarpDestinationToFixedHoleWarp: R/S's `setholewarp`, else gLastUsedWarp, which the
+    port doesn't keep) logs and ends the script; only the unused EventScript_FallDownHole reaches it.
   - Field weather (world/weather.ts, W-weather units 1 and 2): WEATHER_NONE, SUNNY, SHADE and FOG_HORIZONTAL are
     ported (and UNDERWATER, which shares the fog's callbacks); the weathers no FRLG map or script reaches (rain, snow,
     thunder, ash, sandstorm, diagonal fog, drought, downpour, bubbles) run as WEATHER_NONE and log once
