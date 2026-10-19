@@ -1,7 +1,8 @@
 // The postgame's specials (W-sevii, POSTGAME_PLAN.md), spread into SPECIALS: field_specials.c's
 // BrailleCursorToggle (the braille messages' cursor, `braillemessage_wait`), UpdateLoreleiDollCollection and
-// StickerManGetBragFlags (Four Island), field_tasks.c's SetIcefallCaveCrackedIceMetatiles (world/fieldTasks.ts), Resort
-// Gorgeous's request and save_location.c's SetPostgameFlags (Five Island and Celio). The braille commands themselves
+// StickerManGetBragFlags (Four Island), field_tasks.c's SetIcefallCaveCrackedIceMetatiles (world/fieldTasks.ts),
+// Six Island's Heracross record (pokemon_size_record.c, in pokemonSizeRecord.ts), Resort Gorgeous's request and
+// save_location.c's SetPostgameFlags (Five Island and Celio). The braille commands themselves
 // (`braillemessage`, `getbraillestringwidth`) are in ScriptEngine.ts. No Phaser import here: the cursor is drawn
 // through the field's scene (ScriptHost.listMenuHost()).
 
@@ -10,6 +11,7 @@ import { gfx, gfx16 } from '../gba/gfx';
 import { DEPTH_UI } from '../text/TextWindow';
 import type { FieldTask } from '../world/elevator';
 import { SetIcefallCaveCrackedIceMetatiles } from '../world/fieldTasks';
+import { CompareHeracrossSize, GetHeracrossSizeRecordInfo } from './pokemonSizeRecord';
 import type { Special } from './specials';
 import type { GameState } from '../state/GameState';
 import { FLAG_GET_SEEN, GetSetPokedexFlag } from '../menus/pokedex';
@@ -178,6 +180,10 @@ export const POSTGAME_SPECIALS: Record<string, Special> = {
     if (state.getVar('VAR_0x8006') !== 0) result |= 1 << 2;
     return result;
   },
+
+  // W-sevii unit 3, Six Island: the Water Path beauty's Heracross record (pokemon_size_record.c)
+  GetHeracrossSizeRecordInfo,
+  CompareHeracrossSize,
 
   // ---------------------------------------------------------------- Five Island and the Sapphire (W-sevii unit 4)
 

@@ -295,6 +295,19 @@ this is the next level down. When you add or change a subsystem, update its entr
   Fame and the Sevii 1-3 trip, `fillPokedex(n)`, `scriptsSince`, `battlesSince`, `rainbowPassState` for the state
   postgame.test.ts ends in, `talk(x, y, dir)`); set OPTIONS' battle style to SET
   (`state.battleStyleSet`) when mashing trainer battles with two or more in the party.
+  **Six Island** (W-sevii 3): the size records are pokemon_size_record.c in `script/pokemonSizeRecord.ts` (the table,
+  GetMonSizeHash from the personality and IVs, GetMonSize from the Pokédex height, FormatMonSizeRecord in inches,
+  CompareMonSize / GetMonSizeRecordInfo on a record var holding the biggest mon's hash; `withPokedexData` waits for
+  pokedex.json); the Magikarp specials stay in miscSpecials.ts, CompareHeracrossSize / GetHeracrossSizeRecordInfo
+  are in POSTGAME_SPECIALS. The Sapphire room's thief falls in with `disable_anim` / `restore_anim`
+  (script/MovementRunner.ts: ObjectEvent.inanimate, as the C's MovementAction_DisableAnimation sets
+  objectEvent->inanimate). Ruin Valley's door is Cut's CutMoveRuinValleyCheck / CutMoveOpenDottedHoleDoor
+  (world/fieldMoves.ts). Tests: tests/e2e/postgameSixIsland.test.ts (the rival scene, the door, the Dotted Hole's
+  floors and braille, the Sapphire scene with the thief's frames and the shake watched every tick, the Heracross
+  record, and every trainer and item of Pattern Bush, Green Path, Outcast Island, the Water Path and Ruin Valley;
+  its `battleTrainer` gets to a trainer that wanders or walks), tests/unit/pokemonSizeRecord.test.ts. Quick looks:
+  `?map=SixIsland_RuinValley&x=24&y=25` (face up; the scientist stands there until FLAG_HIDE_RUIN_VALLEY_SCIENTIST),
+  `?map=SixIsland_DottedHole_SapphireRoom&x=7&y=8` (face up), `?map=SixIsland_WaterPath_House1&x=3&y=5`.
   Four Island (unit 2): UpdateLoreleiDollCollection and StickerManGetBragFlags read the game stats
   (GAME_STAT_ENTERED_HOF etc.: `state.setGameStat` in a test); `warphole` (ScriptEngine) sets the warp destination to
   the player's spot on the named map and calls `special DoFallWarp` (world/fallWarp.ts). Tests:
