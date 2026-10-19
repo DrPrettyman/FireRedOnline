@@ -3067,6 +3067,7 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
   full suite ran (and the tests after it failed on the leftover page), then passed (50 s) on the rerun; master ran it
   in 59 s at a similar load, and timing each transition alone showed nothing slower. The full suite was not run
   (the coordinator's checkpoint came while the lock was held by another worker).
+
 ### W-sound 7a: the evolution scene's, egg hatching's and the in-game trade's sounds; map music after script screens
 
 - **Evolution scene** (`menus/evolutionScene.ts`, evolution_scene.c): m4aMPlayAllStop on entry and on a cancel,
@@ -3099,6 +3100,7 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
   the other workers): 410 e2e in 64 files, 408 passed, 27.4 min; the two failures are the races above, both green on
   rerun after the fixes. No tick budgets needed raising (the waits this unit adds are a frame or none: the cries and
   MUS_EVOLUTION_INTRO's wait were live already).
+
 ### W-m4a 4a: CgbSound, the engine side of the PSG (AUDIO_PLAN.md batch D, unit 1)
 
 - `src/audio/m4aCgb.ts` replaces the placeholder with m4a.c's CgbSound (the per-frame software envelope with its
@@ -3158,6 +3160,7 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
   from Node after the anim ended: the battle can be over by then, tests/README.md rule 5) and battleAnims.3e3b's
   Snatch (polls a short-lived sprite from Node; timed out under load; on the rerun Memento timed out instead).
   Tick budgets raised: none.
+
 ### W-m4a 4b: the PSG synth, music complete (AUDIO_PLAN.md batch D, unit 2)
 
 - New `src/audio/psgSynth.ts` (`PsgSynth`): the GBA's four PSG channels driven by the engine's register writes
@@ -3219,6 +3222,7 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
   volume after an awaited `t.until`, past the first cry's duck under load; now recorded tick by tick in one `t.mash`
   predicate); transitions' "every battle transition" (its 120 s timeout), battleAnims.3e3a's Smokescreen and
   battleAnims.2d's Memento were green on rerun: races outside this unit, not fixed. No tick budgets needed raising.
+
 ### W-sound 6b: the battle anim engine's sounds (AUDIO_PLAN.md batch D)
 
 - `src/battle/anim/` calls `gba/sound.ts` directly, with the C's arguments; battleAnim.ts's PlaySE12WithPanning
@@ -3276,6 +3280,7 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
   and each ball's PlaySE1WithPanning(SE_BALL_TRAY_BALL) / PlaySE2WithPanning(SE_BALL_TRAY_EXIT) at
   SOUND_PAN_ATTACKER (the opponent's) / SOUND_PAN_TARGET, replacing `ui.playSE`. gfx.ts and battleInterface.ts no
   longer use BattleUi.
+
 ### W-ref 2: the port's audio against the ROM (AUDIO_PLAN.md batch D, unit 10)
 
 - Exact check on the rev 1 ROM in mGBA (GDB stub, W-ref 1's freeze and start; scripts in `wref-scratch/wref2/`,
@@ -3349,6 +3354,7 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
 - Tests: `tests/unit/psgSynth.test.ts` + 2 (the wave restart's delay; a sequencer step inside an output sample
   through the DAC, checked to fail before the fix). Typecheck clean; unit 580 in 42 files; e2e audioOutput +
   audio 7 passed.
+
 ### W-sound 8: the sweep (AUDIO_PLAN.md batch D, unit 9)
 
 - Ambient cries (overworld.c: ChooseAmbientCrySpecies, UpdateAmbientCry, PlayAmbientCry; field_tasks.c's
@@ -3410,6 +3416,35 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
   are rerun file by file. Docs-only changes run nothing.
 - Verified: docs only.
 
+### W-sevii 1: back to One Island, Kindle Road, Mt. Ember, the Ruby (POSTGAME_PLAN.md batch 10)
+
+- Braille: `tools/extract.py` extracts FONT_BRAILLE beside the latin fonts (`braille_font`: graphics/fonts/braille.png
+  as a glyph mask, 16x16 cells as DecompressGlyph_Braille reads the .fwjpnfont, every glyph GetGlyphWidth_Braille's
+  16 px, `fixedWidth` in fonts.json, gFontInfos[FONT_BRAILLE]: line spacing 2, dark gray on white) and the
+  `.braille` strings of data/text/braille.inc (`braille_encoding` / `encode_braille`: preproc's
+  AsmFile::ReadBraille table with BRAILLE_CHAR_* from include/characters.h, written to strings.json as byte tokens,
+  `{0x01 0x05 0x03}$`, so Charmap.encode gives the ROM's bytes). `text/Font.ts` FONT_BRAILLE (6) and fixed widths;
+  `text/stringWidth.ts` skips the Japanese letter spacing for braille (`fontId != FONT_BRAILLE && isJapanese`);
+  TextPrinter draws braille glyphs whatever {FONT} says (FontFunc_Braille).
+- Script commands (`script/ScriptEngine.ts`): `braillemessage` (ScrCmd_braillemessage: the dialogue frame, printed
+  at once in FONT_BRAILLE through MessageBox.show's font), `getbraillestringwidth` (VAR_0x8004 = GetStringWidth).
+  `script/postgameSpecials.ts` (POSTGAME_SPECIALS, new): BrailleCursorToggle with text.c's text cursor on the field
+  (CreateTextCursorSprite's (x + 3, y + 4), SpriteCB_TextCursor's bob by a field task, DestroyTextCursorSprite), so
+  the `braillemessage_wait` macro (EventScript_BrailleCursorWaitButton) works. Three gaps off scriptCoverageGaps.ts.
+- Played headless (`tests/e2e/postgame.test.ts`, helpers in `tests/e2e/postgameHelpers.ts`: `afterHallOfFame`,
+  `fillPokedex`, `scriptsSince`, `battlesSince`): Pallet Town's OakRatingScene → the lab's National Dex scene;
+  Three Island's harbor → One Island (MULTICHOICE_SEAGALLOP_V12); Celio's Ruby request; One Island → Kindle Road
+  over the connection; Abigail by sight and Mik & Kia's double battle; the Ember Spa (HM06, the hot spring's heal);
+  Mt. Ember's password scene, both grunts and the open cave; the Ruby Path B4F / B5F braille (the bytes, each
+  braillemessage_wait's width and cursor); the Ruby; Moltres's battle on the summit, won; GiveCelioRuby → the
+  Rainbow Pass. Kindle Road and Mt. Ember ran without changes.
+- Fix found on the way: `waitbuttonpress` now waits from the frame after it was set up (SetupNativeScript): the A
+  that let one wait through could pass the next one in the same frame, so one press went through all eight of
+  B5F's messages (braille prints at once). DEVIATIONS' native-wait note updated.
+- Verified: typecheck; unit 589 (6 new in tests/unit/braille.test.ts: the font info and widths, the encoded strings,
+  GetStringWidth, the commands through the engine, the cursor's position and bob); e2e postgame.test.ts, plus
+  field, audioCries, seviiQuest and sideEvents (waitbuttonpress), all passed.
+
 ### W-ttower 1: the Trainer Tower's data and the tower without battles (POSTGAME_PLAN.md batch 10)
 
 - Data: `tools/extract_trainer_tower.py` (in `npm run extract`) → `public/gen/trainerTower.json`: every
@@ -3445,6 +3480,7 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
   and after speeches, the stand-in battle, the floor cleared, the timer exactly 60 per 60 ticks and the clock; a
   Double challenge's 1F_DOUBLES layout and twins; a loss ending the challenge in the lobby and leaving the tower;
   a white-out during a challenge) and saveContinue.test.ts, all passed.
+
 ### The event tickets, Navel Rock, Birth Island (W-events unit 1, batch 10)
 
 - The tickets: `GiveEventTickets` (menus/hallOfFame.ts), EnterHallOfFame's `#if REVISION >= 0xA` block: the Aurora
