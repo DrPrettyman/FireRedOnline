@@ -313,6 +313,16 @@ this is the next level down. When you add or change a subsystem, update its entr
   the player's spot on the named map and calls `special DoFallWarp` (world/fallWarp.ts). Tests:
   tests/unit/fieldTasks.test.ts, tests/e2e/postgameFourIsland.test.ts. Quick look: `?map=FourIsland_IcefallCave_1F&x=8&y=15`,
   walk up twice.
+  Seven Island (unit 5): no new specials besides ValidateEReaderTrainer (always 1: no e-Reader trainer, so the
+  house's door stays shut); the Tanoby Key runs on what was there (Strength, HandleBoulderActivateVictoryRoadSwitch
+  for the seven switches, ShakeScreen, `setweather` in EventScript_TryDarkenRuins, the Unown slots in
+  world/WildEncounters.ts). BattleScene preloads an Unown's letter pics (gfxSymbolsFor: NUM_SPECIES + letter, as
+  LoadSpecialPokePic reads them). Test: tests/e2e/postgameSevenIsland.test.ts (the ferry, the Tanoby Key's 34-push
+  solution `PUSHES` with every shake's pan per tick, the chambers dark / lit and each chamber's letters by slot through
+  `wild.generateWildMon`, Altering Cave's Zubat, and a sweep of the trainers, items, NPCs and signs with its
+  `interact` / `fight` / `pickUp` / `read` helpers: they warp beside a map event found in public/gen/maps, follow a
+  wandering NPC, and mash until the field is free). Quick look: `?map=SevenIsland_SevaultCanyon_TanobyKey&x=7&y=13`
+  (a Strength mon and FLAG_BADGE04_GET).
   Five Island (unit 4): SampleResortGorgeousMonAndReward (Selphy's request: a seen species and a reward in
   VAR_RESORT_GORGEOUS_REQUESTED_MON / _REWARD) and IncrementResortGorgeousStepCounter (exported, called from
   `OverworldScene.processPlayerFieldInput` on every step beside IncrementBirthIslandRockStepCount: 250 steps with a

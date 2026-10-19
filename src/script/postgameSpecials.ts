@@ -216,6 +216,18 @@ export const POSTGAME_SPECIALS: Record<string, Special> = {
   SetUnlockedPokedexFlags({ state }) {
     state.gcnLinkFlags |= (1 << 0) | (1 << 4) | (1 << 5);
   },
+
+  // ---- Seven Island (W-sevii unit 5)
+
+  /**
+   * ValidateEReaderTrainer (battle_tower.c; SevenIsland_House_Room1's ON_TRANSITION and old woman): VAR_RESULT 0
+   * when the save holds a valid e-Reader trainer, else 1 (and an invalid one is cleared). The port has no e-Reader
+   * (link content), so gSaveBlock2Ptr->battleTower.ereaderTrainer is always all zero: the first check's
+   * `checksum == 0` gives 1, the house keeps its door shut and the old woman only reminisces.
+   */
+  ValidateEReaderTrainer({ state }) {
+    state.setVar('VAR_RESULT', 1);
+  },
 };
 
 /** save_location.h's CHAMPION_SAVEWARP (specialSaveWarpFlags bit 7). */
