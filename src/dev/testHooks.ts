@@ -34,6 +34,7 @@ import { eggHatchProbe } from '../menus/eggHatch';
 import { moveRelearnerProbe } from '../menus/learnMove';
 import { berryPouchProbe } from '../menus/berryPouch';
 import { fameCheckerProbe } from '../menus/fameChecker';
+import { teachyTvProbe } from '../menus/teachyTv';
 import { hallOfFameProbe } from '../menus/hallOfFame';
 import { creditsProbe, creditsSkipToClosing } from '../menus/credits';
 import { pokedexAreaProbe } from '../menus/pokedexArea';
@@ -810,6 +811,11 @@ function createApi(game: Phaser.Game) {
       const p = fameCheckerProbe();
       return p && { ...p, list: p.list.map(decode), message: decode(p.message) };
     },
+    /**
+     * Teachy TV while it's up (menus/teachyTv.ts): its mode, option, scroll/row, the task and TTVcmd step, the text
+     * printed last (symbol), the Pokédude's sprite, the grass sprites, BG3's scroll.
+     */
+    teachyTv: () => (gMain.callback2?.name === 'TeachyTvCallback' ? teachyTvProbe() : undefined),
     /** The map name popup while Task_MapNamePopup runs: its text, decoded, and how many px of it are on screen. */
     mapNamePopup: () => {
       const f = field();
