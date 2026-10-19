@@ -1,9 +1,11 @@
-// The Trainer Tower (POSTGAME_PLAN.md W-ttower units 1 and 2; trainer_tower.c in world/trainerTower.ts): the lobby's
+// The Trainer Tower (POSTGAME_PLAN.md W-ttower units 1-3; trainer_tower.c in world/trainerTower.ts): the lobby's
 // receptionist starts a challenge (TrainerTower_Lobby_EventScript_EntryTrigger), the timer counts, 1F's layout and
 // trainers are the challenge's (TrainerTower_OnTransition: ttower_initfloor), a trainer's trigger runs up to
 // `ttower_dobattle`: the battle (DoTrainerTowerBattle: BATTLE_TYPE_TRAINER_TOWER, BuildEnemyParty at the party's top
 // level, the opponent's class / name / pic / texts from sTrainerTowerOpponent), the floor is cleared, and a loss sends
 // the player back out of the challenge at the lobby (TrainerTower_EventScript_WarpToLobbyLost, ..._LostChallenge).
+// Unit 3: battle_records.c's records screen (the lobby's TIME BOARD, the Pokémon Center's link records) and a full
+// climb: eight floors, the roof's owner and prize, the record time, the elevator down, a slower climb.
 
 import { expect, test } from 'vitest';
 import { useGame, type Game } from './harness';
@@ -14,8 +16,8 @@ const MEWTWO = { species: 'MEWTWO', level: 70, moves: ['PSYCHIC'] };
 const RATTATA = { species: 'RATTATA', level: 5, moves: ['TACKLE'] };
 
 /** Start in the lobby, below the entry trigger at (9, 7); the tower's data is in by then (Assets.init). */
-async function lobby(party = [MEWTWO], boost = true): Promise<Game> {
-  const game = await session.start({ start: 'after-rival', map: 'TrainerTower_Lobby', x: 9, y: 9, party });
+async function lobby(party = [MEWTWO], boost = true, speed?: number): Promise<Game> {
+  const game = await session.start({ start: 'after-rival', map: 'TrainerTower_Lobby', x: 9, y: 9, party, speed });
   // So that the battles are won whatever the dice say: the floors' mons come at the party's top level with EVs
   if (boost) {
     await game.eval((t) => {
@@ -428,3 +430,223 @@ test('whiting out during a challenge: back to the lobby (SetWhiteoutRespawnWarpA
   expect(await game.eval((t) => t.field())).toMatchObject({ map: 'TrainerTower_Lobby', x: 4, y: 11 });
   expect(await game.eval((t) => t.var('VAR_MAP_SCENE_TRAINER_TOWER'))).toBe(0);
 });
+
+// ---------------------------------------------------------------- the records (battle_records.c) and the full climb
+
+interface Printed {
+  x: number;
+  y: number;
+  text: string;
+}
+
+/**
+ * Read a records board (`special ShowBattleRecords` after `fadescreen`): wait for battle_records.c's MainCB2 with the
+ * fade in over, take what it printed, then A (Task_WaitButton: SE_SELECT, the fade out) back to the field.
+ */
+async function readRecords(game: Game, map: string, shot: string): Promise<{ printed: Printed[]; select: boolean }> {
+  await game.waitForScreen('MainCB2', { what: 'the records screen' });
+  const printed = (await game.eval((t) => (t as any).battleRecords())) as Printed[];
+  await game.screenshot(shot);
+  const mark = await game.mark();
+  await game.press('A');
+  await game.eval((_t, map) => ((window as any).__ttMap = map), map);
+  await game.waitFor((t) => t.idle() && !t.field()!.script && t.field()!.map === (window as any).__ttMap, { what: 'back on the field' });
+  const select = (await game.eval((t, s) => t.audioEvents(s), mark)).some((e) => e.type === 'se' && e.name === 'SE_SELECT');
+  return { printed, select };
+}
+
+/** The lobby's TIME BOARD (TrainerTower_Lobby_EventScript_ShowRecords: VAR_0x8004 = 1) from the sign at (8, 10). */
+async function timeBoard(game: Game, shot: string): Promise<Printed[]> {
+  await game.eval((t) => t.walkTo(8, 11));
+  await game.eval((t) => t.face('up'));
+  await game.press('A');
+  const { printed, select } = await readRecords(game, 'TrainerTower_Lobby', shot);
+  expect(select).toBe(true);
+  return printed;
+}
+
+/** "59MIN. 59.99SEC." as PRINT_TOWER_TIME prints `frames` (the probe's decode collapses spaces). */
+function towerTime(frames: number): string {
+  const min = Math.floor(frames / 3600);
+  const sec = Math.floor((frames % 3600) / 60);
+  const cs = Math.floor(((frames % 60) * 168) / 100);
+  return `${min}MIN. ${sec}.${String(cs).padStart(2, '0')}SEC.`.replace(/ +/g, ' ');
+}
+
+/** PrintTrainerTowerRecords' lines: TIME BOARD at (74, 0), each type's name at (24, 36 + 20i) and time at (96, ...). */
+function board(times: number[]): Printed[] {
+  const names = ['SINGLE', 'DOUBLE', 'KNOCKOUT', 'MIXED'];
+  return [{ x: 0x4a, y: 0, text: 'TIME BOARD' }, ...times.flatMap((t, i) => [
+    { x: 0x18, y: 0x24 + 0x14 * i, text: names[i] },
+    { x: 0x60, y: 0x24 + 0x14 * i, text: towerTime(t) },
+  ])];
+}
+
+const MAX_TIME = 215999; // TRAINER_TOWER_MAX_TIME (ResetTrainerTowerResults)
+
+test('the link records machine (CableClub_EventScript_ShowBattleRecords, VAR_0x8004 = 0): the totals and five empty rows', async () => {
+  const game = await session.start({ start: 'after-rival', map: 'ViridianCity_PokemonCenter_2F', x: 13, y: 4, party: [MEWTWO] });
+  // The MB_BATTLE_RECORDS metatile is at (12, 3)
+  await game.eval((t) => t.walkTo(12, 4));
+  await game.eval((t) => t.face('up'));
+  await game.press('A');
+  const { printed, select } = await readRecords(game, 'ViridianCity_PokemonCenter_2F', 'battle-records-link');
+  expect(select).toBe(true);
+  const name = await game.eval((t) => t.state!.playerName);
+  // PrintBattleRecords: the title centred in 0xD0, the total record at (12, 24), the column headers at (0x54, 0x30)
+  expect(printed[0]).toMatchObject({ y: 4, text: `${name}’s BATTLE RESULTS` });
+  expect(printed[1]).toEqual({ x: 12, y: 24, text: 'TOTAL RECORD W:0 L:0 D:0 ' });
+  expect(printed[2]).toMatchObject({ x: 0x54, y: 0x30 });
+  expect(printed[2].text).toMatch(/^WIN ?LOSE ?DRAW$/);
+  // PrintOpponentBattleRecord: no link battles, so every row is dashes at 0, 0x54, 0x84, 0xB4, 14 px apart
+  const rows = printed.slice(3);
+  expect(rows).toHaveLength(5 * 4);
+  for (let i = 0; i < 5; i++) {
+    const y = 0x3d + 14 * i;
+    expect(rows.slice(i * 4, i * 4 + 4)).toEqual([
+      { x: 0, y, text: '-------' },
+      { x: 0x54, y, text: '----' },
+      { x: 0x84, y, text: '----' },
+      { x: 0xb4, y, text: '----' },
+    ]);
+  }
+});
+
+test('the lobby\'s records board shows each challenge\'s record time (a new game: 59 min. 59.99 sec.)', async () => {
+  const game = await lobby();
+  expect(await timeBoard(game, 'time-board-new')).toEqual(board([MAX_TIME, MAX_TIME, MAX_TIME, MAX_TIME]));
+});
+
+/** Record each field message from now on (in the page, tick by tick) until `stop` resolves them. */
+async function watchMessages(game: Game): Promise<{ stop: () => Promise<string[]> }> {
+  await game.eval(() => void Object.assign(window as any, { __ttMsgs: [], __ttMsgStop: false }));
+  const done = game.watch(
+    (t) => {
+      const w = window as any;
+      const m = t.message();
+      if (m && w.__ttMsgs[w.__ttMsgs.length - 1] !== m) w.__ttMsgs.push(m);
+      return w.__ttMsgStop ? (w.__ttMsgs as string[]) : undefined;
+    },
+    { maxFrames: 1_000_000, what: 'the messages' },
+  );
+  return {
+    stop: async () => {
+      await game.eval(() => void ((window as any).__ttMsgStop = true));
+      return done;
+    },
+  };
+}
+
+/** Talk to the owner on the roof (TrainerTower_EventScript_Owner at (9, 7)) and mash through what he says. */
+async function talkToOwner(game: Game): Promise<string[]> {
+  await game.eval((t) => t.walkTo(9, 8));
+  await game.eval((t) => t.face('up'));
+  const messages = await watchMessages(game);
+  await game.press('A');
+  await game.mashUntil((t) => t.idle() && !t.field()!.script && t.state!.trainerTower[0].checkedFinalTime, { what: 'the owner', maxFrames: 20_000 });
+  return messages.stop();
+}
+
+/** The roof's elevator (13, 5) down to the lobby: the panel at (0, 2), LOBBY, the ride, the exit scene. */
+async function elevatorToLobby(game: Game): Promise<void> {
+  await takeWarp(game, 13, 5, 'TrainerTower_Elevator');
+  await game.eval((t) => t.walkTo(0, 3));
+  await game.eval((t) => t.face('up'));
+  const since = await game.mark();
+  await game.eval((_t, since) => ((window as any).__ttSince = since), since);
+  await game.press('A');
+  // TrainerTower_Elevator_EventScript_FloorSelectFromRoof: MULTICHOICE_ROOFTOP_B1F on ROOFTOP; LOBBY is next
+  await menuOpened(game, 'MULTICHOICE_ROOFTOP_B1F', true);
+  await game.eval((t) => t.waitFrames(10));
+  await game.press('DOWN');
+  await game.press('A');
+  await game.waitForEvent('map', { since: await game.mark(), what: 'the lobby', timeout: 60_000 });
+  // TrainerTower_Lobby_EventScript_ExitElevator: two steps down, the counter's barrier back
+  await game.waitFor((t) => t.field()!.map === 'TrainerTower_Lobby' && t.idle() && !t.field()!.script && t.var('VAR_TEMP_D') === 0, { what: 'out of the elevator' });
+}
+
+test('a full Single climb: eight floors, the owner\'s prize and a record time on the TIME BOARD; a slower climb keeps it', async () => {
+  // (twice the usual ticks per frame, and the battle scene off: eight battles)
+  const game = await lobby([MEWTWO, MEWTWO], true, 16);
+  await game.eval((t) => void Object.assign(t.state!, { battleStyleSet: true, battleSceneOff: true }));
+  await startChallenge(game, 0);
+  await takeWarp(game, 9, 2, 'TrainerTower_1F');
+  const watching = await watchBattles(game);
+  for (let floor = 1; floor <= 8; floor++) {
+    // HealPlayerParty before each floor, as a player would walk down to the lobby's nurse (the confusion and sleep
+    // moves of the upper floors wear the party down, and PSYCHIC has 10 PP)
+    await game.eval(async (t) => {
+      const specials = await new Function('p', 'return import(p)')('/src/script/specials.ts');
+      specials.healPlayerParty(t.state);
+    });
+    await fightFloor(game, [10, 13], 1);
+    expect((await record(game)).floorsCleared).toBe(floor);
+    await takeWarp(game, 15, 6, floor < 8 ? `TrainerTower_${floor + 1}F` : 'TrainerTower_Roof');
+  }
+  const battles = await stopWatching(game, watching);
+  expect(battles).toHaveLength(8);
+  for (let i = 0; i < 8; i++) {
+    const name = await trainerName(game, 0, i, 0);
+    expect(battles[i].msgs.some((m) => m.endsWith(`${name} would like to battle!`))).toBe(true);
+    expect(battles[i].msgs).toContain(await speech(game, 0, i, 0, 'speechLose'));
+  }
+
+  // The roof: InitTrainerTowerFloor past the set's last floor (LAYOUT_TRAINER_TOWER_ROOF); the clock still runs
+  expect(await game.eval((t) => t.state!.mapLayoutId === t.state!.defines.require('LAYOUT_TRAINER_TOWER_ROOF'))).toBe(true);
+  const arrived = await record(game);
+  const said = await talkToOwner(game);
+  const rec = await record(game);
+  // TrainerTower_EventScript_SpeakToOwner: GetOwnerState 0 (the timer stops), GiveChallengePrize (floor 0's prize:
+  // sPrizeList[14], UP-GRADE), CheckFinalTime 0: a new record
+  expect(rec).toMatchObject({ spokeToOwner: true, receivedPrize: true, checkedFinalTime: true, floorsCleared: 8 });
+  expect(rec.timer).toBeGreaterThan(arrived.timer);
+  expect(rec.bestTime).toBe(rec.timer);
+  expect(await game.eval((t) => t.itemCount('UP_GRADE'))).toBe(1);
+  const joined = said.join(' | ');
+  expect(joined).toMatch(/I am the owner of this TOWER/);
+  expect(joined).toMatch(/This is for you/);
+  expect(joined).toMatch(/obtained the UP-GRADE/i);
+  expect(joined).toMatch(/Stupendous/);
+  expect(joined).toMatch(/better time out of you/);
+  expect(joined).not.toMatch(/sweet time/);
+  // GetOwnerState's DisableVBlankCounter1: stopped
+  await game.eval((t) => t.waitFrames(60));
+  expect((await record(game)).timer).toBe(rec.timer);
+  // Again: state 2, only the farewell
+  const again = await talkToOwner(game);
+  expect(again.join(' | ')).not.toMatch(/owner of this TOWER|This is for you|Stupendous/);
+  expect(again.join(' | ')).toMatch(/better time out of you/);
+
+  // Down by the elevator; the lobby's TIME BOARD has the new SINGLE record
+  await elevatorToLobby(game);
+  // (the warp at (17, 8), a step out of the door, the script's two steps down: below the barrier at (17, 10))
+  expect(await game.eval((t) => t.field())).toMatchObject({ map: 'TrainerTower_Lobby', x: 17, y: 11 });
+  expect(await timeBoard(game, 'time-board-record')).toEqual(board([rec.bestTime, MAX_TIME, MAX_TIME, MAX_TIME]));
+
+  // A second Single challenge: out of the tower (SevenIsland_TrainerTower's ON_TRANSITION ends the challenge) and back
+  await takeWarp(game, 9, 15, 'SevenIsland_TrainerTower');
+  // (out on the door at (58, 7): a step down and back up through it)
+  await game.walk('down');
+  const back = await game.mark();
+  await game.walk('up');
+  await game.waitForEvent('map', { since: back, what: 'the lobby again' });
+  await game.waitIdle();
+  expect(await game.eval((t) => t.field()!.map)).toBe('TrainerTower_Lobby');
+  await game.eval((t) => t.walkTo(9, 9));
+  await startChallenge(game, 0);
+  // A slower climb: its floors counted cleared (their battles were won above) and the clock 10 s past the record
+  await game.eval((t, best) => void Object.assign(t.state!.trainerTower[0], { floorsCleared: 8, timer: best + 600 }), rec.bestTime);
+  await takeWarp(game, 9, 2, 'TrainerTower_1F');
+  for (let floor = 1; floor <= 8; floor++) await takeWarp(game, 15, 6, floor < 8 ? `TrainerTower_${floor + 1}F` : 'TrainerTower_Roof');
+  const said2 = (await talkToOwner(game)).join(' | ');
+  const rec2 = await record(game);
+  expect(rec2.timer).toBeGreaterThan(rec.bestTime + 600);
+  // GiveChallengePrize 2 (already given), CheckFinalTime 1: no new record
+  expect(said2).toMatch(/I am the owner of this TOWER/);
+  expect(said2).toMatch(/sweet time/);
+  expect(said2).not.toMatch(/This is for you|Stupendous/);
+  expect(rec2.bestTime).toBe(rec.bestTime);
+  expect(await game.eval((t) => t.itemCount('UP_GRADE'))).toBe(1);
+  await elevatorToLobby(game);
+  expect(await timeBoard(game, 'time-board-kept')).toEqual(board([rec.bestTime, MAX_TIME, MAX_TIME, MAX_TIME]));
+}, 900_000);
