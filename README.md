@@ -4,7 +4,7 @@ A browser rebuild of Pokémon FireRed in [Phaser 3](https://phaser.io), using th
 [pret/firered](https://github.com/pret/pokefirered) decompilation as the source of truth for data and behaviour.
 
 No game assets are committed. `tools/extract.py` reads a local decomp checkout and writes
-everything the game needs into `public/gen/` (gitignored). Keep that folder local; don't publish it.
+everything the game needs into `public/gen/` (gitignored). Keep that folder local; don't publish it! All hail Nintendo, our lord and saviour! 
 
 ## Setup
 
