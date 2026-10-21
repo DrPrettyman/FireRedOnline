@@ -194,8 +194,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     bike and the teleport spin. Movement scripts
     (applymovement) still run through MovementRunner rather than the player's held-movement actions, so `lock`
     waits for a scripted step to end by `isMoving`.
-  - Fishing (world/fishing.ts): no quest log playback (QL_PLAYER_GFX_FISH's Task_QLFishMovement: QUEST_LOG_PLAN.md
-    QL2) and no GAME_STAT_FISHING_CAPTURES. StartFishing's task runs its second state a frame later than
+  - Fishing (world/fishing.ts): no GAME_STAT_FISHING_CAPTURES. StartFishing's task runs its second state a frame later than
     the GBA's (a new task there also runs in the RunTasks pass that created it). The dots and messages go through
     the field message box's printer, which runs after the field's tasks: a dot printed at speed 0 appears in the
     same frame, but Fishing11 / Fishing16 see a finished message a frame later than RunTextPrinters would. The
@@ -212,6 +211,14 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     does. `setdivewarp` (ScrCmd_setdivewarp) isn't ported (no FRLG script uses it), so sFixedDiveWarp is always the
     dummy warp and a map without a dive/emerge connection never dives. As in the C, that case leaves the player
     locked (DiveFieldEffect_Init's preventStep and _ShowMon's LockPlayerFieldControls are never undone).
+  - Escalators (world/escalator.ts): the escalator's fade (Escalator_BeginFadeOutToNewMap, 8 frames after the steps
+    start) waits for SetupWarp's load of the other floor's header the first time (the port loads map data
+    asynchronously; WarpFadeOutScreen needs the header for the fade's colour and TryFadeOutOldMapMusic for its music),
+    so the first ride from a floor can start its fade a few frames late; the player's sprite keeps sliding meanwhile, as
+    EscalatorWarpEffect_4 / _6 would. FieldCB_EscalatorWarpIn runs when the port's map load ends (a promise), and its
+    task from the next frame. DrawWholeMapView redraws only the cells the escalator changed (every other grid change
+    is drawn at once). CameraObjectReset2 / CameraObjectReset1 are nothing: the camera follows the player's tile, never
+    its sprite's x2 / y2.
   - Object animations follow the step's progress (first half step frame, second half standing) instead of
     sprite.c's anim tables; a sliding player (disableAnim) shows the standing frame.
   - Poké Mart: GAME_STAT_SHOPPED isn't counted. The decoration marts (`pokemartdecoration*`) aren't ported (unused in FRLG).
@@ -325,8 +332,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     window over another doesn't clear its tilemap, so CommitQuestLogWindow1 (the field message box's
     ClearDialogWindowAndFrame in playback) has nothing to put back and has no caller yet (QL5). In playback, a script (one a recorded input starts, or a map's ON_FRAME
     scene the scene's restored vars bring back, as the Four Island rival's) runs with the normal message box, which
-    waits for A or B (the auto-scroll, WaitForAorBPress' 120-frame timeout and QL_AvoidDisplay: QL5); the fishing
-    rod's and the VS Seeker's gfx changes don't play (QL5), and getting off a mon changes the music. QL_LoadObjects
+    waits for A or B (the auto-scroll, WaitForAorBPress' 120-frame timeout and QL_AvoidDisplay: QL5). QL_LoadObjects
     sets the snapshot's position and facing on the objects the field spawned from the scene's flags (not each saved
     object's other fields; previousCoords are the current ones); a QL_START_WARP scene's player state comes from the
     warp, not the snapshot's graphics. A warp in playback into a disabled location ends the scene once the field has
