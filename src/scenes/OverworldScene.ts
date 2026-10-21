@@ -114,6 +114,7 @@ import { FLOOR_NAMES, type FieldTask } from '../world/elevator';
 import { gFieldCallback, gFieldCallback2, type FieldCallbackHost } from '../menus/fieldCallbacks';
 import { RunMassageCooldownStepCounter } from '../script/miscSpecials';
 import { IncrementBirthIslandRockStepCount } from '../script/eventIslandSpecials';
+import { IncrementRenewableHiddenItemStepCounter, TryRegenerateRenewableHiddenItems } from '../world/renewableHiddenItems';
 import { SetUpFieldTasks, Task_RunPerStepCallback, type PerStepCallbackHost } from '../world/fieldTasks'; // W-sevii
 import { DEOXYS_ROCK_GFX, registerDeoxysRock, setDeoxysRockHost } from '../world/deoxysRock';
 import { UseRegisteredKeyItemOnField } from '../menus/registeredItem';
@@ -960,6 +961,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
         this.spawnsWaiting = false;
         this.updateObjectsForCamera(); // the last camera step's TrySpawnObjectEvents, now the sheet is in
       }
+      // ReadKeys' L=A: on the GBA every reader (the field's too) sees A while L is pressed in that button mode
+      this.buttons.lEqualsA = this.state.optionsButtonMode === K.OPTIONS_BUTTON_MODE_L_EQUALS_A;
       this.buttons.sample();
       // CallCallbacks: RunHelpSystemCallback first; while the help is up the field's callbacks and VBlank don't run
       help = this.help?.tick(this.buttons) ?? false;
@@ -1200,6 +1203,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       return true;
     }
     if (this.tryOnFrameScript()) return true;
+    if (input.tookStep) this.state.incrementGameStat(K.GAME_STAT_STEPS);
+    if (input.tookStep) IncrementRenewableHiddenItemStepCounter(this.state);
     if (input.tookStep) RunMassageCooldownStepCounter(this.state);
     if (input.tookStep) IncrementResortGorgeousStepCounter(this.state);
     if (input.tookStep) IncrementBirthIslandRockStepCount(this.state, this.world.current.data.id);
@@ -2000,6 +2005,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       Overworld_ClearSavedMusic(); // before RunOnTransitionMapScript (Cycling Road's sets it again)
       const transition = this.scripts.mapScript(name, 'MAP_SCRIPT_ON_TRANSITION');
       if (transition) this.scripts.runImmediately(transition);
+      TryRegenerateRenewableHiddenItems(this.state); // after RunOnTransitionMapScript
     } else {
       this.state.mapLayoutId = continued.mapLayoutId ?? this.defines.require(cur.data.layoutId); // LoadSaveblockMapHeader
     }
@@ -3161,6 +3167,9 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       battleTypeFlags |= d.require('BATTLE_TYPE_FIRST_BATTLE');
     }
     const speech = (label?: string) => (label && this.assets.strings[label] !== undefined ? this.charmap.encode(this.assets.strings[label]) : undefined);
+    // DoTrainerBattle
+    this.state.incrementGameStat(K.GAME_STAT_TOTAL_BATTLES);
+    this.state.incrementGameStat(K.GAME_STAT_TRAINER_BATTLES);
     return this.runBattle({
       battleTypeFlags,
       trainerBattleOpponent_A: battle.trainer,
@@ -3317,6 +3326,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
 
   /** The DoStandardWildBattle / StartRoamerBattle / DoGhostBattle part: battle, then CB2_EndWildBattle. */
   private runWildBattle(battleTypeFlags: number, enemy: Pokemon, song = 0): void {
+    this.state.incrementGameStat(K.GAME_STAT_TOTAL_BATTLES);
+    this.state.incrementGameStat(K.GAME_STAT_WILD_BATTLES);
     const run = this.runBattle({ battleTypeFlags, trainerBattleOpponent_A: 0, trainerBattleMode: 0, rivalBattleFlags: 0, enemyParty: [enemy] }, this.wildBattleTransition(enemy), song);
     let fadeIn: (() => boolean) | undefined;
     this.overlay = {
