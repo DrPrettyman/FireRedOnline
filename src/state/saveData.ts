@@ -27,9 +27,9 @@ import type { Mail } from '../world/mail';
  * daycareStepCounter instead of daycare and no route5DayCareMon, version 4 no easyChat, version 5 no savedMusic,
  * version 6 no weather, version 7 no trainerTower, version 8 no gcnLinkFlags, version 9 no fameChecker,
  * version 10 no mail, version 11 no questLog, version 12 no daycare mail, version 13 no objectEvents,
- * objectEventTemplates or mapView).
+ * objectEventTemplates or mapView, version 14 no pokedex.unownPersonality / spindaPersonality).
  */
-export const SAVE_VERSION = 14;
+export const SAVE_VERSION = 15;
 
 /** The localStorage key of the one save slot. */
 export const SAVE_STORAGE_KEY = 'firered-phaser:save';
@@ -105,8 +105,11 @@ export interface SaveData {
     /** OPTIONS_SOUND_MONO / _STEREO; since version 3. */
     sound: number;
   };
-  /** struct Pokedex: seen / caught national dex numbers, ascending; nationalMagic as a flag. */
-  pokedex: { seen: number[]; caught: number[]; nationalDexEnabled: boolean };
+  /**
+   * struct Pokedex: seen / caught national dex numbers, ascending; nationalMagic as a flag; unownPersonality /
+   * spindaPersonality (the first Unown / Spinda seen, HandleSetPokedexFlag) since version 14.
+   */
+  pokedex: { seen: number[]; caught: number[]; nationalDexEnabled: boolean; unownPersonality: number; spindaPersonality: number };
   specialSaveWarpFlags: number;
   /** gSaveBlock2Ptr->mapView (SaveMapView; GameState.mapView); since version 14. */
   mapView?: number[];
@@ -257,6 +260,8 @@ export function toSaveData(state: GameState): SaveData {
       seen: [...state.dexSeen].sort((a, b) => a - b),
       caught: [...state.dexCaught].sort((a, b) => a - b),
       nationalDexEnabled: state.nationalDexEnabled,
+      unownPersonality: state.dexUnownPersonality,
+      spindaPersonality: state.dexSpindaPersonality,
     },
     specialSaveWarpFlags: state.specialSaveWarpFlags,
     mapView: clone(state.mapView),
@@ -340,6 +345,8 @@ export function fromSaveData(data: SaveData, state: GameState): GameState {
   state.dexCaught.clear();
   for (const n of data.pokedex.caught) state.dexCaught.add(n);
   state.nationalDexEnabled = data.pokedex.nationalDexEnabled;
+  state.dexUnownPersonality = data.pokedex.unownPersonality;
+  state.dexSpindaPersonality = data.pokedex.spindaPersonality;
   state.specialSaveWarpFlags = data.specialSaveWarpFlags;
   state.gcnLinkFlags = data.gcnLinkFlags;
 
@@ -433,6 +440,9 @@ export function upgradeSave(data: SaveData): SaveData {
   // No objects, templates or map view: CONTINUE spawns the saved map's objects from the header's templates and
   // leaves its grid as the layout and ON_LOAD make it (what it did before version 14).
   if (data?.version === 13) data = { ...data, version: 14 };
+  // No Pokédex personalities before version 15: personality 0 (Unown A, Spinda's spots at their base), as the
+  // Pokédex drew them then.
+  if (data?.version === 14) data = { ...data, version: 15, pokedex: { ...data.pokedex, unownPersonality: 0, spindaPersonality: 0 } };
   return data;
 }
 
