@@ -34,6 +34,7 @@ import {
   ResetDeferredLinkEvent,
 } from './questLogEvents';
 import { QL_PLAYER_GFX_NONE } from './questLogPlayer';
+import { gQL, type ScriptPtr } from './questLogState';
 
 // ------------------------------------------------------------------ constants
 
@@ -202,7 +203,7 @@ export interface QuestLogHost {
   objectEventTemplates(): ObjectEventData[];
   /** objectEvent->localId / mapNum / mapGroup of a field object (QL_TryRecordNPCStepWithDuration32) */
   objectIdentity?(obj: ObjectEvent): { localId: number; mapNum: number; mapGroup: number } | undefined;
-  /** gTrainers[trainerId].trainerClass (ShouldRegisterEvent_HandleBeatStoryTrainer); QL3 wires it */
+  /** gTrainers[trainerId].trainerClass (ShouldRegisterEvent_HandleBeatStoryTrainer); without it, the battle tables' (unit tests override it) */
   trainerClass?(trainerId: number): number;
 }
 
@@ -223,11 +224,8 @@ function host(): QuestLogHost {
 
 // ------------------------------------------------------------------ state
 
-/** A pointer into a scene's script (u16 *): the scene and the u16 index. */
-export interface ScriptPtr {
-  scene: number;
-  pos: number;
-}
+// ScriptPtr, gQL and the QL_IS_PLAYBACK_STATE checks are in questLogState.ts (no imports: the low layers read it).
+export { gQL, QL_InPlaybackState, QL_IS_PLAYBACK_STATE, type ScriptPtr } from './questLogState';
 
 /** struct QuestLogAction */
 export interface QuestLogAction {
@@ -245,21 +243,6 @@ export function emptyQuestLogAction(): QuestLogAction {
   return { data: [0, 0, 0, 0], duration: 0, type: 0 };
 }
 
-/** quest_log.c's (and quest_log_events.c's) globals the other quest log files share. */
-export const gQL = {
-  /** gQuestLogState: 0, QL_STATE_RECORDING, QL_STATE_PLAYBACK, QL_STATE_PLAYBACK_LAST */
-  state: 0,
-  /** gQuestLogPlaybackState: QL_PLAYBACK_STATE_* */
-  playbackState: 0,
-  /** sCurrentSceneNum */
-  currentSceneNum: 0,
-  /** gQuestLogRecordingPointer */
-  recordingPointer: null as ScriptPtr | null,
-  /** gQuestLogDefeatedWildMonRecord */
-  defeatedWildMonRecord: null as ScriptPtr | null,
-  /** gQuestLogCurActionIdx */
-  curActionIdx: 0,
-};
 
 /** sQuestLogCB: QLogCB_Recording, QLogCB_Playback or a playback step (questLogPlayback.ts), run from CB1_Overworld by RunQuestLogCB */
 let sQuestLogCB: (() => void) | null = null;
@@ -587,6 +570,36 @@ export function QuestLog_CutRecording(): void {
   }
   gQL.defeatedWildMonRecord = null;
   gQL.recordingPointer = null;
+}
+
+/** Task_AvoidDisplay's start (questLogPlayback.ts registers it: the task ends the scene being played) */
+let sStartAvoidDisplayTask: ((callback: (() => void) | null) => void) | null = null;
+
+/** questLogPlayback.ts hands over Task_AvoidDisplay's creation. */
+export function registerAvoidDisplayTask(start: (callback: (() => void) | null) => void): void {
+  sStartAvoidDisplayTask = start;
+}
+
+/**
+ * QL_AvoidDisplay (quest_log.c): the windows and pictures a scene can't show or record (the script menus, the money
+ * and coins boxes, the elevator's floor window, the field ListMenu, the mon and fossil pics, the Seagallop menu).
+ * RECORDING: the scene is cut (QuestLog_CutRecording) and the display goes ahead (FALSE). PLAYBACK: the actions
+ * stop (QL_PLAYBACK_STATE_ACTION_END) and Task_AvoidDisplay ends the scene 127 frames later, running `callback`
+ * (always script_menu.c's QL_DestroyAbortedDisplay) once its fade is over; TRUE: the caller skips the display.
+ * Otherwise (no quest log, or the final scene) FALSE.
+ */
+export function QL_AvoidDisplay(callback: (() => void) | null): boolean {
+  switch (gQL.state) {
+    case K.QL_STATE_RECORDING:
+      QuestLog_CutRecording();
+      break;
+    case K.QL_STATE_PLAYBACK:
+      gQL.playbackState = K.QL_PLAYBACK_STATE_ACTION_END;
+      if (!sStartAvoidDisplayTask) throw new Error('[quest log] QL_AvoidDisplay in playback without its task');
+      sStartAvoidDisplayTask(callback); // CreateTask(Task_AvoidDisplay, 80), tTimer = tState = 0, the callback in data[14-15]
+      return true;
+  }
+  return false;
 }
 
 /** SortQuestLogInSav1: the used scenes in recording order, oldest first; the next scene goes after them. */

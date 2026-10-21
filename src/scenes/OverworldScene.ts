@@ -25,7 +25,8 @@ import { directionId, ScriptEngine, textColorFromId, type MultichoiceRequest, ty
 import { GameState } from '../state/GameState';
 import { Charmap } from '../text/charmap';
 import { FONT_NORMAL, Fonts } from '../text/Font';
-import { MessageBox } from '../text/MessageBox';
+import { MessageBox, messageBoxQuestLogHooks } from '../text/MessageBox';
+import { gTextFlags } from '../text/textFlags';
 import { Behaviors } from '../world/behaviors';
 import { DELTA, type Direction } from '../world/direction';
 import { MAPGRID_COLLISION_MASK, TILE, type MapChunk } from '../world/MapChunk';
@@ -95,7 +96,7 @@ import { WeatherSpriteRenderer } from '../world/weatherSpriteRenderer';
 import { MapPreviewLayer } from '../world/mapPreviewLayer';
 import { ForestMapPreviewScreenIsRunning, MapPreview_InitFieldBg0, MapPreview_LoadGfx, MapPreview_StartForestTransition, mapPreviewGfxSymbols } from '../world/mapPreviewScreen';
 import { WeatherTextures } from '../world/weatherTextures';
-import { globalFieldTintMode, installQuestLogScreen, mapJascColors, type ObjPaletteKind } from '../world/questLogScreen';
+import { CommitQuestLogWindow1, globalFieldTintMode, installQuestLogScreen, mapJascColors, QL_DialogueFrameDrawn, type ObjPaletteKind } from '../world/questLogScreen';
 import { QuestLogWindows, questLogWindowsGfxSymbols } from '../ui/QuestLogWindows';
 import { FogHorizontal } from '../world/fogHorizontal';
 import { DoEscalatorWarp, escalatorProbe, ResetEscalatorTasks, setEscalatorHost } from '../world/escalator';
@@ -638,6 +639,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     setQuestLogPlaybackHost(this.createQuestLogPlaybackHost());
     this.questLogWindows = new QuestLogWindows(this, this.fonts, this.buttons);
     installQuestLogScreen(this.createQuestLogScreenHost());
+    Object.assign(messageBoxQuestLogHooks, { frameDrawn: QL_DialogueFrameDrawn, cleared: CommitQuestLogWindow1 });
 
     if (start.continueGame) {
       await this.continueSavedGame(start);
@@ -690,6 +692,9 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       fading: this.screenFade.active,
       fadeWhite: this.screenFade.white,
       message: this.messageBox.visible ? this.messageBox.text : undefined,
+      messageWaiting: this.messageBox.visible && this.messageBox.waitingForButton,
+      messageQuestLogFrame: this.messageBox.visible && this.messageBox.questLogFrameShown,
+      textAutoScroll: gTextFlags.autoScroll,
       playerVisible: this.player.visible,
       doorAnimating: this.doors.running,
       fieldEffects: [...this.fieldEffects.liveEffects(), ...activeFieldEffects()],
@@ -1075,7 +1080,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       checkStandardWildEncounter: recorded.checkStandardWildEncounter,
       dpadDirection: recorded.dpadDirection !== 0 ? directionOf(recorded.dpadDirection) : undefined,
     };
-    // (FieldInput_HandleCancelSignpost on the recorded input: QL5)
+    // FieldInput_HandleCancelSignpost on the recorded input (START: Task_QuestLogPlayback_OpenStartMenu)
+    if (this.scripts.handleCancelSignpost(input.dpadDirection, this.player.facing, input.pressedStartButton)) this.startMenuWhenFree = true;
     const blocked = this.scripts.running || this.overlay !== undefined || this.controlsLocked > 0 || this.warping;
     if (freeAtFrameStart && !blocked) {
       if (this.processPlayerFieldInput(input)) this.mapNamePopup?.dismiss(); // LockPlayerFieldControls, DismissMapNamePopup
@@ -2896,6 +2902,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
   // ------------------------------------------------------------------ ScriptHost
 
   openYesNo(): YesNoMenu {
+    testEvent('yesNoMenu', {});
     const text = (label: string) => this.charmap.encode(this.assets.strings[label] ?? '?$');
     return new YesNoMenu(this, this.fonts, this.buttons, { yesNo: text('gText_YesNo'), cursor: text('gText_SelectorArrow2') }, { seOnNo: true });
   }

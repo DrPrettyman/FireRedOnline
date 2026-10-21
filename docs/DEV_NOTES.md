@@ -585,7 +585,7 @@ this is the next level down. When you add or change a subsystem, update its entr
   sMapPreviewScreenData is menus.json `mapPreviewScreens` (tools/extract_menus.py `map_preview_screen_data`; MPS_TYPE_*
   from include/map_preview_screen.h in the defines); the region map's dungeon previews read it through
   GetDungeonMapPreviewScreenInfo / `mapPreviewPalette`. Two kinds, by the destination's region map section when it
-  differs from the warp's origin (MapHasPreviewScreen_HandleQLState2 is MapHasPreviewScreen: no quest log):
+  differs from the warp's origin (MapHasPreviewScreen_HandleQLState2: none in the quest log's playback):
   - MPS_TYPE_CAVE: `world/mapTransition.ts` TryDoMapTransition → RunMapPreviewScreen / Task_MapPreviewScreen_0 on
     the GBA layer during CB2_DoChangeMap (FieldGbaScreen's bare mode), ending in Task_FlashTransition_Enter_1. B held
     ends it early (OverworldScene.doChangeMap calls ReadKeys while it waits). CB2_DoChangeMap first puts back what the
@@ -935,8 +935,57 @@ this is the next level down. When you add or change a subsystem, update its entr
     Task_BeginQuestLogPlayback (the warp exits' Overworld_PlaySpecialMapMusic stops it; PlaySE is quiet) to
     Task_EndQuestLog, which plays the map's music. The DEPARTED / ARRIVED lines are questLogEvents.ts' loaders
     (sLocationNameTexts, sLocationToDepartedTextId, sDepartedLocationTexts, sGymCityMapSecs in questLog.json).
-    `CommitQuestLogWindow1` is exported for QL5's message box; QuestLog_DrawPreviouslyOnQuestHeaderIfInPlaybackMode for
-    any other warp exit.
+    `CommitQuestLogWindow1` is the field message box's (QL5a2); QuestLog_DrawPreviouslyOnQuestHeaderIfInPlaybackMode is
+    exported for any other warp exit.
+  - **Avoided displays (QL5a1):** `QL_AvoidDisplay(callback)` (questLog.ts) is quest_log.c's: RECORDING cuts the scene
+    (QuestLog_CutRecording) and lets the display through; PLAYBACK sets QL_PLAYBACK_STATE_ACTION_END and starts
+    Task_AvoidDisplay (questLogPlayback.ts, registered with `registerAvoidDisplayTask`): 127 frames, then
+    FadeScreen(FADE_TO_BLACK, 0) and END_MODE_SCENE, and once the fade is over the actions stop, the callback runs and
+    QuestLog_AdvancePlayhead loads the next scene. The port's field tasks outlive a map load, so the task ends itself
+    when the playback loads another map (`sMapLoads`: the GBA's ResetTasks). The callback is always script_menu.c's
+    QL_DestroyAbortedDisplay (`script/scriptMenuAvoidDisplay.ts`: ScriptContext_SetupScript(EventScript_ReleaseEnd),
+    the mon pic and, through `registerAbortedDisplayCleanup`, the fossil pic's sprite); callers write
+    `avoidDisplay(env)` with the special's env (or ScriptEngine's specialEnv). Callers: ScriptEngine's `multichoice` /
+    `multichoicedefault` (not with ignoreBPress bit 1: the nurse's) and `multichoicegrid`, `yesnobox`, `showmoneybox`,
+    `showcoinsbox`, `showmonpic`; the specials ListMenu, DrawElevatorCurrentFloorWindow, DrawSeagallopDestinationMenu
+    and OpenMuseumFossilPic. An avoided menu leaves its script stopped (`ctx.wait` / a `waitstate` that never ends)
+    until the callback replaces it; the boxes and pics let it run on. berry_powder.c's DisplayBerryPowderVendorMenu
+    isn't ported (a link gap): it calls `avoidDisplay` first when it is. `goto_if_questlog` (the extractor expands it
+    to `special GetQuestLogState`, compare 2) branches in playback: a recorded trainer battle goes through
+    trainer_battle.inc's EventScript_EndQuestLogBattle (SetBattledTrainerFlag, no battle); PlayTrainerEncounterMusic
+    is skipped in playback (QL_IS_PLAYBACK_STATE) and `waitbuttonpress` ends by itself after 120 frames
+    (sQuestLogWaitButtonPressTimer). Tests: tests/unit/questLogAvoidDisplay.test.ts, tests/e2e/questLogPlayback.test.ts
+    (the nurse's YES/NO doesn't cut, the Trainer School blackboard's grid does; the Safari Zone attendant's YES/NO
+    skipped in playback with its frames; Viridian Forest's Charlie played back without a battle). Probes:
+    `__test.questLog().playback.avoidDisplay` (tasks created, the live ones' tTimer / tState), the `yesNoMenu` event.
+  - **Playback's audio and text (QL5a2):** `world/questLogState.ts` holds gQL (moved out of questLog.ts, which
+    re-exports it) with `QL_IS_PLAYBACK_STATE()` (PLAYBACK or PLAYBACK_LAST) and `QL_InPlaybackState()` (gQuestLogState
+    == QL_STATE_PLAYBACK); it imports only `battle/constants`, so the low layers use it without an import cycle. The
+    checks, each as the C has it: ScriptEngine's `playbgm`, `fadedefaultbgm`, `fadenewbgm`, `fadeoutbgm` (no wait
+    either), `fadeinbgm` return at once (QL_IS_PLAYBACK_STATE); gba/sound.ts' PlayFanfareByFanfareNum plays nothing in
+    PLAYBACK and sets sFanfareCounter = 0xFF (Task_Fanfare / WaitFanfare count 255 frames), PlaySE is quiet in
+    PLAYBACK, PlayCry_Script skips the cry (both states) but starts the ducking task; text/TextPrinter.ts' {PLAY_BGM}
+    is skipped (both states). **The auto mode:** `gTextFlags` is `text/textFlags.ts` (gba/window.ts and TextPrinter.ts
+    re-export it) and TextPrinter honours `autoScroll` as text.c does: a character every other frame
+    (delayCounter = 1), no down arrow, and a \p / \l / {PAUSE_UNTIL_PRESS} goes on by itself after
+    TextPrinterWaitAutoMode's 50 frames in PLAYBACK (120 otherwise: the Pokédude's battles, which battleWindow.ts
+    already flagged, now auto-scroll too). The field message box (text/MessageBox.ts: Task_DrawFieldMessageBox /
+    LoadMessageBoxAndFrameGfx) sets it in PLAYBACK and draws its frame with gQuestLogWindow_Gfx in palette 15
+    (GetTextWindowPalette(4): `questLogWindowFrameTexture`, ui/QuestLogWindows.ts), always in the dialogue layout;
+    `messageBoxQuestLogHooks` (OverworldScene wires them) hide the bottom bar and the description window while the
+    box is up (its BG0 tilemap rows 14-19 go over theirs) and CommitQuestLogWindow1 puts the bar back when it closes
+    (ClearDialogWindowAndFrame). The MessageBox constructor clears the flag (InitFieldMessageBox), Task_EndQuestLog
+    too. gba/menu.ts' LoadStdWindowFrameGfx has the same branch (LoadQuestLogWindowTiles) for the GBA-layer screens,
+    which don't run in playback. Also: HelpSystem_Enable does nothing in playback (QL_IS_PLAYBACK_STATE),
+    MapHasPreviewScreen_HandleQLState2 is FALSE in PLAYBACK (no cave / forest banner), UpdateRepelCounter doesn't
+    count, BrailleCursorToggle does nothing, the Deoxys rock's palette load takes the GRAYSCALE / SEPIA tint
+    (ApplyGlobalFieldPaletteTint), and the playback's recorded input goes through FieldInput_HandleCancelSignpost
+    (a recorded direction off a walked-into sign cancels it). Tests: tests/unit/questLogPlaybackAudio.test.ts (the
+    states, the help, the auto mode's frames at \p / \l / {PAUSE_UNTIL_PRESS} and its print speed, the fanfare's
+    0xFF, PlaySE, PlayCry_Script, {PLAY_BGM}), tests/e2e/questLogPlayback.test.ts (Route 3's Ben spots the player in
+    playback and his two-page intro goes on after 51 frames at the \p, no battle and no song; Viridian Forest's
+    Potion ball's fanfare is 255 silent frames; the Pewter gym guide's `playbgm` / `fadedefaultbgm` do nothing).
+    Probes: `t.field()`'s `messageWaiting`, `messageQuestLogFrame`, `textAutoScroll`.
   - **Tests:** tests/unit/questLog.test.ts ("playback": the actions at their recorded frames, the NPC by local id,
     the input; locked controls hold them), tests/e2e/questLog.test.ts (two scenes recorded in Pallet Town, then
     CONTINUE: each scene's flags / empty bag / placeholder Rattata, the player and NPCs end where they were

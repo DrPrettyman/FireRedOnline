@@ -35,8 +35,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     its text like `messageautoscroll` does, as a plain field message (no auto-scroll; the profile's two lines fit one
     box). InitEasyChatPhrases clears additionalPhrases only
     (the C's non-UBFIX loop clears 64 bytes, into the Mauville old man's data that's re-initialized right after).
-  - Seagallop ferry (menus/seagallop.ts, script/ferrySpecials.ts): no quest log (DrawSeagallopDestinationMenu's
-    QL_AvoidDisplay). The script that ran DoSeagallopFerryScene stays in its `waitstate` until the scene warps, then
+  - Seagallop ferry (menus/seagallop.ts, script/ferrySpecials.ts): the script that ran DoSeagallopFerryScene stays in its `waitstate` until the scene warps, then
     runs on to its `end` (in C, CB2_LoadMap's ScriptContext_Init drops it). The scene's WarpFadeOutScreen is a plain palette fade to
     black (FadeScreen's white fade is for underwater maps, and no harbor is one).
   - Script timing: `special EnterHallOfFame` ends its script at the special (script/specials.ts) instead of
@@ -200,7 +199,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     same frame, but Fishing11 / Fishing16 see a finished message a frame later than RunTextPrinters would. The
     player's sprite anim (AnimateSprites) is run by the fishing task after its state functions, as the GBA's sprite
     pass would after the tasks.
-  - Surf and Waterfall (world/surf.ts): no quest log (`goto_if_questlog` never branches). FldEff_UseSurf takes the
+  - Surf and Waterfall (world/surf.ts): FldEff_UseSurf takes the
     field controls lock at once: the C holds FieldCallback_PrepareFadeInFromMenu's (or the script's) lock until
     the task takes it, which the port's hand-offs don't. Like CreateFieldEffectShowMon, the banner waits for its
     graphics to load (UseSurfEffect_3, waterfall_1). The surf blob is the player's only `fieldEffectSpriteId`
@@ -287,16 +286,15 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - The help system (ui/helpSystem*.ts): the screens the port doesn't have don't set their contexts or toggle it
     (mail's HELPCONTEXT_*_MAILBOX: the mailbox is always empty; the main menu's MYSTERY GIFT; the link
     and wireless screens' HelpSystem_Enable / _DisableToggleWithRButton: link.c, link_rfu_2.c, union_room_chat.c,
-    trade_scene.c's link trades, the e-Reader; the berry fix program). HelpSystem_Enable
-    has no quest log check; HelpSystem_IsSinglePlayer is always TRUE (no link play: GAPS_PLAN.md decision 4). The
+    trade_scene.c's link trades, the e-Reader; the berry fix program).
+    HelpSystem_IsSinglePlayer is always TRUE (no link play: GAPS_PLAN.md decision 4). The
     title screen sets up its own GameState from the save (LoadGameSave's gSaveBlock1/2) for the help's flags and
     button mode.
   - CONTINUE (OverworldScene.continueSavedGame): the map's objects spawn from its templates (object events aren't
     saved, see Save data); gExitStairsMovementDisabled isn't kept (no Task_ExitStairs).
   - Multichoice: the cable club menus' help descriptions (MultiChoicePrintHelpDescription) aren't drawn (no
-    link play); the quest log's QL_AvoidDisplay bit of ignoreBPress is ignored.
+    link play).
   - Elevators: UpdateEscapeWarp isn't kept on warps.
-  - Field ListMenu (ui/FieldListMenu.ts): the quest log's QL_AvoidDisplay is ignored.
   - Hall of Fame (menus/hallOfFame.ts): no Champion
     Ribbons (mons have no ribbons; the event tickets come anyway: see "Deliberate QOL changes"); a
     failed save carries on (no DoSaveFailedScreen / gGameContinueCallback).
@@ -321,18 +319,19 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - PPU: rotation/scaling BGs (modes 1 and 2) ignore BG mosaic.
   - Interaction metatiles whose scripts need unported screens/specials (the cable club monitors) start their scripts and hit the unimplemented-special warnings.
   - Quest log (world/questLog*.ts; QUEST_LOG_PLAN.md QL1 records, QL2a plays back, QL2b draws the playback's
-    screen, QL3 has the events, QL4 their callers, QL5 to come): the tints (world/questLogScreen.ts) are on the field's palette path,
+    screen, QL3 has the events, QL4 their callers, QL5 the playback paths): the tints (world/questLogScreen.ts) are on the field's palette path,
     so they cover what the port's palettes are: the current map's BG palettes 0-12 (a connected map drawn with other
     tilesets, as the port draws them, keeps its colours; the GBA draws connections with the current map's tiles) and
     the object and field effect sheets (`spr_*`, `fldeff_obj_*`; the S.S. Anne's smoke, the fog and other sprites
     outside them aren't tinted). QL_SlightlyDarkenSomePals's OBJ slots are the sheets' kinds (the reflections and
     field effects: OBJ 1, 6-9, 11-15; the objects' own: 0, 2-5, 10). sPalettesBackup is the tileset's palettes (and
     the sheets as loaded), not what was loaded with BACKUP_GRAYSCALE byte for byte; palettes the C leaves zeroed in it
-    (BG 13-15) aren't touched. The windows are Phaser windows over the field (ui/QuestLogWindows.ts), not BG0 tiles: a
-    window over another doesn't clear its tilemap, so CommitQuestLogWindow1 (the field message box's
-    ClearDialogWindowAndFrame in playback) has nothing to put back and has no caller yet (QL5). In playback, a script (one a recorded input starts, or a map's ON_FRAME
-    scene the scene's restored vars bring back, as the Four Island rival's) runs with the normal message box, which
-    waits for A or B (the auto-scroll, WaitForAorBPress' 120-frame timeout and QL_AvoidDisplay: QL5). QL_LoadObjects
+    (BG 13-15) aren't touched; the Deoxys rock's palette load takes the playback scenes' tint but not the final
+    scene's BACKUP_GRAYSCALE (the end's restore doesn't redraw its texture). The windows are Phaser windows over the
+    field (ui/QuestLogWindows.ts), not BG0 tiles: the field message box's frame in playback (gQuestLogWindow_Gfx)
+    hides the bottom bar and the description window while it's up rather than overwriting their tilemap rows, and
+    CommitQuestLogWindow1 shows the bar again when it closes; a window that one of them draws over the box while
+    it's up shows over it (the box is below them), as on BG0 the last tilemap written would. QL_LoadObjects
     sets the snapshot's position and facing on the objects the field spawned from the scene's flags (not each saved
     object's other fields; previousCoords are the current ones); a QL_START_WARP scene's player state comes from the
     warp, not the snapshot's graphics. A warp in playback into a disabled location ends the scene once the field has
@@ -358,8 +357,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     "sound task" run from AgbMainFrameEnd after the frame's callbacks, not a gTask: ResetTasks doesn't remove it (on
     the GBA a screen's ResetTasks during a fanfare would drop it and leave the BGM paused; no FRLG screen does that
     mid-fanfare), and a screen task that polls IsFanfareTaskInactive in the frame the counter runs out sees it a
-    frame later than a task ordered after Task_Fanfare would. The quest log's playback paths (no fanfare
-    song, the BGM commands skipped) aren't ported; PlaySE is skipped through gDisableMapMusicChangeOnMapLoad. The script engine models SetupNativeScript's frames
+    frame later than a task ordered after Task_Fanfare would. The script engine models SetupNativeScript's frames
     (a native wait starts checking the next frame, and the script goes on the frame after it holds) only for the
     audio commands; `waitbuttonpress` starts checking the next frame too but goes on in the frame the press holds;
     the port's other waits check in the same frame.
@@ -371,8 +369,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
   - Cries (gba/sound.ts): Task_DuckBGMForPokemonCry is a sound task like Task_Fanfare (same caveats: ResetTasks
     doesn't remove it, and it runs after every screen task of the frame, as a priority-80 task after the usual
     priority-0 ones would). PlayCry_ReleaseDouble ducks in multi battles too (BATTLE_TYPE_MULTI is link only and
-    never set); the quest log's playback (PlayCry_Script's skip) and the text printer's auto-scroll
-    (gTextFlags.autoScroll, link / recorded battles) aren't ported.
+    never set).
   - Map music (gba/overworldMusic.ts, overworld.c's music block): the warps load the destination's header before
     their fade starts (WarpFadeOutScreen and TryFadeOutOldMapMusic wait for it; it's cached after SetupWarp, so
     usually the same frame). DoStairWarp
@@ -478,7 +475,7 @@ Things that are placeholders or approximations, so they aren't mistaken for port
     control-code handling, not FontFunc_Braille's smaller set (braille_text.c prints CLEAR / SKIP / CLEAR_TO /
     MIN_LETTER_SPACING's argument as a glyph and ignores {FONT}); FRLG's braille strings use none of them.
     BrailleCursorToggle's text cursor is a field image moved by a field task (SpriteCB_TextCursor once a frame), not an
-    OAM sprite; the quest log's playback, which skips it, isn't ported.
+    OAM sprite.
   - Step callbacks (world/fieldTasks.ts, W-sevii unit 2): AshGrassPerStepCallback and CrackedFloorPerStepCallback
     (R/S leftovers no FRLG script sets) log once and do nothing; the other ids are dummies as in FRLG. The task
     doesn't run while OverworldScene loads a map (`busy`), when the GBA isn't running the overworld either.

@@ -18,6 +18,7 @@ import { boxMonFromMon } from '../state/PokemonStorage';
 import { EOS, gStringVar4 } from '../menus/common';
 import type { GameState } from '../state/GameState';
 import { CHAR_NEWLINE } from '../text/charmap';
+import { gTextFlags } from '../text/textFlags';
 import { HelpSystem_Disable, HelpSystem_Enable } from '../ui/helpSystemContext';
 import { HandleEnforcedLookDirectionOnPlayerStopMoving, StopPlayerAvatar } from './playerAvatar';
 import {
@@ -28,6 +29,7 @@ import {
   questLogEventData,
   questLogHost,
   ReadQuestLogScriptFromSav1,
+  registerAvoidDisplayTask,
   registerQLogCBPlayback,
   SetQuestLogState,
   setQuestLogCB,
@@ -62,6 +64,14 @@ let sPlaybackControl = emptyPlaybackControl();
 let sNumScenes = 0;
 /** From TryStartQuestLogPlayback to Task_EndQuestLog's last step: the field isn't the player's. */
 let sPlaybackActive = false;
+/**
+ * The playback's map loads so far: the GBA's map loads (ResumeMap's ResetTasks) end every task, and the port's field
+ * tasks outlive a map load, so a task of one scene (Task_AvoidDisplay) ends itself when the next one loads.
+ */
+let sMapLoads = 0;
+/** For tests: the Task_AvoidDisplay tasks created so far and the live ones' tTimer / tState. */
+let sAvoidDisplayCount = 0;
+const sAvoidDisplayTasks = new Set<{ tTimer: number; tState: number }>();
 
 /** What quest_log.c's playback asks of the field. OverworldScene implements it. */
 export interface QuestLogPlaybackHost {
@@ -174,6 +184,7 @@ export function TryStartQuestLogPlayback(gs: GameState): boolean {
 /** Task_BeginQuestLogPlayback (gSaveBlock1Ptr->location = Route 1 / WARP_ID_NONE: the scene's own replaces it) */
 function Task_BeginQuestLogPlayback(): void {
   gQL.currentSceneNum = 0;
+  registerAvoidDisplayTask(startAvoidDisplayTask); // (as QL_StartPlaybackScene: a scene's map scripts run before it)
   screen('disableMapMusicChange');
   host().disableWildEncounters(true);
   QLPlayback_InitOverworldState();
@@ -196,6 +207,7 @@ function ClearBag(gs: GameState): void {
  */
 function QLPlayback_InitOverworldState(): void {
   const gs = state();
+  sMapLoads++; // (CB2_SetUpOverworldForQLPlayback's ResetTasks)
   gQL.state = K.QL_STATE_PLAYBACK;
   setQuestLogCB(null); // (CB1_Overworld doesn't run while CB2 loads the map)
   ResetSpecialVars(gs);
@@ -300,6 +312,7 @@ export { QL_InitSceneActions };
 export function QL_StartPlaybackScene(): void {
   // (registered here, not at module load: questLog.ts and this module import each other through trainerSee.ts)
   registerQLogCBPlayback(QLogCB_Playback);
+  registerAvoidDisplayTask(startAvoidDisplayTask);
   SetQuestLogState(K.QL_STATE_PLAYBACK);
   sPlaybackControl = emptyPlaybackControl();
   sPlaybackControl.state = 2;
@@ -453,6 +466,47 @@ export function QuestLog_AdvancePlayhead_(): void {
   QuestLog_AdvancePlayhead();
 }
 
+/** QL_AvoidDisplay's PLAYBACK case: CreateTask(Task_AvoidDisplay, 80) with the callback. */
+function startAvoidDisplayTask(callback: (() => void) | null): void {
+  host().createTask(Task_AvoidDisplay(callback));
+}
+
+/**
+ * Task_AvoidDisplay: instead of the display, 127 frames, then the scene ends (a fade to black, END_MODE_SCENE);
+ * after the fade, the actions stop, the callback (QL_DestroyAbortedDisplay: the script becomes
+ * EventScript_ReleaseEnd) runs and QuestLog_AdvancePlayhead loads the next scene. A map load ends it (ResetTasks:
+ * A or B skipped the scene meanwhile).
+ */
+function Task_AvoidDisplay(callback: (() => void) | null): () => boolean {
+  const data = { tTimer: 0, tState: 0 };
+  const mapLoads = sMapLoads;
+  sAvoidDisplayCount++;
+  sAvoidDisplayTasks.add(data);
+  const destroy = () => {
+    sAvoidDisplayTasks.delete(data);
+    return true;
+  };
+  return () => {
+    if (sMapLoads !== mapLoads) return destroy();
+    switch (data.tState) {
+      case 0:
+        if (++data.tTimer === 127) {
+          // BeginNormalPaletteFade(PALETTES_ALL, 0, 0, 16, RGB_BLACK): FadeScreen(FADE_TO_BLACK, 0)'s palette fade
+          host().fadeScreenToBlack(0);
+          sPlaybackControl.endMode = END_MODE_SCENE;
+          data.tState++;
+        }
+        return false;
+      default:
+        if (host().paletteFadeActive()) return false;
+        gQL.playbackState = K.QL_PLAYBACK_STATE_STOPPED;
+        if (callback !== null) callback();
+        setQuestLogCB(QuestLog_AdvancePlayhead);
+        return destroy(); // DestroyTask
+    }
+  };
+}
+
 /** DoSkipToEndTransition: fade to black, then QuestLog_WaitFadeAndCancelPlayback. */
 function DoSkipToEndTransition(delay: number): void {
   host().fadeScreenToBlack(delay);
@@ -480,6 +534,7 @@ function QuestLog_StartFinalScene(): void {
   ResetSpecialVars(state());
   // Save_ResetSaveCounters: the port's save has no sector counters
   gQL.state = K.QL_STATE_PLAYBACK_LAST;
+  sMapLoads++; // (CB2_EnterFieldFromQuestLog's ResetTasks)
   setQuestLogCB(null);
   screen('setGlobalFieldTintMode', K.QL_TINT_BACKUP_GRAYSCALE); // CB2_EnterFieldFromQuestLog
   host().enterFieldFromQuestLog();
@@ -575,7 +630,7 @@ function Task_EndQuestLog(): () => boolean {
         sPlaybackControl = emptyPlaybackControl();
         host().clearPlayerHeldMovementAndUnfreezeObjectEvents();
         host().unlockPlayerFieldControls();
-        // gTextFlags.autoScroll = FALSE: the playback's auto-scrolling text is QL5's
+        gTextFlags.autoScroll = false;
         screen('setGlobalFieldTintMode', K.QL_TINT_NONE);
         host().disableWildEncounters(false);
         HelpSystem_Enable(); // gHelpSystemEnabled = TRUE
@@ -606,6 +661,7 @@ export function questLogPlaybackDebugState() {
     numScenes: sNumScenes,
     control: { ...sPlaybackControl },
     screenCalls: [...sScreenCalls],
+    avoidDisplay: { created: sAvoidDisplayCount, live: [...sAvoidDisplayTasks].map((d) => ({ ...d })) },
   };
 }
 
@@ -616,4 +672,6 @@ export function QL_ResetPlayback(): void {
   sNumScenes = 0;
   sPlaybackActive = false;
   sScreenCalls.length = 0;
+  sMapLoads++;
+  sAvoidDisplayTasks.clear();
 }
