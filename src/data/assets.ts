@@ -53,6 +53,7 @@ export class Assets {
   trades!: TradesData;
 
   private maps = new Map<string, Promise<MapData>>();
+  private loadedMaps = new Map<string, MapData>();
   private layoutIndex?: Promise<Record<string, string>>;
 
   async init(): Promise<void> {
@@ -107,10 +108,15 @@ export class Assets {
   loadMap(name: string): Promise<MapData> {
     let p = this.maps.get(name);
     if (!p) {
-      p = fetchJson<MapData>(`${GEN}/maps/${name}.json`);
+      p = fetchJson<MapData>(`${GEN}/maps/${name}.json`).then((data) => (this.loadedMaps.set(name, data), data));
       this.maps.set(name, p);
     }
     return p;
+  }
+
+  /** A map loadMap has finished loading, synchronously (undefined until then). */
+  loadedMap(name: string): MapData | undefined {
+    return this.loadedMaps.get(name);
   }
 
   /**
