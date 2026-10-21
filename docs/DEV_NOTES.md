@@ -1644,6 +1644,30 @@ this is the next level down. When you add or change a subsystem, update its entr
   stickers drawn on BG3 and BG palette 5, which card palette is in the hardware palettes, the female background,
   the pic's pixel count, what each side printed, decoded). Tests: tests/e2e/trainerCard.test.ts (front, back, the
   flip both ways, closing from each side, the photo and stickers), tests/unit/trainerCard.test.ts (the stars).
+- **Item-use animation (pokemon_special_anim.c, FINISH_PLAN.md A1):** `menus/pokemonSpecialAnim.ts` (the tasks:
+  Task_UseItem_Normal, Task_EvoStone_CantEvolve, Task_UseTM_NoForget, Task_ForgetMove, Task_MachineSet, Task_CleanUp)
+  and `menus/pokemonSpecialAnimScene.ts` (pokemon_special_anim_scene.c: BG3's background, the message window, the mon
+  pic zoomed by closeness, the item icon, the dots, the stars, the TM's wobble / zoom out). The party menu starts it
+  where party_menu.c does: CB2_DoUseItemAnim (StartUseItemAnim_Normal for Rare Candy, vitamins, PP items, healing
+  items from the field, TMs with room, stones that evolve; _CantEvolve for a stone past the Kanto dex without the
+  National Dex) and CB2_ReturnToPartyMenuWhileLearningMove (_ForgetMoveAndLearnTMorHM). It runs as CB2_PSA on
+  whichever host has the party menu (FieldMenuScene; not in battle: item_use.c gives battle medicine
+  ItemUseCB_MedicineStep, which skips it), then sets the callback it was given: CB2_UseItem /
+  CB2_UseTMHMAfterForgettingMove read PSA_IsCancelDisabled() (A / B held before the message, or B in a TM's anim,
+  cancels it: the party menu then shows the item's effect itself), CB2_UseEvolutionStone starts the evolution scene
+  from the anim's screen (no fade). The mon pic goes through battle/gfx.ts's LoadSpecialPokePic with the mon's
+  personality (Spinda's spots come with that loader). Positions: menu2.c's sMonPosAttributes, extracted to
+  menus.json's `monPosAttributes` (Menu2_GetMonPosAttribute in the scene file). Graphics: graphics/pokemon_special_anim/
+  (extract_gfx.py); the names main_menu.c also uses are `pokemon_special_anim_scene.<symbol>`
+  (`pokemonSpecialAnimGfxSymbols()`, preloaded by menuGfxSymbols). The scene file also has
+  CreateLevelUpVerticalSpritesTask (the battle level-up's stripes, FINISH_PLAN.md A2): unused by the item anim, as in
+  the C (PSA_CreateLevelUpVerticalSpritesTask is never called), so Task_UseItem_Normal's state 5 wait on
+  PSA_LevelUpVerticalSpritesTaskIsRunning (now the real check) goes on at once. Probe `__test.itemUseAnim()` (task, state, closeness, cancelDisabled, the
+  message, the sprites) and the `itemUseAnim` event (`phase` start / end). Tests: tests/e2e/itemUseAnim.test.ts (Rare
+  Candy with its SEs' frames, a vitamin, a cancelled Potion, a Fire Stone into the evolution scene, "Huh?", a TM over a
+  forgotten move with its quest log event, a cancelled TM, no anim in battle), tests/unit/pokemonSpecialAnim.test.ts
+  (the positions table). Tests that mash A through an item use cancel the anim; a test that waits without pressing
+  has to press A / B at its end (state 12).
 - **Evolution scene:** `menus/evolutionScene.ts` + `menus/evolutionGraphics.ts` run on whichever GBA host is up
   (BattleScene after TryEvolvePokemon, FieldMenuScene from the party menu) and hand back through
   `gCB2_AfterEvolution` (`setCB2_AfterEvolution`). It draws on the battle BG/window layout, so the field host
@@ -1706,6 +1730,18 @@ this is the next level down. When you add or change a subsystem, update its entr
   launch; `end` sets 256. special.ts: the ball SEs, and the caught click's m4aMPlayAllStop + PlaySE(MUS_CAUGHT_INTRO).
   Tests: tests/e2e/audioBattleAnims.test.ts (`__test.audioEvents`: Tackle's pan from both sides and its end on the
   SE's end, Growl's two cries, Perish Song's BGM volume, a Master Ball's SEs and the jingle).
+
+- **A level-up's effects (FINISH_PLAN.md A2):** the player controller's exp task (battle/controllerCommon.ts
+  `startExpTask`: Task_GiveExpToMon → Task_LaunchLvlUpAnim → Task_UpdateLvlInHealthbox →
+  DestroyExpTaskAndCompleteOnInactiveTextPrinter → Task_CreateLevelUpVerticalStripes) moves the mon to the BG, plays
+  SE_RS_SHOP and, when IsMonGettingExpSentOut (bsCommands3.ts), starts menus/pokemonSpecialAnimScene.ts's
+  CreateLevelUpVerticalSpritesTask (18 translucent stripes, tags 10000, BLDALPHA 12 / 6), and waits for it: 61 frames
+  (the stripes' speeds come from ISO_RANDOMIZE1, so it's always the same). The Oak / Old Man controller skips it.
+  Exp to a mon not sent out: Cmd_drawlvlupbox's banner (bsCommands3.ts InitLevelUpBanner) gets
+  PutMonIconOnLvlUpBanner's icon (TAG_LVLUP_BANNER_MON_ICON, the icon's first frame, x2 following gBattle_BG2_X; its
+  graphics are the party icons menuGfxSymbols preloads). BattleScene's gfxSymbolsFor preloads sLevelUp_Gfx / _Pal.
+  The `levelUpStripes` event (`phase` start with `stripes`, end) marks the wait; `__test.gbaSprites()` shows the
+  stripes and the icon by tileTag. Tests: tests/e2e/levelUpStripes.test.ts.
 
 - **The Pokédude's battles (Teachy TV):** `battle/controllerPokedude.ts` is battle_controller_pokedude.c: one
   controller for every battler (InitBattleControllers' BATTLE_TYPE_POKEDUDE branch, main.ts), the scripted inputs

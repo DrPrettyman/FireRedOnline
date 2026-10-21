@@ -4739,6 +4739,58 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
   or changes shared core (the script engine, the tick loop, the battle engine, the save format).
 - Verified: the ten files on master f6644cc, 66 passed in 153 s (story.test.ts is the long pole at 152 s).
 
+### Batch 15 W-anim A1: the item-use animation (pokemon_special_anim.c)
+
+- Ported pokemon_special_anim.c (`menus/pokemonSpecialAnim.ts`: StartUseItemAnim_Normal / _CantEvolve /
+  _ForgetMoveAndLearnTMorHM, AllocPSA, CB2_PSA / VBlankCB_PSA, Task_UseItem_Normal, Task_ForgetMove,
+  Task_EvoStone_CantEvolve, Task_UseTM_NoForget, Task_MachineSet, Task_CleanUp, GetAnimTypeByItemId,
+  GetClosenessFromFriendship, the PSA_Get* accessors, PSA_IsCancelDisabled) and pokemon_special_anim_scene.c but the
+  level-up stripes (`menus/pokemonSpecialAnimScene.ts`: InitPokemonSpecialAnimScene, the message window and
+  PSA_PrintMessage, the mon sprite's zoom by closeness (Task_ZoomAnim, GetYPosByScale), the item's anim
+  (Task_ItemUseOnMonAnim and its dots), the forget-move stars and darkening, the TM's wobble, zoom out, blue flash and
+  Task_UseItem_OutwardSpiralDots with its own ISO_RANDOMIZE1 RNG), and menu2.c's Menu2_GetMonPosAttribute.
+- Party menu (menus/partyMenu.ts): CB2_DoUseItemAnim starts the anim (the stone's CantEvolve path, the evolution scene
+  after the stone's), CB2_ReturnToPartyMenuWhileLearningMove starts the forget-move one, and CB2_UseItem /
+  CB2_UseTMHMAfterForgettingMove have their PSA_IsCancelDisabled() branches (the TM taught and used up there, the
+  forget path's QL_EVENT_USED_ITEM with the forgotten move). DEVIATIONS: the "Item use" skip and the quest log's
+  "CB2_UseTMHMAfterForgettingMove's event never runs" are gone.
+- Extractor: graphics/pokemon_special_anim/ in extract_gfx.py (its sBg_Pal / sBg_Tilemap / sStar_* clash with other
+  files' and come as `pokemon_special_anim_scene.<symbol>`); menus.json's `monPosAttributes` (menu2.c's
+  sMonPosAttributes, the FIRERED rows). prepareMenus loads the gfx index first, since menuGfxSymbols picks the
+  scene's symbol names from it.
+- Found on the way: battle medicine never runs the anim (item_use.c's ItemUseInBattle sets ItemUseCB_MedicineStep;
+  the Pokédude's too), so the battle host doesn't need it. Tests that waited for a field item's effect without
+  pressing now have to get past the anim's last A: questLog.test.ts's QL4a Potion (mashUntil) and
+  postgameKantoNational.test.ts's closeBag (B through "Huh?"); tests that mash A cancel it (JOY_HELD), as on the GBA.
+- Verified: typecheck; `npm test` (66 files, 800 tests); tests/e2e/itemUseAnim.test.ts (8: Rare Candy at closeness 3
+  with its SEs and frame gaps, HP UP, a Potion with A held, Fire Stone → the evolution scene, Gloom's Sun Stone "Huh?",
+  TM06 over SCRATCH with the quest log line, a TM cancelled with B, a battle Potion without the anim; three runs in a
+  row) and the files that go through a field item use: evolution, audioScenes, tmCase, registeredItems,
+  postgameKantoNational, questLog, berryPouch. Screens checked by eye: the candy at Charmander's mouth at 2x, the
+  dots, "Huh?", the darkened mon with the stars at "Poof!", the disc's wobble and the blue flash with the dots.
+- Unfixed: one early run of itemUseAnim's Fire Stone test (the first after the import changes) timed out at 120 s
+  without a failing assertion; five later runs passed and the cause wasn't found (PR #170 names it).
+
+### Batch 15 W-anim A2: the level-up stripes and the level-up banner's mon icon
+
+- Ported pokemon_special_anim_scene.c's CreateLevelUpVerticalSpritesTask, Task_LevelUpVerticalSprites,
+  CreateLevelUpVerticalSprite, SpriteCB_LevelUpVertical, LevelUpVerticalSpritesTaskIsRunning and
+  PSA_CreateLevelUpVerticalSpritesTask (`menus/pokemonSpecialAnimScene.ts`); PSA_LevelUpVerticalSpritesTaskIsRunning
+  is now the real check (the item anim never starts the stripes, as in the C, so Task_UseItem_Normal's state 5 still
+  goes on at once). battle/controllerCommon.ts's Task_CreateLevelUpVerticalStripes starts them when
+  IsMonGettingExpSentOut (now exported from bsCommands3.ts) and waits for them as battle_controller_player.c does:
+  61 frames (the speeds come from ISO_RANDOMIZE1 of the stripe's number, so the wait never varies). BattleScene
+  preloads sLevelUp_Gfx / sLevelUp_Pal.
+- bsCommands3.ts: PutMonIconOnLvlUpBanner and SpriteCB_MonIconOnLvlUpBanner (battle_script_commands.c): the exp
+  getter's icon (first frame, palette by species) on the level-up banner, moving with gBattle_BG2_X and destroyed when
+  the banner is back out. The icons were already preloaded with the party menu's (menuGfxSymbols).
+- DEVIATIONS: the "Battles" stripes entry and the banner's missing icon are gone (Spinda's spots stay: W-spinda).
+- Test hooks: the `levelUpStripes` event (`phase` start with `stripes`, end).
+- Verified: typecheck; `npm test` (66 files, 800 tests); tests/e2e/levelUpStripes.test.ts (2: a sent-out Mewtwo's
+  stripes, their 61-frame wait, BLDALPHA 12 / 6, at most 10 up at once, the mon on the BG meanwhile; an Exp. Share
+  Pidgey's banner icon from x 256 in by 8 to 160 and out by 16, no stripes for it) and the files a battle level-up goes
+  through: itemUseAnim, audioBattle, evolution, wildBattle, trainerBattle, newGame, battleAnims. Screens checked by
+  eye: the stripes over Mewtwo, Pidgey's icon on the banner.
 ### W-stairs S1: stair warps (Task_StairWarp / Task_ExitStairs) and the warp arrow (FINISH_PLAN.md unit 4, batch 15)
 
 - `world/stairWarp.ts`: field_fadetransition.c's DoStairWarp / Task_StairWarp (lock + freeze, the wait for the
