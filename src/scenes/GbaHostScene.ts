@@ -9,6 +9,7 @@ import { CallCallbacks, gMain, ReadKeys, VBlankCounter1Update } from '../gba/mai
 import { renderFrame } from '../gba/ppu';
 import { Input } from '../input/Input';
 import { logicSpeed } from '../dev/testHooks';
+import { fastForwardSpeed } from '../input/fastForward';
 import { PlayTimeCounter_Update, type PlayTime } from '../state/playTime';
 import { AgbMainFrameEnd } from '../audio/frame';
 import { RunHelpSystemCallback } from '../ui/helpSystem';
@@ -51,7 +52,8 @@ export abstract class GbaHostScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (!this.running) return;
-    this.accumulator = Math.min(this.accumulator + delta * logicSpeed, FRAME_MS * 5 * logicSpeed);
+    const speed = logicSpeed * fastForwardSpeed();
+    this.accumulator = Math.min(this.accumulator + delta * speed, FRAME_MS * 5 * speed);
     let ticked = false;
     while (this.accumulator >= FRAME_MS && this.running) {
       this.accumulator -= FRAME_MS;

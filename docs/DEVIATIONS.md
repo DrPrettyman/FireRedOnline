@@ -586,3 +586,9 @@ Places where we choose to differ from the GBA on purpose (not placeholders). Kee
   has no volume control; M toggles all sound output on and off. It only silences the output: the m4a engine runs
   on, so nothing times differently. The setting is kept in localStorage (`firered-phaser:audio-muted`), not in
   the save. Ignored with Ctrl / Cmd / Alt held and in text fields (the battle test panel).
+- **Fast-forward** (`input/fastForward.ts`; FireRed Online). Tab held or F toggled runs 3 logic ticks per frame,
+  like an emulator's speed-up; the touch pad has a ⏩ button. The sound plays one frame in three (same pitch,
+  choppy) while the engine runs every tick. Not kept in the save or localStorage.
+- **Touch controls** (`input/touchPad.ts`; FireRed Online). An on-screen D-pad (4-way), A, B, L, R, START, SELECT,
+  fast-forward and mute, shown on touch-first devices or after the first touch (`?touch=1` / `?touch=0` force it).
+  In portrait the game moves to the top of the screen with the pad below it.

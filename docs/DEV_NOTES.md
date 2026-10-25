@@ -2616,3 +2616,31 @@ or extend them:
 - **Bugs that depend on world position:** `?map=` always loads at origin 0, so maps that are far from the origin in
   a real playthrough (e.g. Viridian at y = -80 after walking up from Pallet) need either a real walk or
   `await s.world.load(name, ox, oy)`, then `s.player.setPosition(...)` and `await s.onMapLoaded(false)`.
+
+## QOL (FireRed Online)
+
+### Fast-forward
+
+- **Where:** `src/input/fastForward.ts` (state, keys, the ⏩ badge), started by `listenForFastForwardKeys()` in
+  `main.ts`. The scene hosts multiply their frame delta by `logicSpeed * fastForwardSpeed()` (OverworldScene.update,
+  GbaHostScene.update), so it covers the field, every GBA-layer screen and battles.
+- **Keys:** Tab held, F toggles (window capture listeners; ignored with Ctrl / Cmd / Alt and in text fields; Tab's
+  focus move is prevented; a window blur releases Tab). The touch pad's ⏩ button calls `toggleFastForward`.
+- **Sound:** `pushFrame` (audio/output.ts) sends one of every FAST_FORWARD_SPEED frames to the worklet; the m4a
+  engine still runs every tick, so nothing in the game times differently. Not saved anywhere.
+- **Tests:** tests/e2e/qol.test.ts (ticks per second with F on and off, Tab's hold).
+
+### Touch pad
+
+- **Where:** `src/input/touchPad.ts` (the DOM pad, its CSS, pointer handling, when it shows),
+  `src/input/touchButtons.ts` (the held / tapped button state, merged by `Input.sample` before the e2e virtual pad).
+  `installTouchPad()` runs in `main.ts` before the Phaser game is created, so the portrait layout (the game's
+  `#game` parent resized to the top 3:2 of the screen) is in place when Phaser sizes the canvas; showing it later
+  (first touch) dispatches a resize.
+- **When it shows:** `(pointer: coarse)`, or the first touchstart; `?touch=1` / `?touch=0` force it.
+- **Behaviour:** each control captures its pointer; the D-pad is 4-way (dominant axis from its centre, 12% dead
+  zone) and follows a sliding finger; a tap shorter than a tick is held for one tick (touchButtons' `tapped`).
+  Mute calls `toggleMute` / `audioMuted` (audio/output.ts). `touchend` also counts as the audio unlock gesture
+  (iOS). index.html's viewport disables zoom and allows the safe-area insets the CSS uses.
+- **Tests:** tests/unit/touchButtons.test.ts, tests/e2e/qol.test.ts (the D-pad walks, a quick START tap opens the
+  start menu; synthetic PointerEvents). Look at layouts with `?touch=1` and the devtools' device mode.
