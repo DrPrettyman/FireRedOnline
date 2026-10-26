@@ -196,6 +196,10 @@ test("NEW GAME: Oak's speech, GIRL, both names from the naming screen; the game 
   await game.waitForEvent('ready', { timeout: 60_000 });
   const field = await game.eval((t) => ({ map: t.field()!.map, x: t.field()!.x, y: t.field()!.y, player: t.state!.playerName, rival: t.state!.rivalName, gender: t.state!.playerGender, avatar: t.field()!.avatar.graphicsId }));
   expect(field).toMatchObject({ map: 'PalletTown_PlayersHouse_2F', x: 6, y: 6, player: 'AAAA', rival: 'AA', gender: 'female' });
+  // The field first showed in the room, with the girl's sprite: never the boy's while the boot loaded (slowNetwork.test.ts).
+  const shown = await game.eval((t) => t.events().filter((e) => e.type === 'fieldShown'));
+  expect(shown).toHaveLength(1);
+  expect(shown[0]).toMatchObject({ map: 'PalletTown_PlayersHouse_2F', x: 6, y: 6, avatar: 'OBJ_EVENT_GFX_GREEN_NORMAL' });
   expect(field.avatar).toMatch(/GREEN|LEAF|FEMALE/);
 });
 

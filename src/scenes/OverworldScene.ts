@@ -469,6 +469,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     this.buttons = new Input(this);
 
     this.cameras.main.setRoundPixels(true);
+    // Nothing of the field shows until the first enterMap has the map and the player in place (CB2_NewGame and
+    // CB2_ContinueSavedGame start from a black screen): the boot's loads below take a while over a slow link, and
+    // meanwhile the player object would be drawn at (0, 0) in its default graphics.
+    this.cameras.main.setVisible(false);
     this.hud = this.add.text(2, 2, '', { fontFamily: 'monospace', fontSize: '8px', color: '#fff', backgroundColor: '#0008' });
     this.hud.setScrollFactor(0).setDepth(Number.MAX_SAFE_INTEGER).setResolution(4).setVisible(false);
     kb.on('keydown-BACKTICK', () => this.hud.setVisible(!this.hud.visible));
@@ -1348,6 +1352,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     const fromMapsec = this.mapSection();
     Overworld_TryMapConnectionMusicTransition(chunk.data); // before the new map's header is loaded
     void this.world.setCurrent(chunk).then(async () => {
+      this.prefetchBeyondConnections();
       InitSecondaryTilesetAnimation(this.assets.tilesetAnimInfo(chunk.data.tilesetPair).secondary);
       await this.onMapLoaded(false);
       // LoadMapFromCameraTransition (GetLastUsedWarpMapSectionId is the map just left)
@@ -1612,6 +1617,62 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
       const name = this.assets.mapNameForId(w.dest_map);
       if (name && MetatileBehavior_IsDirectionalStairWarp(this.world.tileAt(cur.originX + w.x, cur.originY + w.y).behavior)) void this.assets.loadMap(name);
     }
+  }
+
+  /**
+   * Over a slow link (the hosted game) crossing into a neighbour (onPlayerArrived) would stop the player at every
+   * border: it waits for the neighbour's own neighbours (World.setCurrent: headers and tileset atlases) and for its
+   * objects' sprites (onMapLoaded, after its map scripts set VAR_OBJ_GFX_ID_*). So as soon as the neighbours are
+   * in, fetch in the background, for the maps one connection beyond them, their headers, atlases and sprites, and
+   * for the neighbours and those maps alike, the sprites their scripts may give their dynamic objects. The crossing
+   * then finds it all cached.
+   */
+  private prefetchBeyondConnections(): void {
+    const cur = this.world.current;
+    const beyond = new Set<string>();
+    for (const chunk of this.world.loaded) {
+      if (chunk === cur) continue;
+      for (const id of this.dynamicGraphicsCandidates(chunk.name)) void this.assets.loadSprite(this, id);
+      for (const c of chunk.data.connections) {
+        if (c.direction === 'dive' || c.direction === 'emerge') continue;
+        const name = this.assets.mapNameForId(c.map);
+        if (name && name !== cur.name) beyond.add(name);
+      }
+    }
+    for (const name of beyond) {
+      void this.assets
+        .loadMap(name)
+        .then((data) =>
+          Promise.all([
+            this.assets.loadTilesetTextures(this, data.tilesetPair),
+            ...data.objectEvents.filter((e) => !this.isDynamicGraphicsId(e.graphics_id)).map((e) => this.assets.loadSprite(this, e.graphics_id)),
+            ...[...this.dynamicGraphicsCandidates(name)].map((id) => this.assets.loadSprite(this, id)),
+          ]),
+        )
+        .catch(() => {}); // a real load of the map reports it
+    }
+  }
+
+  /** By map: the OBJ_EVENT_GFX_* its scripts (labels `<map>_...`) put in VAR_OBJ_GFX_ID_* with `setvar`. */
+  private dynamicGraphicsByMap?: Map<string, Set<string>>;
+
+  private dynamicGraphicsCandidates(map: string): Set<string> {
+    if (!this.dynamicGraphicsByMap) {
+      const byMap = new Map<string, Set<string>>();
+      const { code, labels } = this.assets.scripts;
+      const starts = Object.entries(labels).sort((a, b) => a[1] - b[1]);
+      const maps = this.assets.mapNames().sort((a, b) => b.length - a.length); // longest first: ViridianCity_Mart before ViridianCity
+      let li = -1;
+      code.forEach((ins, i) => {
+        while (li + 1 < starts.length && starts[li + 1][1] <= i) li++;
+        if (li < 0 || ins[0] !== 'setvar' || !String(ins[1]).startsWith('VAR_OBJ_GFX_ID_')) return;
+        const label = starts[li][0];
+        const owner = maps.find((m) => label.startsWith(`${m}_`));
+        if (owner) byMap.set(owner, (byMap.get(owner) ?? new Set()).add(String(ins[2])));
+      });
+      this.dynamicGraphicsByMap = byMap;
+    }
+    return this.dynamicGraphicsByMap.get(map) ?? new Set();
   }
 
   /** SetupWarp, then the warp (`kind`: see warpTo). */
@@ -1923,6 +1984,7 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     this.objectsFrozen = false; // the map's objects are created anew
     await this.world.load(name);
     this.prefetchStairWarpDestinations();
+    this.prefetchBeyondConnections();
     const anims = this.assets.tilesetAnimInfo(this.world.current.data.tilesetPair);
     InitTilesetAnimations(anims.primary, anims.secondary);
     this.player.setVisible(true); // the GBA recreates the player object on every warp
@@ -1931,6 +1993,10 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
     this.player.updateSubpriority();
     this.arrivalFacing = facing;
     await this.onMapLoaded(warped, continued);
+    if (!this.cameras.main.visible) {
+      this.cameras.main.setVisible(true); // see create()
+      testEvent('fieldShown', { map: this.world.current.name, ...this.playerLocal(), avatar: this.player.graphicsId });
+    }
   }
 
   /**

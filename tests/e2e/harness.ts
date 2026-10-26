@@ -179,6 +179,8 @@ export interface StartOptions {
   intro?: boolean;
   /** More URL parameters (e.g. `{ audio: '1' }`, audioOutput.test.ts). */
   query?: Record<string, string>;
+  /** Added to every request, in ms (DevTools network emulation), as on the hosted game (slowNetwork.test.ts). */
+  latency?: number;
 }
 
 export interface WaitOptions {
@@ -228,6 +230,9 @@ export class Game {
     this.errors = [];
     this.log = [];
     if (!opts.keepSave) await this.clearSave();
+    // Set on every load, so a test's latency doesn't carry over to the next one in the file.
+    await this.cdp.send('Network.enable');
+    await this.cdp.send('Network.emulateNetworkConditions', { offline: false, latency: opts.latency ?? 0, downloadThroughput: -1, uploadThroughput: -1 });
     await this.cdp.send('Page.navigate', { url: `${this.baseUrl}/?${q}` });
     await this.waitFor(() => typeof (window as any).__test !== 'undefined', { what: 'test hooks', timeout: 60_000, raw: true });
     if (opts.intro) {

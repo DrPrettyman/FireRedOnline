@@ -2645,3 +2645,19 @@ or extend them:
   (iOS). index.html's viewport disables zoom and allows the safe-area insets the CSS uses.
 - **Tests:** tests/unit/touchButtons.test.ts, tests/e2e/qol.test.ts (the D-pad walks, a quick START tap opens the
   start menu; synthetic PointerEvents). Look at layouts with `?touch=1` and the devtools' device mode.
+
+### Slow network (the hosted game)
+
+- Every asset comes over the network on the hosted game (Cloudflare, behind the password gate), so anything the
+  field waits for shows as a stop. Two places wait:
+  - **Boot:** `OverworldScene.create` hides the main camera and the first `enterMap` shows it (dev event
+    `fieldShown` {map, x, y, avatar}), once the map is loaded and InitPlayerAvatar gave the player the gender's
+    graphics. Before, the player object was drawn at (0, 0) in OBJ_EVENT_GFX_RED_NORMAL for the whole boot.
+  - **Crossing into a connected map:** `onPlayerArrived` keeps the field busy until World.setCurrent has the new
+    map's neighbours (headers, tileset atlases) and onMapLoaded their sprites. `prefetchBeyondConnections` (after
+    `enterMap`'s load and after each crossing) fetches those in the background: the maps one connection beyond
+    the neighbours, their atlases and object sprites, and the sprites that maps' scripts can put in
+    VAR_OBJ_GFX_ID_* (`dynamicGraphicsCandidates`: `setvar` under labels `<map>_...`; six in the game).
+- **Tests:** tests/e2e/slowNetwork.test.ts with the harness's `latency` option (Route 1 → Viridian: 9 busy ticks
+  at 150 ms before, 0 after; the new game's `fieldShown`), titleScreen.test.ts (GIRL: `fieldShown` has the girl).
+

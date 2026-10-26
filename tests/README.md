@@ -43,8 +43,9 @@ test('...', async () => {
 ```
 
 Start options: `map`/`x`/`y`, `start: 'after-rival' | 'evolution'` (+ `starter`; see `src/dev/startPresets.ts`), `party`, `seed` (default 1),
-`speed` (logic ticks per frame, default 8), `textSpeed` (default fast) and `query` (more URL parameters, e.g.
-`{ audio: '1' }`). Every load starts with an empty save
+`speed` (logic ticks per frame, default 8), `textSpeed` (default fast), `query` (more URL parameters, e.g.
+`{ audio: '1' }`) and `latency` (ms added to every request by DevTools' network emulation, as on the hosted game;
+slowNetwork.test.ts). Every load starts with an empty save
 slot (localStorage) unless `keepSave: true`; with a save and no `map`/`start`, the game boots to the main menu, so
 pass `mainMenu: true` to wait for it instead of the field (see saveContinue.test.ts). The harness skips the copyright
 screen, the intro, the title screen and Oak's speech: it loads the game with `?skipIntro` (dev only), which boots to the main menu with a save

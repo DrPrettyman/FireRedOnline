@@ -4972,3 +4972,17 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
   BaseAudioContext `state` getter hook. Before: `interrupted` throughout, no resume() on a key press, no frames
   posted. After: see the PR. The password gate isn't involved (same result without it; Safari also won't keep the
   gate's Secure cookie on http://localhost, so the gate can only be tried in Safari on the HTTPS deploy).
+### FireRed Online: no boy sprite on a black screen at the start, no stop at map borders (slow network)
+
+- Both showed only on the hosted game, where every map, tileset and sprite is a network round trip.
+- New game: the boy's sprite at the top left of a black screen, then centred, then the bedroom, then (GIRL) the
+  girl's sprite. `create` made the player object in OBJ_EVENT_GFX_RED_NORMAL at (0, 0) and the camera drew it
+  through the whole boot. Now the camera is hidden until the first `enterMap` is done (dev event `fieldShown`).
+- Map borders: crossing waited one round trip for the new map's neighbours and sprites. Found with the harness's
+  new `latency` option and the page's resource timings: Route 2 / 22 (headers, atlases) and Viridian's
+  OldManLyingDown (a VAR_OBJ_GFX_ID_0 sprite its map script picks). `prefetchBeyondConnections` now fetches the
+  maps beyond the neighbours and their sprites, and every map's script-picked sprites, in the background.
+- Verified: slowNetwork.test.ts (new; Route 1 → Viridian busy ticks 9 → 0 at 150 ms, 23 → 0 at 400 ms; the new
+  game's `fieldShown` after the map load and before `ready`), titleScreen.test.ts (GIRL's `fieldShown` has
+  OBJ_EVENT_GFX_GREEN_NORMAL), the smoke set and the quest log / CONTINUE / Hall of Fame / dynamic graphics files
+  (17 files, 95 tests); typecheck; unit tests.
