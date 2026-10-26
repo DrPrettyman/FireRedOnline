@@ -7,11 +7,13 @@
       "Bash(git worktree:*)",
       "Bash(git branch:*)",
       "Bash(gh pr create:*)",
-      "Bash(gh pr merge:*)"
+      "Bash(gh pr merge:*)",
+      "Bash(gh:*)"
     ],
     "deny": [
       "Bash(git push --force:*)",
-      "Bash(git push -f:*)"
+      "Bash(git push -f:*)",
+      "Bash(gh repo delete:*)"
     ],
     "attribution": {
       "commits": false,
