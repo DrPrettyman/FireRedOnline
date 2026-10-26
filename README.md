@@ -44,7 +44,8 @@ songs) with `c++` into `tools/.bin/`; set `CXX=` to use another compiler (e.g. `
 | Fast-forward (×3) | Q (hold) / F (toggle) |
 | Mute | M |
 
-On a phone or tablet an on-screen gamepad appears (`?touch=1` forces it on a desktop).
+On a desktop the keys are listed in a bar above the game. On a phone or tablet an on-screen gamepad appears instead
+(`?touch=1` forces it on a desktop).
 
 Bindings live in `src/input/Input.ts`.
 

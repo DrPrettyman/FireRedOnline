@@ -9,9 +9,11 @@ import { startAudioOutput } from './audio/output';
 import { listenForOutputKeys } from './input/Input';
 import { listenForFastForwardKeys } from './input/fastForward';
 import { installTouchPad } from './input/touchPad';
+import { installKeyboardHelp } from './input/keyboardHelp';
 
-// QOL: the on-screen gamepad (before the game, so its layout is in place when Phaser sizes the canvas) and the
-// fast-forward keys.
+// QOL: the keyboard controls bar and the on-screen gamepad (before the game, so the layout is in place when Phaser
+// sizes the canvas), and the fast-forward keys.
+installKeyboardHelp();
 installTouchPad();
 listenForFastForwardKeys();
 

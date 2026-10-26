@@ -2646,6 +2646,15 @@ or extend them:
 - **Tests:** tests/unit/touchButtons.test.ts, tests/e2e/qol.test.ts (the D-pad walks, a quick START tap opens the
   start menu; synthetic PointerEvents). Look at layouts with `?touch=1` and the devtools' device mode.
 
+### Keyboard controls bar
+
+- **Where:** `src/input/keyboardHelp.ts` (`installKeyboardHelp()` in `main.ts`, before the game and the touch pad).
+  index.html makes `body` a column: the bar, then `#game` (flex: 1), which Phaser's FIT scaling fills. The labels
+  come from `KEY_BINDINGS` (Phaser key codes: letters as themselves, `KEY_NAMES` for the rest),
+  `FAST_FORWARD_HOLD_KEY` / `_TOGGLE_KEY` and `MUTE_KEY_CODE`, so a rebinding changes the bar too.
+- `body.touch` (the touch pad) hides it. The fast-forward badge sits inside `#game` (absolute, top right), below it.
+- **Tests:** tests/e2e/qol.test.ts (shown on a desktop with every key, the canvas below it; hidden with `?touch=1`).
+
 ### Slow network (the hosted game)
 
 - Every asset comes over the network on the hosted game (Cloudflare, behind the password gate), so anything the

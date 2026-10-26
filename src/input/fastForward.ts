@@ -52,8 +52,8 @@ function isTextField(target: EventTarget | null): boolean {
 
 /**
  * The fast-forward keys, on window in the capture phase like the mute key (input/Input.ts listenForOutputKeys).
- * Losing the window's focus releases a held Q, since its keyup would go elsewhere. Also shows the ⏩ badge over the
- * game while fast-forward is on.
+ * Losing the window's focus releases a held Q, since its keyup would go elsewhere. Also shows the ⏩ badge in the
+ * game's top right corner (inside `#game`, below the keyboard controls bar) while fast-forward is on.
  */
 export function listenForFastForwardKeys(): void {
   window.addEventListener(
@@ -72,8 +72,8 @@ export function listenForFastForwardKeys(): void {
   badge.id = 'fast-forward-badge';
   badge.textContent = `⏩ ×${FAST_FORWARD_SPEED}`;
   badge.style.cssText =
-    'position:fixed;top:8px;right:8px;z-index:20;padding:2px 8px;border-radius:6px;background:rgba(0,0,0,.6);' +
+    'position:absolute;top:8px;right:8px;z-index:20;padding:2px 8px;border-radius:6px;background:rgba(0,0,0,.6);' +
     'color:#fff;font:600 14px system-ui,sans-serif;pointer-events:none;display:none';
-  document.body.appendChild(badge);
+  (document.getElementById('game') ?? document.body).appendChild(badge);
   onFastForwardChange((on) => (badge.style.display = on ? 'block' : 'none'));
 }
