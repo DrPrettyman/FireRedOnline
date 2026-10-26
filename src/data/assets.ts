@@ -105,6 +105,11 @@ export class Assets {
     return this.mapIndex[id];
   }
 
+  /** Every map's folder name (maps/index.json). */
+  mapNames(): string[] {
+    return Object.values(this.mapIndex);
+  }
+
   loadMap(name: string): Promise<MapData> {
     let p = this.maps.get(name);
     if (!p) {
