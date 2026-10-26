@@ -2143,7 +2143,8 @@ or extend them:
   build), `?audio=tone` (dev) is on and plays the test tone. The AudioContext is created at boot; the browser holds
   it suspended until the first keydown / pointerdown anywhere (a capture listener on window, so typing in the
   battle test panel counts), which resumes it. Hidden tab: suspended; visible again: the worklet's buffer is
-  flushed and it resumes.
+  flushed and it resumes. Safari may hold it as `interrupted` instead of `suspended` (seen with the production
+  build): both count as resumable (`resumable` in output.ts), or Safari stays silent with nothing logged.
 - **pushFrame(frame)** (audio/frame.ts's AgbMainFrameEnd, once per frame after m4aSoundMain, with `m4aPcmFrame()`): `{ fifoA, fifoB, soundcntH?,
   psg? }`: the frame's 224 signed 8-bit samples per FIFO (A = `pcmBuffer`, B = `pcmBuffer + PCM_DMA_BUF_SIZE`),
   REG_SOUNDCNT_H (`SOUNDCNT_H_STEREO` by default, `SOUNDCNT_H_MONO` after SetPokemonCryStereo(0)) and `psg` (the
