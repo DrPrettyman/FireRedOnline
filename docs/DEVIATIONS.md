@@ -592,3 +592,5 @@ Places where we choose to differ from the GBA on purpose (not placeholders). Kee
 - **Touch controls** (`input/touchPad.ts`; FireRed Online). An on-screen D-pad (4-way), A, B, L, R, START, SELECT,
   fast-forward and mute, shown on touch-first devices or after the first touch (`?touch=1` / `?touch=0` force it).
   In portrait the game moves to the top of the screen with the pad below it.
+- **Keyboard controls bar** (`input/keyboardHelp.ts`; FireRed Online). A line of the keys and what they do above
+  the game, built from the bindings; the game scales into the space below it. Hidden while the touch pad shows.

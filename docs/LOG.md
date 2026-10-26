@@ -4986,3 +4986,12 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
   game's `fieldShown` after the map load and before `ready`), titleScreen.test.ts (GIRL's `fieldShown` has
   OBJ_EVENT_GFX_GREEN_NORMAL), the smoke set and the quest log / CONTINUE / Hall of Fame / dynamic graphics files
   (17 files, 95 tests); typecheck; unit tests.
+### FireRed Online: a keyboard controls bar above the game
+
+- `input/keyboardHelp.ts`: one line of `<kbd>` keys and actions (Move, A, B, Start, Select, L / R, Q hold to
+  fast-forward, F fast-forward on / off, M mute), built from KEY_BINDINGS and the fast-forward / mute key constants.
+  index.html lays the page out as a column (bar, then `#game`); hidden with the touch pad (`body.touch`). The
+  fast-forward badge moved inside `#game` so the bar doesn't cover it.
+- Verified: screenshots at 1280×800 (one line), 700×600 (wraps to two, the game still fits) and 844×390 with
+  `?touch=1` (no bar); tests/e2e/qol.test.ts's new test; qol, field, titleScreen, intro, audioOutput, newGame,
+  wildBattle (7 files, 29 tests); unit tests; typecheck.

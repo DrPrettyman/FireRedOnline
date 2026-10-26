@@ -74,3 +74,24 @@ test('touch pad: shown with ?touch=1, the D-pad walks, a quick START tap opens t
   });
   await game.waitFor((t) => t.startMenu(), { what: 'the start menu' });
 });
+
+test('keyboard controls bar: above the game on a desktop, from the bindings; hidden with the touch pad', async () => {
+  const game = await session.start({ start: 'after-rival', map: 'PalletTown', x: 12, y: 14 });
+  const desk = await game.eval(() => {
+    const bar = document.getElementById('keyboard-help')!;
+    const canvas = document.querySelector('#game canvas')!;
+    return {
+      shown: getComputedStyle(bar).display !== 'none',
+      text: bar.textContent,
+      gameBelowBar: canvas.getBoundingClientRect().top >= bar.getBoundingClientRect().bottom - 0.5,
+    };
+  });
+  expect(desk.shown).toBe(true);
+  expect(desk.gameBelowBar).toBe(true);
+  for (const s of ['ZSpace A', 'X B', 'Enter Start', 'Backspace Select', 'AS L / R', 'Q Hold to fast-forward', 'F Fast-forward on / off', 'M Mute']) {
+    expect(desk.text).toContain(s);
+  }
+
+  await session.start({ start: 'after-rival', map: 'PalletTown', x: 12, y: 14, query: { touch: '1' } });
+  expect(await game.eval(() => getComputedStyle(document.getElementById('keyboard-help')!).display)).toBe('none');
+});
