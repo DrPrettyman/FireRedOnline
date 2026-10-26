@@ -1,0 +1,6 @@
+# Cloudflare Pages project for the password-gated deploy (docs/DEPLOY.md). `npm run deploy` builds and uploads
+# dist/ (the game plus the local public/gen/ assets) with functions/ (the gate). The password is the
+# SITE_PASSWORD secret: `npx wrangler pages secret put SITE_PASSWORD`.
+name = "fireredonline"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-10-01"

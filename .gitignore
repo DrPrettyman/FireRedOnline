@@ -11,3 +11,7 @@ tests/e2e/__output__/
 
 # mid2agb, built from the decomp by tools/extract_audio.py.
 tools/.bin/
+
+# Cloudflare: local secrets for `wrangler pages dev` and its state.
+.dev.vars
+.wrangler/
