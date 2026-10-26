@@ -2624,11 +2624,11 @@ or extend them:
 - **Where:** `src/input/fastForward.ts` (state, keys, the ⏩ badge), started by `listenForFastForwardKeys()` in
   `main.ts`. The scene hosts multiply their frame delta by `logicSpeed * fastForwardSpeed()` (OverworldScene.update,
   GbaHostScene.update), so it covers the field, every GBA-layer screen and battles.
-- **Keys:** Tab held, F toggles (window capture listeners; ignored with Ctrl / Cmd / Alt and in text fields; Tab's
-  focus move is prevented; a window blur releases Tab). The touch pad's ⏩ button calls `toggleFastForward`.
+- **Keys:** Q held, F toggles (window capture listeners; ignored with Ctrl / Cmd / Alt and in text fields; a window
+  blur releases Q). The touch pad's ⏩ button calls `toggleFastForward`.
 - **Sound:** `pushFrame` (audio/output.ts) sends one of every FAST_FORWARD_SPEED frames to the worklet; the m4a
   engine still runs every tick, so nothing in the game times differently. Not saved anywhere.
-- **Tests:** tests/e2e/qol.test.ts (ticks per second with F on and off, Tab's hold).
+- **Tests:** tests/e2e/qol.test.ts (ticks per second with F on and off, Q's hold).
 
 ### Touch pad
 

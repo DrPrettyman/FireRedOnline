@@ -4953,3 +4953,9 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
 - Verified: typecheck; `npm test` (822, incl. the new touchButtons unit tests); tests/e2e/qol.test.ts (new, 2 tests);
   audioOutput.test.ts and the smoke set (11 files, 71 tests, all pass); screenshots of both layouts at 844×390
   and 390×844.
+### FireRed Online: fast-forward's hold key is Q (was Tab)
+
+- `FAST_FORWARD_HOLD_KEY` is `KeyQ`; the `preventDefault` Tab needed (its focus move) is gone. README, DEVIATIONS,
+  DEV_NOTES and tests/e2e/qol.test.ts follow. Q was free: no game binding (Input.ts KEY_BINDINGS), mute is M,
+  the toggle F. audioOutput.test.ts's `realKey('KeyQ')` (its audio-unlock gesture) now also taps fast-forward on
+  and off, which changes nothing it checks.
