@@ -1,4 +1,13 @@
-# FireRed in Phaser
+# FireRed Online
+
+A fork of [FireRedPhaserPort](https://github.com/DrPrettyman/FireRedPhaserPort) (the `upstream` remote) for hosting
+the game privately: a password-gated Cloudflare Pages deploy ([docs/DEPLOY.md](docs/DEPLOY.md)), so the extracted
+assets are never publicly reachable, plus QOL features of its own (docs/DEVIATIONS.md, "Deliberate QOL changes").
+To take the port's later work: `git fetch upstream && git merge upstream/master`.
+
+The rest of this README is the port's.
+
+## FireRed in Phaser
 
 A browser rebuild of Pokémon FireRed in [Phaser 3](https://phaser.io), using the
 [pret/firered](https://github.com/pret/pokefirered) decompilation as the source of truth for data and behaviour.

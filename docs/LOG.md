@@ -4940,3 +4940,16 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
 - Verified: typecheck; `npm test` (822, incl. the new touchButtons unit tests); tests/e2e/qol.test.ts (new, 2 tests);
   audioOutput.test.ts and the smoke set (11 files, 71 tests, all pass); screenshots of both layouts at 844×390
   and 390×844.
+### FireRed Online: the password-gated Cloudflare Pages deploy
+
+- The repo is now FireRedOnline, a fork of FireRedPhaserPort (the `upstream` remote). README and CLAUDE.md say so.
+- `functions/_middleware.ts`: a Pages Function in front of every request (the page, the bundle and every
+  `/gen/` asset). Without a valid `fro_session` cookie a page load redirects to `/login` and anything else gets a
+  401, so the assets can't be fetched by URL. The cookie is an expiry plus its HMAC under the `SITE_PASSWORD` secret
+  (stateless; a new password logs everyone out). Unset secret: everything is refused. A wrong password waits 1 s.
+- `wrangler.toml` (project `fireredonline`, output `dist/`), `npm run deploy` (refuses without public/gen, builds,
+  `wrangler pages deploy`), `npm run preview:gate` (local, with `.dev.vars`), `npm run typecheck` also checks
+  `functions/` against the Workers types. docs/DEPLOY.md has the first-deploy steps and the free-plan limits.
+- Verified with `wrangler pages dev`: curl checks (no cookie: 303 / 401; wrong password: 401 after 1 s; `next=//evil.com`
+  goes to `/`; a forged cookie: 401; the cookie's flags; logout), then headless Chrome logging in and the game
+  booting through the intro with its assets loaded through the gate. Typecheck and build pass.

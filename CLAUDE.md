@@ -2,6 +2,11 @@
 
 FireRed rebuilt in Phaser 3 + TypeScript (Vite). See README.md for setup and architecture.
 
+This repo (FireRedOnline) is a fork of FireRedPhaserPort, which is the `upstream` remote; `origin` is this repo.
+It adds a password-gated Cloudflare Pages deploy (`functions/_middleware.ts`, docs/DEPLOY.md) and QOL features.
+The extracted assets are uploaded only by `npm run deploy` from a machine with `public/gen/`: never commit them,
+and never serve them anywhere without the gate in front.
+
 - Decomp: `/Users/joshua/Coding/PokemonProjects/pret/firered` is the source of truth. Before implementing a mechanic,
   read the corresponding C in `src/` and match it, citing the original function name in a comment where useful.
 - Never commit or hand-copy game assets/text into `src/`. Add new data to `tools/extract.py`, which writes to `public/gen/`
