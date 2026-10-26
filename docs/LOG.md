@@ -4927,19 +4927,6 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
   known flaky tests (postgameSevenIsland's Sevault Canyon, audio's PSG test) passed this run.
 - STATUS.md: the six checklist lines, "Next up" now says the port is complete apart from link play (out of scope) and
   lists what's optional. FINISH_PLAN.md: done, its batch result.
-### FireRed Online: fast-forward and touch controls (QOL)
-
-- Fast-forward (`input/fastForward.ts`): Tab held / F toggled runs FAST_FORWARD_SPEED (3) logic ticks per 60 Hz
-  frame. The scene hosts multiply their delta by `logicSpeed * fastForwardSpeed()`; fastForward.ts doesn't import
-  testHooks, so audio/output.ts can import it without a cycle. `pushFrame` sends one of every 3 frames (the
-  worklet's buffer holds 7 and would drop the rest anyway). A ⏩ ×3 badge shows while it's on.
-- Touch pad (`input/touchPad.ts`, `touchButtons.ts`): DOM controls over / below the canvas, merged by
-  `Input.sample`. Portrait puts the game on top; landscape overlays the side bars. Taps shorter than a tick are
-  latched for one tick. Mute button (output.ts now exports `toggleMute` / `audioMuted`), `touchend` as an audio
-  gesture for iOS, viewport meta without zoom, title "FireRed Online".
-- Verified: typecheck; `npm test` (822, incl. the new touchButtons unit tests); tests/e2e/qol.test.ts (new, 2 tests);
-  audioOutput.test.ts and the smoke set (11 files, 71 tests, all pass); screenshots of both layouts at 844×390
-  and 390×844.
 ### FireRed Online: the password-gated Cloudflare Pages deploy
 
 - The repo is now FireRedOnline, a fork of FireRedPhaserPort (the `upstream` remote). README and CLAUDE.md say so.
@@ -4953,3 +4940,16 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
 - Verified with `wrangler pages dev`: curl checks (no cookie: 303 / 401; wrong password: 401 after 1 s; `next=//evil.com`
   goes to `/`; a forged cookie: 401; the cookie's flags; logout), then headless Chrome logging in and the game
   booting through the intro with its assets loaded through the gate. Typecheck and build pass.
+### FireRed Online: fast-forward and touch controls (QOL)
+
+- Fast-forward (`input/fastForward.ts`): Tab held / F toggled runs FAST_FORWARD_SPEED (3) logic ticks per 60 Hz
+  frame. The scene hosts multiply their delta by `logicSpeed * fastForwardSpeed()`; fastForward.ts doesn't import
+  testHooks, so audio/output.ts can import it without a cycle. `pushFrame` sends one of every 3 frames (the
+  worklet's buffer holds 7 and would drop the rest anyway). A ⏩ ×3 badge shows while it's on.
+- Touch pad (`input/touchPad.ts`, `touchButtons.ts`): DOM controls over / below the canvas, merged by
+  `Input.sample`. Portrait puts the game on top; landscape overlays the side bars. Taps shorter than a tick are
+  latched for one tick. Mute button (output.ts now exports `toggleMute` / `audioMuted`), `touchend` as an audio
+  gesture for iOS, viewport meta without zoom, title "FireRed Online".
+- Verified: typecheck; `npm test` (822, incl. the new touchButtons unit tests); tests/e2e/qol.test.ts (new, 2 tests);
+  audioOutput.test.ts and the smoke set (11 files, 71 tests, all pass); screenshots of both layouts at 844×390
+  and 390×844.

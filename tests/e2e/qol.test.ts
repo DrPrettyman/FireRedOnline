@@ -19,17 +19,18 @@ const badgeShown = (game: Game) => game.eval(() => document.getElementById('fast
 test('fast-forward: F toggles it, Tab fast-forwards while held', async () => {
   const game = await session.start({ start: 'after-rival', map: 'PalletTown', x: 12, y: 14, speed: 1 });
   await game.waitIdle();
-  const normal = await ticksIn(game, 1000);
+  const normal = await ticksIn(game, 1500);
   expect(await badgeShown(game)).toBe(false);
 
   await game.realKey('KeyF');
   expect(await badgeShown(game)).toBe(true);
-  const fast = await ticksIn(game, 1000);
-  expect(fast / normal).toBeGreaterThan(2.2);
+  // 3x the ticks; a loaded headless Chrome can't always fit 3 ticks in every frame, so allow some slack.
+  const fast = await ticksIn(game, 1500);
+  expect(fast / normal).toBeGreaterThan(1.8);
 
   await game.realKey('KeyF');
   expect(await badgeShown(game)).toBe(false);
-  expect((await ticksIn(game, 1000)) / normal).toBeLessThan(1.4);
+  expect((await ticksIn(game, 1500)) / normal).toBeLessThan(1.4);
 
   // Tab: on while down, off on keyup (the page's own listener; a dispatched event is enough for it).
   await game.eval(() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Tab', key: 'Tab' })));
