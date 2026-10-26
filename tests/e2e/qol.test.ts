@@ -1,5 +1,5 @@
 // FireRed Online's QOL features (docs/DEVIATIONS.md "Deliberate QOL changes"): fast-forward (input/fastForward.ts:
-// F toggles, Tab held) runs FAST_FORWARD_SPEED logic ticks per frame, and the touch pad (input/touchPad.ts) drives
+// F toggles, Q held) runs FAST_FORWARD_SPEED logic ticks per frame, and the touch pad (input/touchPad.ts) drives
 // the game's buttons: a held D-pad direction walks, a tap shorter than a tick still counts.
 
 import { expect, test } from 'vitest';
@@ -16,7 +16,7 @@ async function ticksIn(game: Game, ms: number): Promise<number> {
 
 const badgeShown = (game: Game) => game.eval(() => document.getElementById('fast-forward-badge')?.style.display === 'block');
 
-test('fast-forward: F toggles it, Tab fast-forwards while held', async () => {
+test('fast-forward: F toggles it, Q fast-forwards while held', async () => {
   const game = await session.start({ start: 'after-rival', map: 'PalletTown', x: 12, y: 14, speed: 1 });
   await game.waitIdle();
   const normal = await ticksIn(game, 1500);
@@ -32,10 +32,10 @@ test('fast-forward: F toggles it, Tab fast-forwards while held', async () => {
   expect(await badgeShown(game)).toBe(false);
   expect((await ticksIn(game, 1500)) / normal).toBeLessThan(1.4);
 
-  // Tab: on while down, off on keyup (the page's own listener; a dispatched event is enough for it).
-  await game.eval(() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Tab', key: 'Tab' })));
+  // Q: on while down, off on keyup (the page's own listener; a dispatched event is enough for it).
+  await game.eval(() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ', key: 'q' })));
   expect(await badgeShown(game)).toBe(true);
-  await game.eval(() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Tab', key: 'Tab' })));
+  await game.eval(() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyQ', key: 'q' })));
   expect(await badgeShown(game)).toBe(false);
 });
 

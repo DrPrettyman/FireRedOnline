@@ -2,7 +2,7 @@
 // hosts (OverworldScene, GbaHostScene) run FAST_FORWARD_SPEED logic ticks per 60 Hz frame instead of one, so
 // everything (walking, text, battles, music) runs that much faster; nothing times differently in GBA frames.
 //
-// - Keys: Tab held fast-forwards while it's down, F toggles it on and off (both outside the GBA's buttons, so
+// - Keys: Q held fast-forwards while it's down, F toggles it on and off (both outside the GBA's buttons, so
 //   they never reach the game's logic). The touch pad's ⏩ button toggles it too (input/touchPad.ts).
 // - Not saved: every load starts at normal speed.
 // - The sound output plays one of every FAST_FORWARD_SPEED frames (audio/output.ts pushFrame), so the music keeps
@@ -10,7 +10,7 @@
 
 /** Logic ticks per 60 Hz frame while fast-forwarding. */
 export const FAST_FORWARD_SPEED = 3;
-export const FAST_FORWARD_HOLD_KEY = 'Tab';
+export const FAST_FORWARD_HOLD_KEY = 'KeyQ';
 export const FAST_FORWARD_TOGGLE_KEY = 'KeyF';
 
 let held = false;
@@ -52,18 +52,16 @@ function isTextField(target: EventTarget | null): boolean {
 
 /**
  * The fast-forward keys, on window in the capture phase like the mute key (input/Input.ts listenForOutputKeys).
- * Tab's default (moving the focus) is prevented. Losing the window's focus releases a held Tab, since its keyup
- * would go elsewhere. Also shows the ⏩ badge over the game while fast-forward is on.
+ * Losing the window's focus releases a held Q, since its keyup would go elsewhere. Also shows the ⏩ badge over the
+ * game while fast-forward is on.
  */
 export function listenForFastForwardKeys(): void {
   window.addEventListener(
     'keydown',
     (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey || isTextField(e.target)) return;
-      if (e.code === FAST_FORWARD_HOLD_KEY) {
-        e.preventDefault();
-        setHeld(true);
-      } else if (e.code === FAST_FORWARD_TOGGLE_KEY && !e.repeat) toggleFastForward();
+      if (e.code === FAST_FORWARD_HOLD_KEY) setHeld(true);
+      else if (e.code === FAST_FORWARD_TOGGLE_KEY && !e.repeat) toggleFastForward();
     },
     true,
   );

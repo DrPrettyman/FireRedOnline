@@ -41,7 +41,7 @@ songs) with `c++` into `tools/.bin/`; set `CXX=` to use another compiler (e.g. `
 | Select | Backspace |
 | L / R | A / S |
 | (debug) | <code>`</code> toggles the HUD (map, coords, metatile, behavior, elevation) |
-| Fast-forward (×3) | Tab (hold) / F (toggle) |
+| Fast-forward (×3) | Q (hold) / F (toggle) |
 | Mute | M |
 
 On a phone or tablet an on-screen gamepad appears (`?touch=1` forces it on a desktop).
