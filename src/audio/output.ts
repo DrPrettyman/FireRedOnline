@@ -29,6 +29,7 @@ import {
   type OutputStats,
   type ToWorklet,
 } from './outputCore';
+import { FAST_FORWARD_SPEED, fastForwarding } from '../input/fastForward';
 
 /** The PSG part of a frame (soundRegs.ts): the sound register writes in order and the register state before them. */
 export type { PsgFrame } from './soundRegs';
@@ -127,7 +128,13 @@ function onGesture(): void {
   if (ctx?.state === 'suspended' && !document.hidden) void ctx.resume().catch(() => {});
 }
 
-function toggleMute(): void {
+/** Whether the output is muted (the M key / the touch pad's mute button). */
+export function audioMuted(): boolean {
+  return muted;
+}
+
+/** Turn all output off or on, as the M key does (also the touch pad's mute button). */
+export function toggleMute(): void {
   muted = !muted;
   saveMuted();
   post({ type: 'mute', muted });
@@ -163,8 +170,14 @@ export function audioOutputWantsFrames(): boolean {
  */
 export function pushFrame(frame: SoundFrame): void {
   if (toneOn) return;
+  // Fast-forward (input/fastForward.ts): the engine makes frames FAST_FORWARD_SPEED times faster than they play, so
+  // only one in FAST_FORWARD_SPEED goes out; the rest would overflow the worklet's buffer and be dropped there.
+  fastForwardSkip = fastForwarding() ? (fastForwardSkip + 1) % FAST_FORWARD_SPEED : 0;
+  if (fastForwardSkip !== 0) return;
   postFrame(frame);
 }
+
+let fastForwardSkip = 0;
 
 function postFrame(frame: SoundFrame): void {
   if (!running()) return;

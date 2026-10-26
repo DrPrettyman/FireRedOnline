@@ -19,6 +19,7 @@ import { ObjectEvent, type ObjectEventField } from '../entities/ObjectEvent';
 import { healPlayerParty } from '../script/specials';
 import { WhiteOutText } from '../ui/WhiteOutText';
 import { Input } from '../input/Input';
+import { fastForwardSpeed } from '../input/fastForward';
 import { PokemonData, readPokemonConstants, type Pokemon } from '../pokemon/Pokemon';
 import { Defines } from '../script/Defines';
 import { directionId, ScriptEngine, textColorFromId, type MultichoiceRequest, type ScriptHost, type TrainerBattle, type TrainerBattleRun, type Wait } from '../script/ScriptEngine';
@@ -960,7 +961,8 @@ export class OverworldScene extends Phaser.Scene implements ScriptHost {
 
   update(_time: number, delta: number): void {
     if (!this.player || !this.scripts || !this.world.current) return;
-    this.accumulator = Math.min(this.accumulator + delta * logicSpeed, FRAME_MS * 5 * logicSpeed);
+    const speed = logicSpeed * fastForwardSpeed();
+    this.accumulator = Math.min(this.accumulator + delta * speed, FRAME_MS * 5 * speed);
     while (this.accumulator >= FRAME_MS) {
       this.accumulator -= FRAME_MS;
       this.tick();

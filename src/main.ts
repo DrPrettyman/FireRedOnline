@@ -7,6 +7,13 @@ import { MainMenuScene } from './scenes/MainMenuScene';
 import { testHooks } from './dev/testHooks';
 import { startAudioOutput } from './audio/output';
 import { listenForOutputKeys } from './input/Input';
+import { listenForFastForwardKeys } from './input/fastForward';
+import { installTouchPad } from './input/touchPad';
+
+// QOL: the on-screen gamepad (before the game, so its layout is in place when Phaser sizes the canvas) and the
+// fast-forward keys.
+installTouchPad();
+listenForFastForwardKeys();
 
 // GBA native resolution; scaled up with nearest-neighbour filtering.
 const game = new Phaser.Game({

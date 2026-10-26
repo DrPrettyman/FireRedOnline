@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { sampleVirtualPad } from '../dev/testHooks';
+import { sampleTouchButtons } from './touchButtons';
 
 export type Button = 'A' | 'B' | 'START' | 'SELECT' | 'L' | 'R' | 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
 
@@ -48,6 +49,7 @@ export class Input {
   sample(): void {
     this.heldPrev = this.heldNow;
     this.heldNow = new Set(BUTTONS.filter((b) => this.keys[b].some((k) => k.isDown)));
+    for (const b of sampleTouchButtons()) this.heldNow.add(b); // the touch pad (input/touchPad.ts)
     for (const b of sampleVirtualPad()) this.heldNow.add(b); // dev: the e2e tests' buttons
   }
 
@@ -106,4 +108,6 @@ export function listenForOutputKeys(handlers: { gesture: () => void; toggleMute:
   };
   window.addEventListener('keydown', onKey, true);
   window.addEventListener('pointerdown', () => handlers.gesture(), true);
+  // iOS Safari only lets a touch's end (not its pointerdown) start audio.
+  window.addEventListener('touchend', () => handlers.gesture(), true);
 }
