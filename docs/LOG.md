@@ -4959,3 +4959,16 @@ Each failed once in a merge run at load average ~276 and passed alone. No game c
   DEV_NOTES and tests/e2e/qol.test.ts follow. Q was free: no game binding (Input.ts KEY_BINDINGS), mute is M,
   the toggle F. audioOutput.test.ts's `realKey('KeyQ')` (its audio-unlock gesture) now also taps fast-forward on
   and off, which changes nothing it checks.
+### FireRed Online: sound in Safari (an `interrupted` AudioContext was never resumed)
+
+- Symptom: the hosted (production) build had no sound in Safari; Chromium was fine; nothing in the console.
+- Cause: in the production build Safari reports the AudioContext as `interrupted` (not `suspended`) until a
+  gesture resumes it. `onGesture` and the visibility handler only resumed from `suspended`, so the context never
+  started. The dev build happened to get `suspended`, so it worked there.
+- Fix: `resumable()` in audio/output.ts (any state but `running` / `closed`) for both resumes. DEV_NOTES "Audio
+  output" says so.
+- Found and checked with Safari 26.6 over safaridriver (WebDriver; `?audio=1` because WebDriver sets
+  navigator.webdriver): `vite preview` of the production build, the context's state read through a
+  BaseAudioContext `state` getter hook. Before: `interrupted` throughout, no resume() on a key press, no frames
+  posted. After: see the PR. The password gate isn't involved (same result without it; Safari also won't keep the
+  gate's Secure cookie on http://localhost, so the gate can only be tried in Safari on the HTTPS deploy).

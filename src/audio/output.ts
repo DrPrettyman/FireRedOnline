@@ -123,9 +123,18 @@ async function loadWorklet(c: AudioContext): Promise<void> {
   }
 }
 
+/**
+ * Not playing, but resume() may start it: 'suspended', or Safari's 'interrupted', which is what Safari reports for a
+ * context it holds back (e.g. one created before any user gesture, in the production build) and which a resume()
+ * inside a gesture starts just the same.
+ */
+function resumable(c: AudioContext): boolean {
+  return c.state !== 'running' && c.state !== 'closed';
+}
+
 function onGesture(): void {
   unlocked = true;
-  if (ctx?.state === 'suspended' && !document.hidden) void ctx.resume().catch(() => {});
+  if (ctx && resumable(ctx) && !document.hidden) void ctx.resume().catch(() => {});
 }
 
 /** Whether the output is muted (the M key / the touch pad's mute button). */
@@ -145,7 +154,7 @@ function onVisibilityChange(): void {
   if (document.hidden) {
     // Also while a resume is still pending: the suspend queues behind it.
     if (ctx.state !== 'closed') void ctx.suspend().catch(() => {});
-  } else if (unlocked && ctx.state === 'suspended') {
+  } else if (unlocked && resumable(ctx)) {
     // What was buffered when the tab was hidden is stale by now.
     post({ type: 'flush' });
     void ctx.resume().catch(() => {});
